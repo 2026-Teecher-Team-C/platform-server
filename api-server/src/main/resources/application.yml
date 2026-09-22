@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: api-server
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/platform}
+    username: ${DB_USERNAME:platform}
+    password: ${DB_PASSWORD:platform}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway가 소유한다. 엔티티는 검증만 한다.
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus

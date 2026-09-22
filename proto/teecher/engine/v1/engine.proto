@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+// API 서버 ↔ 탐지 엔진 계약. 탐지 엔진은 API 서버하고만 통신한다.
+// 응답 필드는 analyses / analysis_matches 테이블에 그대로 기록된다.
+package teecher.engine.v1;
+
+option java_multiple_files = true;
+option java_package = "com.teecherteamc.platform.proto.engine.v1";
+
+service DetectionEngine {
+  // 첫 메시지는 metadata, 이후는 chunk.
+  rpc Analyze(stream AnalyzeRequest) returns (AnalyzeResponse);
+}
+
+message AnalyzeRequest {
+  oneof payload {
+    AnalyzeMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message AnalyzeMetadata {
+  string sha256 = 1;
+  int64 file_size = 2;
+}
+
+// analyses.status와 같은 값. 크래시·타임아웃도 판정의 일부로 돌려준다.
+enum AnalysisStatus {
+  ANALYSIS_STATUS_UNSPECIFIED = 0;
+  ANALYSIS_STATUS_SUCCESS = 1;
+  ANALYSIS_STATUS_TIMEOUT = 2;
+  ANALYSIS_STATUS_CRASH = 3;
+  ANALYSIS_STATUS_OOM = 4;
+  ANALYSIS_STATUS_UNSUPPORTED = 5;
+}
+
+enum EngineVerdict {
+  ENGINE_VERDICT_UNSPECIFIED = 0;
+  ENGINE_VERDICT_CLEAN = 1;
+  ENGINE_VERDICT_MALICIOUS = 2;
+  ENGINE_VERDICT_SUSPICIOUS = 3;
+  ENGINE_VERDICT_UNKNOWN = 4;
+  ENGINE_VERDICT_ERROR = 5;
+}
+
+message RuleMatch {
+  string rule_name = 1;
+  string severity = 2;
+  // 상한을 걸어 채운다 (매칭 폭탄 방지).
+  repeated string matched_strings = 3;
+}
+
+message AnalyzeResponse {
+  AnalysisStatus status = 1;
+  EngineVerdict verdict = 2;
+  string engine_version = 3;
+  int32 rulesets_version = 4;
+  string detected_file_type = 5;
+  bool pe_parsed = 6;
+  optional double max_section_entropy = 7;
+  repeated RuleMatch matches = 8;
+  int32 duration_ms = 9;
+  string error_message = 10;
+}

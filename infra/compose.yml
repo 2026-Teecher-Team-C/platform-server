@@ -1,0 +1,45 @@
+# 운영(EC2)과 같은 구성. RDS·ElastiCache는 관리형이라 여기 없다 — 로컬에서는 compose.dev.yml이 붙인다.
+name: platform
+
+services:
+  nginx:
+    image: nginx:1.29-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-server
+
+  api-server:
+    build:
+      context: ..
+      dockerfile: api-server/Dockerfile
+    environment:
+      DB_URL: ${DB_URL:?DB_URL is required}
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    networks: [default, engine-net]
+
+  detection-engine:
+    build:
+      context: ..
+      dockerfile: detection-engine/Dockerfile
+    # 공격자가 만든 파일을 파싱하는 컨테이너다. 뚫려도 피해가 여기서 끝나야 한다.
+    networks: [engine-net]
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 1g
+    cpus: 1.0
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks: [default, engine-net]
+
+networks:
+  # 외부(인터넷·AWS·EC2 메타데이터)로 나가는 경로가 없는 네트워크. 탐지 엔진은 여기에만 붙는다.
+  engine-net:
+    internal: true

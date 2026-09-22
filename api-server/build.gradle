@@ -1,0 +1,70 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'com.google.protobuf' version '0.9.6'
+}
+
+group = 'com.teecherteamc'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    implementation 'org.springframework.boot:spring-boot-starter-grpc-client'
+    implementation 'org.springframework.boot:spring-boot-starter-grpc-server'
+    // gRPC 표준 헬스 체크(grpc.health.v1). gRPC 서비스 빈이 하나라도 생기면 자동으로 함께 노출된다.
+    implementation 'io.grpc:grpc-services'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    runtimeOnly 'org.postgresql:postgresql'
+    testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-flyway-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-grpc-client-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-grpc-server-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// make dev 의 bootRun 과 make test 가 같은 소스 폴더를 쓴다. 개발 컨테이너는 출력 폴더를 따로 둔다.
+if (System.getenv('GRADLE_BUILD_DIR')) {
+    layout.buildDirectory = file(System.getenv('GRADLE_BUILD_DIR'))
+}
+
+// gRPC 계약의 원본은 레포 루트의 proto/ 다. 여기로 복사하지 않는다.
+sourceSets {
+    main {
+        proto {
+            srcDir '../proto'
+        }
+    }
+}
+
+// protoc·grpc 플러그인 버전은 Spring Boot가 맞춰준다. grpc 블록을 선언해야 서비스 스텁이 생성된다.
+protobuf {
+    plugins {
+        grpc {}
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

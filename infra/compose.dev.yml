@@ -1,0 +1,64 @@
+# 로컬 개발용 덮어쓰기. 사용: make dev (레포 루트)
+services:
+  api-server:
+    build: !reset null
+    image: eclipse-temurin:21-jdk
+    working_dir: /workspace/api-server
+    command: ["./gradlew", "bootRun", "--no-daemon", "--project-cache-dir", "/tmp/gradle-project"]
+    environment:
+      # make test 와 빌드 출력·잠금이 겹치지 않도록 컨테이너 안에 둔다
+      GRADLE_BUILD_DIR: /tmp/build
+    volumes:
+      - ..:/workspace
+      - gradle-cache:/root/.gradle
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  detection-engine:
+    volumes:
+      - ../detection-engine/src/detection_engine:/app/src/detection_engine:ro
+      - ../detection-engine/rules:/app/rules:ro
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+
+  console:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0"]
+    volumes:
+      - ../console:/app
+      - console-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+
+  prometheus:
+    ports:
+      - "9091:9090"
+
+volumes:
+  gradle-cache:
+  postgres-data:
+  console-node-modules:

@@ -1,0 +1,25 @@
+name: console
+
+on:
+  pull_request:
+    paths: ["console/**", ".github/workflows/console.yml"]
+  push:
+    branches: [develop, main]
+    paths: ["console/**", ".github/workflows/console.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: console/.nvmrc
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

@@ -1,0 +1,18 @@
+name: infra
+
+on:
+  pull_request:
+    paths: ["infra/**", "**/Dockerfile", ".github/workflows/infra.yml"]
+  push:
+    branches: [develop, main]
+    paths: ["infra/**", "**/Dockerfile", ".github/workflows/infra.yml"]
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: compose 파일 검증 (운영 + 개발)
+        run: docker compose --env-file infra/dev.env -f infra/compose.yml -f infra/compose.dev.yml config -q
+      - name: 운영 이미지 빌드
+        run: docker compose --env-file infra/dev.env -f infra/compose.yml build api-server detection-engine

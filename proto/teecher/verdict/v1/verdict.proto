@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+// 에이전트 ↔ API 서버 계약.
+// 조회 사슬(화이트리스트 → 블랙리스트 → 블룸 필터 → file_verdicts)은 LookupHash 한 번으로 끝난다.
+// upload_required = true일 때만 UploadFile로 원본을 보낸다 (3단 파이프라인의 조건부 업로드).
+package teecher.verdict.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "com.teecherteamc.platform.proto.verdict.v1";
+
+service VerdictService {
+  rpc LookupHash(LookupHashRequest) returns (LookupHashResponse);
+
+  // 첫 메시지는 metadata, 이후는 chunk. 전체를 한 메시지로 보내지 않는다 (gRPC 기본 4MB 상한).
+  rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
+}
+
+enum Verdict {
+  VERDICT_UNSPECIFIED = 0;
+  VERDICT_CLEAN = 1;
+  VERDICT_MALICIOUS = 2;
+  VERDICT_SUSPICIOUS = 3;
+  VERDICT_UNKNOWN = 4;
+  VERDICT_ERROR = 5;
+}
+
+// download_events.decision_source와 같은 값.
+enum DecisionSource {
+  DECISION_SOURCE_UNSPECIFIED = 0;
+  DECISION_SOURCE_WHITELIST = 1;
+  DECISION_SOURCE_BLACKLIST = 2;
+  DECISION_SOURCE_CACHE = 3;
+  DECISION_SOURCE_ENGINE = 4;
+  DECISION_SOURCE_POLICY = 5;
+}
+
+// 보류된 다운로드 1건. event_id는 에이전트가 만들고, 업로드까지 같은 값을 쓴다.
+message DownloadContext {
+  string event_id = 1;
+  string url = 2;
+  string request_host = 3;
+  string filename = 4;
+  string mime_type = 5;
+  string content_disposition = 6;
+  int64 file_size = 7;
+  google.protobuf.Timestamp held_at = 8;
+}
+
+message LookupHashRequest {
+  string sha256 = 1;
+  DownloadContext context = 2;
+}
+
+message LookupHashResponse {
+  Verdict verdict = 1;
+  DecisionSource source = 2;
+  // true면 판정할 기록이 없다는 뜻이다. 에이전트는 UploadFile을 호출해야 한다.
+  bool upload_required = 3;
+  string reason = 4;
+}
+
+message UploadFileRequest {
+  oneof payload {
+    UploadMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message UploadMetadata {
+  string sha256 = 1;
+  DownloadContext context = 2;
+}
+
+message UploadFileResponse {
+  Verdict verdict = 1;
+  DecisionSource source = 2;
+  string reason = 3;
+  repeated string matched_rules = 4;
+}

@@ -1,0 +1,32 @@
+[project]
+name = "detection-engine"
+version = "0.1.0"
+description = "탐지 엔진 — API 서버에게서만 파일을 받아 판정한다"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "grpcio>=1.75",
+    "protobuf>=6.32",
+    "yara-python>=4.5",
+]
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.75",
+    "pytest>=8.4",
+    "ruff>=0.13",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["src/teecher"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

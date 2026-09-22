@@ -1,0 +1,10 @@
+# IDE — 코드 스타일만 공유한다
+.idea/*
+!.idea/codeStyles/
+*.iml
+.vscode/
+.DS_Store
+
+# 운영 환경 값 (절대 커밋 금지)
+.env
+infra/.env

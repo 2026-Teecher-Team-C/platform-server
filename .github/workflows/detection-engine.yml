@@ -1,0 +1,24 @@
+name: detection-engine
+
+on:
+  pull_request:
+    paths: ["detection-engine/**", "proto/**", ".github/workflows/detection-engine.yml"]
+  push:
+    branches: [develop, main]
+    paths: ["detection-engine/**", "proto/**", ".github/workflows/detection-engine.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: detection-engine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+      - run: ./scripts/gen_proto.sh
+      - run: uv run --group dev ruff check .
+      - run: uv run --group dev ruff format --check .
+      - run: uv run --group dev pytest -q

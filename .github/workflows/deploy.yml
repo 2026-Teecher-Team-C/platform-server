@@ -1,0 +1,31 @@
+name: deploy
+
+# EC2에 SSH로 접속해 직접 빌드·기동한다 (레지스트리 없음 — 배포 아키텍처 문서 4장).
+# 재기동 동안 모든 에이전트가 다운로드를 차단한다 (fail-close). 데모 직전 배포 금지.
+# 필요한 Secrets: EC2_HOST, EC2_USER, EC2_SSH_KEY, EC2_APP_DIR
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH 키 준비
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+      - name: EC2에서 빌드·기동
+        run: |
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "
+            set -e
+            cd '${{ secrets.EC2_APP_DIR }}'
+            git fetch origin main && git checkout main && git reset --hard origin/main
+            docker compose --env-file infra/.env -f infra/compose.yml up -d --build
+          "
