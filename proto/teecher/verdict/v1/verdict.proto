@@ -1,8 +1,11 @@
 syntax = "proto3";
 
-// 에이전트 ↔ API 서버 계약.
-// 조회 사슬(화이트리스트 → 블랙리스트 → 블룸 필터 → file_verdicts)은 LookupHash 한 번으로 끝난다.
-// upload_required = true일 때만 UploadFile로 원본을 보낸다 (3단 파이프라인의 조건부 업로드).
+// 다운로드 판정: 해시 조회 · 파일 업로드 검사 · 이벤트 보고. (API 명세 분류: 판정 / 이벤트)
+//
+// 흐름: CheckHash → (UNKNOWN일 때만) SubmitFile → 보류 종료 후 ReportEvent.
+// 인증: 모든 RPC에 gRPC 메타데이터 `authorization: Bearer <agent_token>` 이 필요하다.
+//
+// 에이전트는 서버에 닿지 못하거나 오류 응답을 받으면 차단한다 (fail-close 고정).
 package teecher.verdict.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -11,22 +14,27 @@ option java_multiple_files = true;
 option java_package = "com.teecherteamc.platform.proto.verdict.v1";
 
 service VerdictService {
-  rpc LookupHash(LookupHashRequest) returns (LookupHashResponse);
+  // 화이트리스트 → 블랙리스트 → 블룸 필터 → file_verdicts 순서로 조회한다.
+  rpc CheckHash(CheckHashRequest) returns (CheckHashResponse);
 
-  // 첫 메시지는 metadata, 이후는 chunk. 전체를 한 메시지로 보내지 않는다 (gRPC 기본 4MB 상한).
-  rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
+  // CheckHash가 UNKNOWN일 때만 호출한다. 첫 메시지는 metadata, 이후는 chunk.
+  // 크기 상한은 GetPolicy의 max_inspect_size_bytes. 넘으면 서버가 oversize_action에 따라 판정한다.
+  // 검사 실패(TIMEOUT / CRASH / OOM)는 BLOCK으로 돌려준다.
+  rpc SubmitFile(stream SubmitFileRequest) returns (SubmitFileResponse);
+
+  // 보류가 끝난 뒤(통과·차단·바이패스 모두) 1회. download_events 한 행이 된다.
+  rpc ReportEvent(ReportEventRequest) returns (ReportEventResponse);
 }
 
-enum Verdict {
-  VERDICT_UNSPECIFIED = 0;
-  VERDICT_CLEAN = 1;
-  VERDICT_MALICIOUS = 2;
-  VERDICT_SUSPICIOUS = 3;
-  VERDICT_UNKNOWN = 4;
-  VERDICT_ERROR = 5;
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_BLOCK = 2;
+  // 판정 기록 없음 — SubmitFile로 원본을 보내야 한다. CheckHash에서만 온다.
+  DECISION_UNKNOWN = 3;
 }
 
-// download_events.decision_source와 같은 값.
+// 판정이 어디서 나왔나. download_events.decision_source와 같은 값.
 enum DecisionSource {
   DECISION_SOURCE_UNSPECIFIED = 0;
   DECISION_SOURCE_WHITELIST = 1;
@@ -36,46 +44,72 @@ enum DecisionSource {
   DECISION_SOURCE_POLICY = 5;
 }
 
-// 보류된 다운로드 1건. event_id는 에이전트가 만들고, 업로드까지 같은 값을 쓴다.
-message DownloadContext {
-  string event_id = 1;
-  string url = 2;
-  string request_host = 3;
-  string filename = 4;
-  string mime_type = 5;
-  string content_disposition = 6;
-  int64 file_size = 7;
-  google.protobuf.Timestamp held_at = 8;
-}
-
-message LookupHashRequest {
+message CheckHashRequest {
+  // 소문자 16진수 64자.
   string sha256 = 1;
-  DownloadContext context = 2;
+  int64 file_size = 2;
 }
 
-message LookupHashResponse {
-  Verdict verdict = 1;
+message CheckHashResponse {
+  Decision decision = 1;
   DecisionSource source = 2;
-  // true면 판정할 기록이 없다는 뜻이다. 에이전트는 UploadFile을 호출해야 한다.
-  bool upload_required = 3;
-  string reason = 4;
+  // 차단 사유 (룰 이름, 블랙리스트 사유 등). 브라우저 403 페이지에 쓴다.
+  string reason = 3;
 }
 
-message UploadFileRequest {
+message SubmitFileRequest {
   oneof payload {
-    UploadMetadata metadata = 1;
+    SubmitFileMetadata metadata = 1;
     bytes chunk = 2;
   }
 }
 
-message UploadMetadata {
+message SubmitFileMetadata {
   string sha256 = 1;
-  DownloadContext context = 2;
+  int64 file_size = 2;
+  // 공격자가 정한 값일 수 있다. 서버는 표시·기록에만 쓰고 경로나 키에 넣지 않는다.
+  string filename = 3;
+  string mime_type = 4;
+  // ReportEvent와 같은 값. 격리 파일을 이벤트에 연결한다.
+  string event_id = 5;
 }
 
-message UploadFileResponse {
-  Verdict verdict = 1;
+message SubmitFileResponse {
+  // ALLOW 또는 BLOCK.
+  Decision decision = 1;
   DecisionSource source = 2;
   string reason = 3;
   repeated string matched_rules = 4;
 }
+
+// download_events.decision
+enum FinalDecision {
+  FINAL_DECISION_UNSPECIFIED = 0;
+  FINAL_DECISION_RELEASED = 1;
+  FINAL_DECISION_BLOCKED = 2;
+  FINAL_DECISION_BYPASSED = 3;
+  // 서버 불통으로 차단.
+  FINAL_DECISION_FAIL_CLOSE = 4;
+}
+
+message ReportEventRequest {
+  // 에이전트가 만든 UUID. SubmitFile의 event_id와 같다.
+  string event_id = 1;
+  // 바이패스·판별 전 종료 등으로 해시가 없을 수 있다.
+  string sha256 = 2;
+  string url = 3;
+  string request_host = 4;
+  string filename = 5;
+  string mime_type = 6;
+  string content_disposition = 7;
+  int64 file_size = 8;
+  FinalDecision decision = 9;
+  DecisionSource decision_source = 10;
+  bool cache_hit = 11;
+  int64 bytes_uploaded = 12;
+  google.protobuf.Timestamp held_at = 13;
+  google.protobuf.Timestamp decided_at = 14;
+  int32 hold_duration_ms = 15;
+}
+
+message ReportEventResponse {}

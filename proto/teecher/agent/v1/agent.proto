@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+// 에이전트 생명주기: 등록 · 하트비트 · 토큰 갱신 · 정책 수신. (API 명세 분류: 에이전트 / 정책)
+//
+// 인증: RegisterAgent만 요청 본문의 1회용 등록 토큰으로 인증한다.
+// 나머지 RPC는 gRPC 메타데이터 `authorization: Bearer <agent_token>` 이 필요하다.
+// REVOKED 에이전트의 호출은 UNAUTHENTICATED로 거부된다.
+package teecher.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "com.teecherteamc.platform.proto.agent.v1";
+
+service AgentService {
+  // PC 설치 시 1회. 등록 토큰은 사용 즉시 폐기된다.
+  rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+
+  // agents.last_heartbeat_at 갱신 (PC 현황의 근거).
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // 만료 전 agent_token 회전. 이전 토큰은 즉시 무효화된다.
+  rpc RefreshAgentToken(RefreshAgentTokenRequest) returns (RefreshAgentTokenResponse);
+
+  // 기동 시 수신해 메모리에만 보관한다 (에이전트는 영속 저장소를 두지 않는다).
+  // 검사 서버 장애 시 동작은 정책이 아니다 — fail-close 고정이라 이 응답에 없다.
+  rpc GetPolicy(GetPolicyRequest) returns (GetPolicyResponse);
+}
+
+enum OsPlatform {
+  OS_PLATFORM_UNSPECIFIED = 0;
+  OS_PLATFORM_WINDOWS = 1;
+  OS_PLATFORM_MACOS = 2;
+  OS_PLATFORM_LINUX = 3;
+}
+
+message RegisterAgentRequest {
+  string enrollment_token = 1;
+  string hostname = 2;
+  OsPlatform os_platform = 3;
+  string agent_version = 4;
+  // SMBIOS UUID / IOPlatformUUID. 위조 가능한 값이라 식별 근거로 쓰지 않고 재설치 매칭 후보로만 쓴다.
+  string hardware_uuid = 5;
+}
+
+message RegisterAgentResponse {
+  string agent_id = 1;
+  string agent_token = 2;
+  google.protobuf.Timestamp token_expires_at = 3;
+}
+
+message HeartbeatRequest {
+  string agent_version = 1;
+}
+
+message HeartbeatResponse {
+  google.protobuf.Timestamp server_time = 1;
+}
+
+message RefreshAgentTokenRequest {}
+
+message RefreshAgentTokenResponse {
+  string agent_token = 1;
+  google.protobuf.Timestamp token_expires_at = 2;
+}
+
+message GetPolicyRequest {}
+
+message GetPolicyResponse {
+  repeated BypassHost bypass_hosts = 1;
+  repeated FileTypePolicy file_type_policies = 2;
+}
+
+// bypass_domains. 와일드카드 없는 정확한 호스트만 온다.
+message BypassHost {
+  string host = 1;
+  BypassCategory category = 2;
+}
+
+enum BypassCategory {
+  BYPASS_CATEGORY_UNSPECIFIED = 0;
+  BYPASS_CATEGORY_PINNED = 1;
+  BYPASS_CATEGORY_SECURITY_UPDATE = 2;
+}
+
+// file_type_policies.
+message FileTypePolicy {
+  string file_type = 1;
+  InspectionLevel inspection_level = 2;
+  // 0이면 상한 없음.
+  int64 max_inspect_size_bytes = 3;
+  OversizeAction oversize_action = 4;
+}
+
+enum InspectionLevel {
+  INSPECTION_LEVEL_UNSPECIFIED = 0;
+  INSPECTION_LEVEL_NONE = 1;
+  INSPECTION_LEVEL_HASH_ONLY = 2;
+  INSPECTION_LEVEL_FULL = 3;
+}
+
+enum OversizeAction {
+  OVERSIZE_ACTION_UNSPECIFIED = 0;
+  OVERSIZE_ACTION_PASS = 1;
+  OVERSIZE_ACTION_BLOCK = 2;
+  OVERSIZE_ACTION_WARN = 3;
+}
