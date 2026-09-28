@@ -74,11 +74,12 @@ class ReportEventGrpcIntegrationTest {
                 .setUrl("https://example.com/file.exe")
                 .setFilename("file.exe")
                 .setMimeType("application/octet-stream")
+                .setContentDisposition("attachment; filename=\"file.exe\"")
                 .setFileSize(1024)
                 .setDecision(FinalDecision.FINAL_DECISION_RELEASED)
                 .setDecisionSource(DecisionSource.DECISION_SOURCE_CACHE)
                 .setCacheHit(true)
-                .setBytesUploaded(0)
+                .setBytesUploaded(2048)
                 .setHeldAt(toTimestamp(heldAt))
                 .setDecidedAt(toTimestamp(decidedAt))
                 .build());
@@ -91,6 +92,16 @@ class ReportEventGrpcIntegrationTest {
         assertThat(row.get("decision")).isEqualTo("RELEASED");
         assertThat(row.get("decision_source")).isEqualTo("CACHE");
         assertThat(row.get("hold_duration_ms")).isEqualTo(1500);
+        assertThat(row.get("request_host")).isEqualTo("example.com");
+        assertThat(row.get("url")).isEqualTo("https://example.com/file.exe");
+        assertThat(row.get("filename")).isEqualTo("file.exe");
+        assertThat(row.get("mime_type")).isEqualTo("application/octet-stream");
+        assertThat(row.get("content_disposition")).isEqualTo("attachment; filename=\"file.exe\"");
+        assertThat(row.get("file_size")).isEqualTo(1024L);
+        assertThat(row.get("cache_hit")).isEqualTo(true);
+        assertThat(row.get("bytes_uploaded")).isEqualTo(2048L);
+        assertThat(((java.sql.Timestamp) row.get("held_at")).toInstant()).isEqualTo(heldAt);
+        assertThat(((java.sql.Timestamp) row.get("decided_at")).toInstant()).isEqualTo(decidedAt);
     }
 
     @Test
