@@ -19,4 +19,5 @@ public record ReportEventCommand(
         Boolean cacheHit,
         long bytesUploaded,
         Instant heldAt,
-        Instant decidedAt) {}
+        Instant decidedAt,
+        Integer holdDurationMs) {}

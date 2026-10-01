@@ -82,6 +82,7 @@ class ReportEventGrpcIntegrationTest {
                 .setBytesUploaded(2048)
                 .setHeldAt(toTimestamp(heldAt))
                 .setDecidedAt(toTimestamp(decidedAt))
+                .setHoldDurationMs(1500)
                 .build());
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
@@ -183,6 +184,35 @@ class ReportEventGrpcIntegrationTest {
                 .isInstanceOf(StatusRuntimeException.class)
                 .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode())
                         .isEqualTo(Status.Code.ALREADY_EXISTS));
+    }
+
+    @Test
+    void event_id가_UUID_형식이_아니면_INVALID_ARGUMENT로_거부된다() {
+        assertThatThrownBy(() -> verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                        .setEventId("not-a-uuid")
+                        .setRequestHost("example.com")
+                        .setUrl("https://example.com/file.exe")
+                        .setDecision(FinalDecision.FINAL_DECISION_RELEASED)
+                        .setHeldAt(toTimestamp(Instant.now()))
+                        .build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode())
+                        .isEqualTo(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @Test
+    void filename이_512자를_넘으면_INVALID_ARGUMENT로_거부된다() {
+        assertThatThrownBy(() -> verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                        .setEventId(UUID.randomUUID().toString())
+                        .setRequestHost("example.com")
+                        .setUrl("https://example.com/file.exe")
+                        .setFilename("a".repeat(513))
+                        .setDecision(FinalDecision.FINAL_DECISION_RELEASED)
+                        .setHeldAt(toTimestamp(Instant.now()))
+                        .build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode())
+                        .isEqualTo(Status.Code.INVALID_ARGUMENT));
     }
 
     private static Timestamp toTimestamp(Instant instant) {
