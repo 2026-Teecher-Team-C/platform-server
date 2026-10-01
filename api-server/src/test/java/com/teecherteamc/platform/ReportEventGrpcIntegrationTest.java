@@ -215,6 +215,44 @@ class ReportEventGrpcIntegrationTest {
                         .isEqualTo(Status.Code.INVALID_ARGUMENT));
     }
 
+    @Test
+    void held_at의_nanos가_범위를_벗어나면_INVALID_ARGUMENT로_거부된다() {
+        Timestamp invalidNanos = Timestamp.newBuilder()
+                .setSeconds(Instant.now().getEpochSecond())
+                .setNanos(1_000_000_000)
+                .build();
+
+        assertThatThrownBy(() -> verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                        .setEventId(UUID.randomUUID().toString())
+                        .setRequestHost("example.com")
+                        .setUrl("https://example.com/file.exe")
+                        .setDecision(FinalDecision.FINAL_DECISION_RELEASED)
+                        .setHeldAt(invalidNanos)
+                        .build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode())
+                        .isEqualTo(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @Test
+    void decided_at의_seconds가_범위를_벗어나면_INVALID_ARGUMENT로_거부된다() {
+        Timestamp outOfRangeSeconds = Timestamp.newBuilder()
+                .setSeconds(Long.MAX_VALUE)
+                .build();
+
+        assertThatThrownBy(() -> verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                        .setEventId(UUID.randomUUID().toString())
+                        .setRequestHost("example.com")
+                        .setUrl("https://example.com/file.exe")
+                        .setDecision(FinalDecision.FINAL_DECISION_RELEASED)
+                        .setHeldAt(toTimestamp(Instant.now()))
+                        .setDecidedAt(outOfRangeSeconds)
+                        .build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode())
+                        .isEqualTo(Status.Code.INVALID_ARGUMENT));
+    }
+
     private static Timestamp toTimestamp(Instant instant) {
         return Timestamp.newBuilder()
                 .setSeconds(instant.getEpochSecond())

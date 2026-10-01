@@ -28,6 +28,9 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
     private static final Pattern SHA256_PATTERN = Pattern.compile("[0-9a-f]{64}");
     private static final int MAX_FILENAME_LENGTH = 512;
     private static final String PK_CONSTRAINT_NAME = "pk_download_events";
+    // google.protobuf.Timestamp 유효 범위: 0001-01-01T00:00:00Z ~ 9999-12-31T23:59:59.999999999Z
+    private static final long MIN_TIMESTAMP_SECONDS = -62135596800L;
+    private static final long MAX_TIMESTAMP_SECONDS = 253402300799L;
 
     private final ReportEventUseCase reportEventUseCase;
 
@@ -77,6 +80,13 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         return false;
     }
 
+    private static boolean isValidTimestamp(Timestamp timestamp) {
+        return timestamp.getNanos() >= 0
+                && timestamp.getNanos() <= 999_999_999
+                && timestamp.getSeconds() >= MIN_TIMESTAMP_SECONDS
+                && timestamp.getSeconds() <= MAX_TIMESTAMP_SECONDS;
+    }
+
     /** null이면 유효. 아니면 그 문자열이 INVALID_ARGUMENT 사유가 된다. */
     private String validationError(ReportEventRequest request) {
         if (request.getDecision() == FinalDecision.FINAL_DECISION_UNSPECIFIED) {
@@ -87,6 +97,12 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         }
         if (!request.hasHeldAt()) {
             return "held_at must be set";
+        }
+        if (!isValidTimestamp(request.getHeldAt())) {
+            return "held_at has an out-of-range seconds or nanos value";
+        }
+        if (request.hasDecidedAt() && !isValidTimestamp(request.getDecidedAt())) {
+            return "decided_at has an out-of-range seconds or nanos value";
         }
         try {
             UUID.fromString(request.getEventId());
