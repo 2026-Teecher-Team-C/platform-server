@@ -1,4 +1,5 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom'
+import { ProtectedRoute } from '../components/auth/ProtectedRoute'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AgentsPage } from '../pages/AgentsPage'
 import { AuditLogsPage } from '../pages/AuditLogsPage'
@@ -6,6 +7,7 @@ import { BlacklistPage } from '../pages/BlacklistPage'
 import { DashboardPage } from '../pages/DashboardPage'
 import { EventDetailPage } from '../pages/EventDetailPage'
 import { EventsPage } from '../pages/EventsPage'
+import { EnrollmentTokenPage } from '../pages/EnrollmentTokenPage'
 import { LoginPage } from '../pages/LoginPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { PoliciesPage } from '../pages/PoliciesPage'
@@ -20,7 +22,11 @@ export const router = createBrowserRouter([
   },
   {
     path: '/',
-    element: <AppLayout />,
+    element: (
+      <ProtectedRoute>
+        <AppLayout />
+      </ProtectedRoute>
+    ),
     children: [
       {
         index: true,
@@ -45,6 +51,10 @@ export const router = createBrowserRouter([
       {
         path: 'agents',
         element: <AgentsPage />,
+      },
+      {
+        path: 'agents/enrollment-token',
+        element: <EnrollmentTokenPage />,
       },
       {
         path: 'whitelist',
