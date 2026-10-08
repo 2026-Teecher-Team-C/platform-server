@@ -1,9 +1,16 @@
-package com.teecherteamc.platform.event.interfaces;
+package com.teecherteamc.platform.verdict.interfaces;
 
 import com.google.protobuf.Timestamp;
 import com.teecherteamc.platform.event.application.PlaceholderAgent;
 import com.teecherteamc.platform.event.application.ReportEventCommand;
 import com.teecherteamc.platform.event.application.ReportEventUseCase;
+import com.teecherteamc.platform.hashlist.domain.HashKey;
+import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
+import com.teecherteamc.platform.lookup.application.CheckHashResult;
+import com.teecherteamc.platform.lookup.application.CheckHashUseCase;
+import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
+import com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse;
+import com.teecherteamc.platform.proto.verdict.v1.Decision;
 import com.teecherteamc.platform.proto.verdict.v1.DecisionSource;
 import com.teecherteamc.platform.proto.verdict.v1.FinalDecision;
 import com.teecherteamc.platform.proto.verdict.v1.ReportEventRequest;
@@ -20,7 +27,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.grpc.server.service.GrpcService;
 
-/** VerdictService의 ReportEvent만 구현한다. CheckHash/SubmitFile은 아직 미구현(UNIMPLEMENTED)으로 남겨둔다. */
+/**
+ * VerdictService(CheckHash/SubmitFile/ReportEvent) 전체의 gRPC 어댑터. gRPC는 서비스당 구현 빈이
+ * 하나여야 해서, 3개 RPC가 각자 다른 컨텍스트(verdict/lookup, event) 소관이어도 이 클래스 하나에
+ * 모인다 — 여기는 프로토콜 변환만 하고, 실제 로직은 각 컨텍스트의 유스케이스에 위임한다.
+ * SubmitFile은 아직 미구현(UNIMPLEMENTED)으로 남겨둔다.
+ */
 @GrpcService
 public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBase {
 
@@ -33,9 +45,55 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
     private static final long MAX_TIMESTAMP_SECONDS = 253402300799L;
 
     private final ReportEventUseCase reportEventUseCase;
+    private final CheckHashUseCase checkHashUseCase;
 
-    public VerdictGrpcService(ReportEventUseCase reportEventUseCase) {
+    public VerdictGrpcService(ReportEventUseCase reportEventUseCase, CheckHashUseCase checkHashUseCase) {
         this.reportEventUseCase = reportEventUseCase;
+        this.checkHashUseCase = checkHashUseCase;
+    }
+
+    @Override
+    public void checkHash(CheckHashRequest request, StreamObserver<CheckHashResponse> responseObserver) {
+        HashKey hashKey;
+        try {
+            hashKey = HashKey.sha256(request.getSha256());
+        } catch (InvalidHashException e) {
+            responseObserver.onError(
+                    Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException());
+            return;
+        }
+        try {
+            CheckHashResult result = checkHashUseCase.checkHash(hashKey.getHashValue());
+            responseObserver.onNext(CheckHashResponse.newBuilder()
+                    .setDecision(toProtoDecision(result.decision()))
+                    .setSource(toProtoDecisionSource(result.source()))
+                    .setReason(result.reason() == null ? "" : result.reason())
+                    .build());
+            responseObserver.onCompleted();
+        } catch (RuntimeException e) {
+            log.error("CheckHash failed sha256={}", hashKey.getHashValue(), e);
+            responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());
+        }
+    }
+
+    private static Decision toProtoDecision(String decision) {
+        return switch (decision) {
+            case "ALLOW" -> Decision.DECISION_ALLOW;
+            case "BLOCK" -> Decision.DECISION_BLOCK;
+            case "UNKNOWN" -> Decision.DECISION_UNKNOWN;
+            default -> throw new IllegalStateException("unmapped decision: " + decision);
+        };
+    }
+
+    private static DecisionSource toProtoDecisionSource(String source) {
+        if (source == null) {
+            return DecisionSource.DECISION_SOURCE_UNSPECIFIED;
+        }
+        return switch (source) {
+            case "BLACKLIST" -> DecisionSource.DECISION_SOURCE_BLACKLIST;
+            case "CACHE" -> DecisionSource.DECISION_SOURCE_CACHE;
+            default -> throw new IllegalStateException("unmapped decision source: " + source);
+        };
     }
 
     @Override
