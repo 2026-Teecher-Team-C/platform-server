@@ -8,7 +8,7 @@ RUN ./gradlew bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /workspace/api-server/build/libs/api-server-*[!n].jar app.jar
+COPY --from=build /workspace/api-server/build/libs/api-server-*[^n].jar app.jar
 RUN useradd --system --uid 10001 app
 USER app
 # 8080: REST + SSE (콘솔), 9090: gRPC (에이전트)
