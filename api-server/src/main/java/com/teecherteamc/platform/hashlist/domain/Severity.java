@@ -12,7 +12,7 @@ public enum Severity {
     /** 보통 */
     MEDIUM,
 
-    /** 높음. DB 컬럼의 기본값(DEFAULT 'HIGH')이다. */
+    /** 높음. DB 컬럼의 기본값(DEFAULT 'HIGH') */
     HIGH,
 
     /** 매우 높음 */
