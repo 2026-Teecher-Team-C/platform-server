@@ -13,8 +13,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class SubmitFileUseCase {
@@ -28,19 +30,26 @@ public class SubmitFileUseCase {
     private final FileVerdictRepository fileVerdictRepository;
     private final AnalysisRepository analysisRepository;
     private final EngineAnalysisPort engineAnalysisPort;
+    private final TransactionTemplate transactionTemplate;
 
     public SubmitFileUseCase(
             FileVerdictRepository fileVerdictRepository,
             AnalysisRepository analysisRepository,
-            EngineAnalysisPort engineAnalysisPort) {
+            EngineAnalysisPort engineAnalysisPort,
+            PlatformTransactionManager transactionManager) {
         this.fileVerdictRepository = fileVerdictRepository;
         this.analysisRepository = analysisRepository;
         this.engineAnalysisPort = engineAnalysisPort;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    // EngineUnavailableException은 잡아서 실패 기록을 남긴 뒤 그대로 다시 던지는데, 기본 롤백 정책이면
-    // 그 기록까지 같이 날아간다 — 이 예외만 롤백 대상에서 뺀다.
-    @Transactional(noRollbackFor = EngineUnavailableException.class)
+    /**
+     * 전체를 한 트랜잭션으로 묶지 않는다 — 엔진 호출이 최대 65초 걸리는데, 그동안 DB 커넥션을 쥐고
+     * 있으면 동시 업로드가 몰릴 때 커넥션 풀이 바닥난다. 캐시 조회·결과 저장만 각자 짧은 트랜잭션으로
+     * 끊고, 엔진 호출은 트랜잭션 바깥에서 한다. 같은 빈 안에서 @Transactional 메서드를 또 호출하면
+     * self-invocation이라 프록시를 안 거쳐서 트랜잭션이 안 걸리므로, TransactionTemplate으로 직접
+     * 경계를 관리한다.
+     */
     public SubmitFileResult submitFile(SubmitFileCommand command) {
         if (!command.verifiedSha256().equals(command.claimedSha256())) {
             // 해시 불일치를 알았으니, 에이전트가 주장한 값이 아니라 실제 내용을 기준으로 재검증한다.
@@ -48,7 +57,8 @@ public class SubmitFileUseCase {
             throw new HashMismatchException(command.claimedSha256(), command.verifiedSha256());
         }
 
-        Optional<FileVerdict> cached = fileVerdictRepository.findBySha256(command.verifiedSha256());
+        Optional<FileVerdict> cached =
+                transactionTemplate.execute(status -> fileVerdictRepository.findBySha256(command.verifiedSha256()));
         if (cached.isPresent() && !cached.get().isStale()) {
             SubmitFileResult fromCache = fromCachedVerdict(cached.get());
             if (fromCache != null) {
@@ -60,7 +70,7 @@ public class SubmitFileUseCase {
 
         AnalysisOutcome outcome;
         try {
-            outcome = engineAnalysisPort.analyze(command.spoolFile(), command.fileSize());
+            outcome = engineAnalysisPort.analyze(command.spoolFile(), command.fileSize()); // 트랜잭션 밖
         } catch (EngineUnavailableException e) {
             // 엔진이 구조화된 응답조차 못 준 경우 — 이대로 두면 analyses에 아무 기록도 안 남는다.
             // 호출자(interfaces)가 UNAVAILABLE로 거부하도록 그대로 다시 던지되, 그 전에 감사 기록은
@@ -70,25 +80,75 @@ public class SubmitFileUseCase {
             throw e;
         }
 
-        FileVerdict fileVerdict = cached
-                .map(fv -> {
-                    fv.recordAnalysis(
-                            outcome.verdict(), SOURCE_ENGINE, outcome.rulesetsVersion(), outcome.detectedFileType(),
-                            Instant.now());
-                    return fv;
-                })
-                .orElseGet(() -> FileVerdict.create(
-                        command.verifiedSha256(),
-                        command.fileSize(),
-                        outcome.detectedFileType(),
-                        outcome.verdict(),
-                        SOURCE_ENGINE,
-                        outcome.rulesetsVersion(),
-                        Instant.now()));
-        fileVerdictRepository.save(fileVerdict);
+        return persistOutcome(command, cached, outcome);
+    }
 
+    private SubmitFileResult persistOutcome(
+            SubmitFileCommand command, Optional<FileVerdict> cached, AnalysisOutcome outcome) {
+        try {
+            return transactionTemplate.execute(status -> {
+                FileVerdict fileVerdict = cached
+                        .map(fv -> {
+                            fv.recordAnalysis(
+                                    outcome.verdict(), SOURCE_ENGINE, outcome.rulesetsVersion(),
+                                    outcome.detectedFileType(), Instant.now());
+                            return fv;
+                        })
+                        .orElseGet(() -> FileVerdict.create(
+                                command.verifiedSha256(),
+                                command.fileSize(),
+                                outcome.detectedFileType(),
+                                outcome.verdict(),
+                                SOURCE_ENGINE,
+                                outcome.rulesetsVersion(),
+                                Instant.now()));
+                fileVerdictRepository.save(fileVerdict);
+                saveAnalysis(command.verifiedSha256(), outcome);
+                return toResult(outcome);
+            });
+        } catch (DataIntegrityViolationException e) {
+            if (cached.isPresent()) {
+                throw e; // 기존 행 갱신 중 충돌이면 레이스가 아니라 진짜 문제 — 그대로 던진다.
+            }
+            // 같은 새 파일이 동시에 두 번 들어와서, 먼저 커밋된 쪽이 file_verdicts PK를 이미 차지한
+            // 경우다. 우리 쪽 분석이 틀린 게 아니라 그냥 늦게 도착한 것뿐이니, 먼저 커밋된 캐시를
+            // 그대로 신뢰해서 응답한다(우리 Analysis 행은 포기 — 감사 이력 1건 누락은 레이스의
+            // 부작용으로 받아들인다).
+            FileVerdict winner = transactionTemplate
+                    .execute(status -> fileVerdictRepository.findBySha256(command.verifiedSha256()))
+                    .orElseThrow(() -> e);
+            SubmitFileResult fromCache = fromCachedVerdict(winner);
+            return fromCache != null ? fromCache : toResult(outcome);
+        }
+    }
+
+    private void recordEngineFailure(
+            String sha256, long fileSize, Optional<FileVerdict> cached, EngineUnavailableException e) {
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                FileVerdict fileVerdict = cached
+                        .map(fv -> {
+                            fv.recordAnalysis("ERROR", SOURCE_ENGINE, null, null, Instant.now());
+                            return fv;
+                        })
+                        .orElseGet(() -> FileVerdict.create(
+                                sha256, fileSize, null, "ERROR", SOURCE_ENGINE, null, Instant.now()));
+                fileVerdictRepository.save(fileVerdict);
+
+                Analysis analysis = Analysis.record(
+                        sha256, null, FALLBACK_RULESETS_VERSION, "unavailable", "TIMEOUT", "ERROR", null, false,
+                        null, 0, e.getMessage());
+                analysisRepository.save(analysis);
+            });
+        } catch (DataIntegrityViolationException ignored) {
+            // 같은 새 파일이 동시에 들어와 이미 기록됐다 — 우리 쪽 실패 기록은 포기해도 안전하다
+            // (어느 쪽이든 이 해시는 다음 CheckHash/SubmitFile에서 캐시 미스로 재시도된다).
+        }
+    }
+
+    private void saveAnalysis(String sha256, AnalysisOutcome outcome) {
         Analysis analysis = Analysis.record(
-                command.verifiedSha256(),
+                sha256,
                 // analyses.event_id -> download_events FK. SubmitFile은 보류가 끝나기 전에 실행되고,
                 // download_events 행은 ReportEvent가 그 이후에나 만든다 — 지금 이 시점엔 아직 존재할 수
                 // 없는 행이라 항상 NULL로 남긴다(스키마 주석의 "이벤트 없이 재검사한 경우"에 해당).
@@ -105,32 +165,6 @@ public class SubmitFileUseCase {
         for (EngineMatch match : outcome.matches()) {
             analysis.addMatch(match.ruleName(), match.severity(), toJson(match.matchedStrings()));
         }
-        analysisRepository.save(analysis);
-
-        return toResult(outcome);
-    }
-
-    private void recordEngineFailure(String sha256, long fileSize, Optional<FileVerdict> cached, EngineUnavailableException e) {
-        FileVerdict fileVerdict = cached
-                .map(fv -> {
-                    fv.recordAnalysis("ERROR", SOURCE_ENGINE, null, null, Instant.now());
-                    return fv;
-                })
-                .orElseGet(() -> FileVerdict.create(sha256, fileSize, null, "ERROR", SOURCE_ENGINE, null, Instant.now()));
-        fileVerdictRepository.save(fileVerdict);
-
-        Analysis analysis = Analysis.record(
-                sha256,
-                null,
-                FALLBACK_RULESETS_VERSION,
-                "unavailable",
-                "TIMEOUT",
-                "ERROR",
-                null,
-                false,
-                null,
-                0,
-                e.getMessage());
         analysisRepository.save(analysis);
     }
 

@@ -22,7 +22,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +86,44 @@ class SubmitFileGrpcIntegrationTest {
         assertThat(analysisRow.get("status")).isEqualTo("TIMEOUT");
         assertThat(analysisRow.get("verdict")).isEqualTo("ERROR");
         assertThat(analysisRow.get("rulesets_version")).isEqualTo(0);
+    }
+
+    @Test
+    void 같은_새_파일이_동시에_두_번_들어와도_둘_다_에러_없이_응답한다() throws Exception {
+        byte[] content = "동시_업로드_레이스_테스트".getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var first = pool.submit(() -> raceSubmit(sha256, content, ready, go));
+            var second = pool.submit(() -> raceSubmit(sha256, content, ready, go));
+            ready.await(10, TimeUnit.SECONDS);
+            go.countDown();
+
+            SubmitFileResponse r1 = first.get(15, TimeUnit.SECONDS);
+            SubmitFileResponse r2 = second.get(15, TimeUnit.SECONDS);
+
+            assertThat(r1.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+            assertThat(r2.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        Integer verdictCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM file_verdicts WHERE sha256 = ?", Integer.class, sha256);
+        assertThat(verdictCount).isEqualTo(1);
+    }
+
+    private SubmitFileResponse raceSubmit(String sha256, byte[] content, CountDownLatch ready, CountDownLatch go) {
+        try {
+            ready.countDown();
+            go.await(10, TimeUnit.SECONDS);
+            return submitFile(sha256, content);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test

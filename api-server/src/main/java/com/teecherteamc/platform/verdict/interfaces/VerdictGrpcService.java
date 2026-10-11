@@ -353,17 +353,20 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                 fail(Status.INVALID_ARGUMENT.withDescription("metadata를 받지 못했다"));
                 return;
             }
-            SpoolResult result = spoolSession.finish();
-            // file_size는 사전 정보일 뿐이고 실제 판정엔 실제 수신 바이트(result.bytesWritten())만 쓰지만,
-            // 둘이 크게 다르면 에이전트 쪽 버그(또는 조작 시도)일 수 있어 여기서 먼저 걸러낸다.
-            if (result.bytesWritten() != claimedFileSize) {
-                spoolSession.delete();
-                responseObserver.onError(Status.INVALID_ARGUMENT
-                        .withDescription("file_size=%d but received %d bytes".formatted(claimedFileSize, result.bytesWritten()))
-                        .asRuntimeException());
-                return;
-            }
             try {
+                SpoolResult result = spoolSession.finish();
+                // file_size는 사전 정보일 뿐이고 실제 판정엔 실제 수신 바이트(result.bytesWritten())만
+                // 쓰지만, 둘이 다르면 에이전트 쪽 버그(또는 조작 시도)일 수 있어 여기서 먼저 걸러낸다.
+                // finish()/이 체크도 같은 try 블록 안에 둬서, delete()가 실패해도(아래 finally) 의도한
+                // 응답(INVALID_ARGUMENT)이 먼저 나간 뒤에 처리되게 한다.
+                if (result.bytesWritten() != claimedFileSize) {
+                    responseObserver.onError(Status.INVALID_ARGUMENT
+                            .withDescription(
+                                    "file_size=%d but received %d bytes"
+                                            .formatted(claimedFileSize, result.bytesWritten()))
+                            .asRuntimeException());
+                    return;
+                }
                 SubmitFileResult outcome = submitFileUseCase.submitFile(
                         new SubmitFileCommand(claimedSha256, result.sha256(), result.bytesWritten(), result.path()));
                 responseObserver.onNext(toResponse(outcome));
@@ -384,7 +387,13 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
 
         private void fail(Status status) {
             failed = true;
-            cleanup();
+            try {
+                cleanup();
+            } catch (RuntimeException e) {
+                // 정리 실패 때문에 의도한 상태 코드(RESOURCE_EXHAUSTED 등)가 안 나가면 안 된다 —
+                // 로그만 남기고 아래 onError는 계속 보낸다.
+                log.warn("SubmitFile 스풀 정리 실패", e);
+            }
             responseObserver.onError(status.asRuntimeException());
         }
 

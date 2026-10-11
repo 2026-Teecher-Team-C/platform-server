@@ -42,39 +42,50 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
 
     @Override
     public AnalysisOutcome analyze(Path spoolFile, long fileSize) {
-        CompletableFuture<AnalyzeResponse> future = new CompletableFuture<>();
-        StreamObserver<AnalyzeRequest> requestObserver = stub.withDeadlineAfter(ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .analyze(new StreamObserver<>() {
-                    @Override
-                    public void onNext(AnalyzeResponse value) {
-                        future.complete(value);
-                    }
-
-                    @Override
-                    public void onError(Throwable t) {
-                        future.completeExceptionally(t);
-                    }
-
-                    @Override
-                    public void onCompleted() {
-                        // 응답은 onNext로 이미 받는다 — 단일 응답 스트림이라 여기선 할 일이 없다.
-                    }
-                });
-
-        streamSpoolFile(spoolFile, fileSize, requestObserver);
-
-        AnalyzeResponse response;
+        // 이 메서드 안에서 나는 예외는 전부 EngineUnavailableException으로 모은다 — 스트림 전송 실패,
+        // 엔진이 보낸 status/verdict가 이상한 값이라 toOutcome()이 못 알아듣는 경우까지 전부 포함해서.
+        // 호출자(SubmitFileUseCase)가 이 타입 하나만 잡아서 감사 기록(file_verdicts ERROR/analyses
+        // TIMEOUT)을 남기므로, 다른 타입으로 새면 그 기록이 조용히 빠진다.
         try {
-            response = future.get(ANALYZE_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            throw new EngineUnavailableException("엔진 응답 시간 초과", e);
-        } catch (ExecutionException e) {
-            throw new EngineUnavailableException("엔진 호출 실패", e.getCause());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new EngineUnavailableException("엔진 호출이 인터럽트됐다", e);
+            CompletableFuture<AnalyzeResponse> future = new CompletableFuture<>();
+            StreamObserver<AnalyzeRequest> requestObserver = stub.withDeadlineAfter(
+                            ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .analyze(new StreamObserver<>() {
+                        @Override
+                        public void onNext(AnalyzeResponse value) {
+                            future.complete(value);
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            future.completeExceptionally(t);
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            // 응답은 onNext로 이미 받는다 — 단일 응답 스트림이라 여기선 할 일이 없다.
+                        }
+                    });
+
+            streamSpoolFile(spoolFile, fileSize, requestObserver);
+
+            AnalyzeResponse response;
+            try {
+                response = future.get(ANALYZE_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                throw new EngineUnavailableException("엔진 응답 시간 초과", e);
+            } catch (ExecutionException e) {
+                throw new EngineUnavailableException("엔진 호출 실패", e.getCause());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new EngineUnavailableException("엔진 호출이 인터럽트됐다", e);
+            }
+            return toOutcome(response);
+        } catch (EngineUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new EngineUnavailableException("엔진 호출 중 예기치 못한 오류", e);
         }
-        return toOutcome(response);
     }
 
     private void streamSpoolFile(Path spoolFile, long fileSize, StreamObserver<AnalyzeRequest> requestObserver) {

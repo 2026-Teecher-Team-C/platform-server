@@ -29,11 +29,26 @@ class FileSpoolPortImpl implements SpoolPort {
 
     @Override
     public SpoolSession open() {
+        Path path;
         try {
-            Path path = Files.createTempFile("submit-file-", ".spool");
-            return new FileSpoolSession(path, maxSpoolBytes);
+            path = Files.createTempFile("submit-file-", ".spool");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+        try {
+            return new FileSpoolSession(path, maxSpoolBytes);
+        } catch (RuntimeException e) {
+            // 생성자가 실패하면 세션을 쥔 사람이 아무도 없다 — 방금 만든 빈 파일이 안 지워지고 남는다.
+            deleteQuietly(path);
+            throw e;
+        }
+    }
+
+    private static void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // 정리 실패까지 여기서 또 던지면 원래 예외가 묻힌다 — 로그 없이 조용히 넘어간다.
         }
     }
 
