@@ -12,6 +12,12 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+  grpc:
+    client:
+      channel:
+        detection-engine:
+          # 격리된 engine-net 네트워크 안이라 TLS 불필요. docker compose 서비스명으로 해석된다.
+          target: static://${ENGINE_ADDRESS:detection-engine:50051}
 
 management:
   endpoints:
