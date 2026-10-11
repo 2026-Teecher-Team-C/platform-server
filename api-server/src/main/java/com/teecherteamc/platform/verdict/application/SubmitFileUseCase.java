@@ -87,10 +87,15 @@ public class SubmitFileUseCase {
             SubmitFileCommand command, Optional<FileVerdict> cached, AnalysisOutcome outcome) {
         try {
             return transactionTemplate.execute(status -> {
+                // status가 SUCCESS가 아니면(TIMEOUT/CRASH/OOM/UNSUPPORTED) toResult()는 무조건 BLOCK을
+                // 돌려주는데, 캐시에는 outcome.verdict()를 그대로 저장하면 안 된다 — status/verdict는
+                // proto상 독립된 필드라 "실패했는데 verdict=CLEAN" 같은 조합이 이론상 가능하고, 그러면
+                // 다음 CheckHash가 캐시만 보고 ALLOW를 내줘서 fail-close가 캐시 레벨에서 뚫린다.
+                String cachedVerdict = "SUCCESS".equals(outcome.status()) ? outcome.verdict() : "ERROR";
                 FileVerdict fileVerdict = cached
                         .map(fv -> {
                             fv.recordAnalysis(
-                                    outcome.verdict(), SOURCE_ENGINE, outcome.rulesetsVersion(),
+                                    cachedVerdict, SOURCE_ENGINE, outcome.rulesetsVersion(),
                                     outcome.detectedFileType(), Instant.now());
                             return fv;
                         })
@@ -98,7 +103,7 @@ public class SubmitFileUseCase {
                                 command.verifiedSha256(),
                                 command.fileSize(),
                                 outcome.detectedFileType(),
-                                outcome.verdict(),
+                                cachedVerdict,
                                 SOURCE_ENGINE,
                                 outcome.rulesetsVersion(),
                                 Instant.now()));

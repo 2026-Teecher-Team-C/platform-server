@@ -116,6 +116,23 @@ class SubmitFileGrpcIntegrationTest {
         assertThat(verdictCount).isEqualTo(1);
     }
 
+    @Test
+    void 엔진이_실패_상태인데_CLEAN을_보내도_캐시엔_ERROR로_저장된다() throws Exception {
+        byte[] content =
+                ("모순된 응답 테스트" + FakeDetectionEngineService.INCONSISTENT_MARKER).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        SubmitFileResponse response = submitFile(sha256, content);
+
+        // 에이전트한텐 status(UNSUPPORTED)를 보고 BLOCK으로 응답 — verdict(CLEAN)을 안 믿는다.
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+
+        // 캐시에도 CLEAN이 아니라 ERROR로 저장돼야, 다음 CheckHash가 잘못 ALLOW를 내주지 않는다.
+        Map<String, Object> verdictRow =
+                jdbcTemplate.queryForMap("SELECT * FROM file_verdicts WHERE sha256 = ?", sha256);
+        assertThat(verdictRow.get("verdict")).isEqualTo("ERROR");
+    }
+
     private SubmitFileResponse raceSubmit(String sha256, byte[] content, CountDownLatch ready, CountDownLatch go) {
         try {
             ready.countDown();

@@ -25,6 +25,8 @@ class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEngineImpl
 
     static final String MALICIOUS_MARKER = "FAKE-MALICIOUS-MARKER";
     static final String CRASH_MARKER = "FAKE-ENGINE-CRASH-MARKER";
+    // status != SUCCESS인데 verdict=CLEAN을 보내는, proto상으로는 가능하지만 모순된 응답을 흉내낸다.
+    static final String INCONSISTENT_MARKER = "FAKE-INCONSISTENT-MARKER";
 
     @Override
     public StreamObserver<AnalyzeRequest> analyze(StreamObserver<AnalyzeResponse> responseObserver) {
@@ -52,6 +54,16 @@ class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEngineImpl
                 if (content.contains(CRASH_MARKER)) {
                     // 엔진 호출 자체가 실패하는 상황(연결 끊김·타임아웃 등)을 흉내낸다.
                     responseObserver.onError(Status.UNAVAILABLE.withDescription("fake engine crash").asRuntimeException());
+                    return;
+                }
+                if (content.contains(INCONSISTENT_MARKER)) {
+                    responseObserver.onNext(AnalyzeResponse.newBuilder()
+                            .setStatus(AnalysisStatus.ANALYSIS_STATUS_UNSUPPORTED)
+                            .setVerdict(EngineVerdict.ENGINE_VERDICT_CLEAN)
+                            .setEngineVersion("fake-1.0")
+                            .setDurationMs(1)
+                            .build());
+                    responseObserver.onCompleted();
                     return;
                 }
                 boolean malicious = content.contains(MALICIOUS_MARKER);
