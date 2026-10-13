@@ -106,8 +106,10 @@ public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
                     HeartbeatResponse.newBuilder().setServerTime(toTimestamp(serverTime)).build());
             responseObserver.onCompleted();
         } catch (AgentNotFoundException | AgentRevokedException e) {
+            // AgentAuthServerInterceptor와 같은 원칙 — 구체적 사유는 서버 로그에만, 클라이언트에는
+            // 고정된 설명만 보낸다(e.getMessage()를 그대로 보내면 REVOKED 여부 등이 노출된다).
             log.warn("Heartbeat 인증 실패 agent_id={}: {}", agentId, e.getMessage());
-            responseObserver.onError(Status.UNAUTHENTICATED.withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(Status.UNAUTHENTICATED.withDescription("인증 실패").asRuntimeException());
         } catch (RuntimeException e) {
             log.error("Heartbeat 실패 agent_id={}", agentId, e);
             responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());

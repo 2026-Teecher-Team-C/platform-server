@@ -3,6 +3,7 @@ package com.teecherteamc.platform.fleet.interfaces;
 import com.teecherteamc.platform.fleet.domain.Agent;
 import com.teecherteamc.platform.fleet.domain.AgentRepository;
 import com.teecherteamc.platform.fleet.domain.TokenHash;
+import com.teecherteamc.platform.proto.agent.v1.AgentServiceGrpc;
 import io.grpc.Context;
 import io.grpc.Contexts;
 import io.grpc.Metadata;
@@ -40,7 +41,11 @@ class AgentAuthServerInterceptor implements ServerInterceptor {
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
             ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
-        if (call.getMethodDescriptor().getFullMethodName().endsWith("/RegisterAgent")) {
+        // endsWith("/RegisterAgent") 대신 생성된 디스크립터와 정확히 비교한다 — 문자열 접미사 매칭은
+        // 나중에 다른 서비스/메서드가 이름 끝이 같아지면 우회 범위가 조용히 넓어질 수 있다.
+        if (AgentServiceGrpc.getRegisterAgentMethod()
+                .getFullMethodName()
+                .equals(call.getMethodDescriptor().getFullMethodName())) {
             return next.startCall(call, headers);
         }
 
