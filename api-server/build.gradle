@@ -26,6 +26,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-grpc-server'
     // gRPC 표준 헬스 체크(grpc.health.v1). gRPC 서비스 빈이 하나라도 생기면 자동으로 함께 노출된다.
     implementation 'io.grpc:grpc-services'
+    // 블룸 필터 비트맵 저장용. Lettuce가 기본 클라이언트로 같이 들어온다.
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.flywaydb:flyway-database-postgresql'

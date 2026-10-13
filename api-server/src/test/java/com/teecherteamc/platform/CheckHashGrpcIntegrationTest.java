@@ -3,6 +3,7 @@ package com.teecherteamc.platform;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.teecherteamc.platform.lookup.application.BloomFilterRebuildService;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse;
 import com.teecherteamc.platform.proto.verdict.v1.Decision;
@@ -17,11 +18,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.grpc.client.ImportGrpcClients;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceBlockingStub.class)
 @Import(TestcontainersConfiguration.class)
+// 기동 시 1차 재구축(initialDelay=0)은 그대로 돈다. 주기만 테스트 실행 시간보다 훨씬 길게 둬서,
+// 테스트 중간에 스케줄러가 다시 돌면서 방금 INSERT한 fixture를 멋대로 반영해버리는 비결정성을
+// 없앤다 — 블룸 재구축은 각 테스트가 BloomFilterRebuildService.rebuild()로 직접 트리거한다.
+@TestPropertySource(properties = "lookup.bloom-filter.rebuild-interval-ms=86400000")
 class CheckHashGrpcIntegrationTest {
 
     @Autowired
@@ -29,6 +35,9 @@ class CheckHashGrpcIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private BloomFilterRebuildService bloomFilterRebuildService;
 
     @Test
     void 블랙리스트에_있으면_BLOCK을_반환한다() {
@@ -66,6 +75,7 @@ class CheckHashGrpcIntegrationTest {
         String sha256 = "c".repeat(64);
         jdbcTemplate.update(
                 "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'MANUAL')", sha256);
+        bloomFilterRebuildService.rebuild();
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -80,6 +90,7 @@ class CheckHashGrpcIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'MALICIOUS', 'ENGINE')",
                 sha256);
+        bloomFilterRebuildService.rebuild();
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -97,6 +108,20 @@ class CheckHashGrpcIntegrationTest {
                 VALUES (?, 'CLEAN', 'MANUAL', true)
                 """,
                 sha256);
+        bloomFilterRebuildService.rebuild();
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+    }
+
+    @Test
+    void 캐시가_있어도_블룸을_재구축하기_전이면_UNKNOWN을_반환한다() {
+        String sha256 = "9".repeat(64);
+        jdbcTemplate.update(
+                "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'MANUAL')", sha256);
+        // bloomFilterRebuildService.rebuild() 호출 안 함 — 블룸이 이 해시를 아직 모른다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());

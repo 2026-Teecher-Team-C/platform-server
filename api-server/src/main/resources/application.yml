@@ -18,6 +18,19 @@ spring:
         detection-engine:
           # 격리된 engine-net 네트워크 안이라 TLS 불필요. docker compose 서비스명으로 해석된다.
           target: static://${ENGINE_ADDRESS:detection-engine:50051}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+lookup:
+  bloom-filter:
+    # n: 블룸이 추적할 것으로 예상하는 file_verdicts 전체 해시 수. 실제 개수가 이 값을 크게 넘으면
+    # 오탐률이 설정값보다 서서히 나빠진다(이번 스프린트 범위 밖 — 동적 재계산 없음).
+    expected-hash-count: 100000
+    # p: 목표 오탐률. m/k는 이 둘로부터 계산한다(RedisBloomFilterPortImpl 참고).
+    false-positive-rate: 0.01
+    rebuild-interval-ms: 300000
 
 management:
   endpoints:
