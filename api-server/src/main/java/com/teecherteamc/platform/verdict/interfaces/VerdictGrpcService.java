@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.verdict.interfaces;
 
+import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import com.teecherteamc.platform.event.application.PlaceholderAgent;
 import com.teecherteamc.platform.event.application.ReportEventCommand;
@@ -15,7 +16,19 @@ import com.teecherteamc.platform.proto.verdict.v1.DecisionSource;
 import com.teecherteamc.platform.proto.verdict.v1.FinalDecision;
 import com.teecherteamc.platform.proto.verdict.v1.ReportEventRequest;
 import com.teecherteamc.platform.proto.verdict.v1.ReportEventResponse;
+import com.teecherteamc.platform.proto.verdict.v1.SubmitFileMetadata;
+import com.teecherteamc.platform.proto.verdict.v1.SubmitFileRequest;
+import com.teecherteamc.platform.proto.verdict.v1.SubmitFileResponse;
 import com.teecherteamc.platform.proto.verdict.v1.VerdictServiceGrpc;
+import com.teecherteamc.platform.verdict.application.SubmitFileCommand;
+import com.teecherteamc.platform.verdict.application.SubmitFileResult;
+import com.teecherteamc.platform.verdict.application.SubmitFileUseCase;
+import com.teecherteamc.platform.verdict.domain.EngineUnavailableException;
+import com.teecherteamc.platform.verdict.domain.HashMismatchException;
+import com.teecherteamc.platform.verdict.domain.SpoolPort;
+import com.teecherteamc.platform.verdict.domain.SpoolResult;
+import com.teecherteamc.platform.verdict.domain.SpoolSession;
+import com.teecherteamc.platform.verdict.domain.SpoolSizeExceededException;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.time.Instant;
@@ -31,7 +44,6 @@ import org.springframework.grpc.server.service.GrpcService;
  * VerdictService(CheckHash/SubmitFile/ReportEvent) 전체의 gRPC 어댑터. gRPC는 서비스당 구현 빈이
  * 하나여야 해서, 3개 RPC가 각자 다른 컨텍스트(verdict/lookup, event) 소관이어도 이 클래스 하나에
  * 모인다 — 여기는 프로토콜 변환만 하고, 실제 로직은 각 컨텍스트의 유스케이스에 위임한다.
- * SubmitFile은 아직 미구현(UNIMPLEMENTED)으로 남겨둔다.
  */
 @GrpcService
 public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBase {
@@ -46,10 +58,23 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
 
     private final ReportEventUseCase reportEventUseCase;
     private final CheckHashUseCase checkHashUseCase;
+    private final SubmitFileUseCase submitFileUseCase;
+    private final SpoolPort spoolPort;
 
-    public VerdictGrpcService(ReportEventUseCase reportEventUseCase, CheckHashUseCase checkHashUseCase) {
+    public VerdictGrpcService(
+            ReportEventUseCase reportEventUseCase,
+            CheckHashUseCase checkHashUseCase,
+            SubmitFileUseCase submitFileUseCase,
+            SpoolPort spoolPort) {
         this.reportEventUseCase = reportEventUseCase;
         this.checkHashUseCase = checkHashUseCase;
+        this.submitFileUseCase = submitFileUseCase;
+        this.spoolPort = spoolPort;
+    }
+
+    @Override
+    public StreamObserver<SubmitFileRequest> submitFile(StreamObserver<SubmitFileResponse> responseObserver) {
+        return new SubmitFileRequestObserver(responseObserver, spoolPort, submitFileUseCase);
     }
 
     @Override
@@ -92,6 +117,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         return switch (source) {
             case "BLACKLIST" -> DecisionSource.DECISION_SOURCE_BLACKLIST;
             case "CACHE" -> DecisionSource.DECISION_SOURCE_CACHE;
+            case "ENGINE" -> DecisionSource.DECISION_SOURCE_ENGINE;
             default -> throw new IllegalStateException("unmapped decision source: " + source);
         };
     }
@@ -231,5 +257,159 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
 
     private static Instant toInstant(Timestamp timestamp) {
         return Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos());
+    }
+
+    /**
+     * SubmitFile의 요청 스트림 수신기. 첫 메시지(metadata)에서 스풀 세션을 열고, 이후 청크를 전부
+     * 스풀에 쓰면서 해시를 동시에 계산한다. 스트림이 끝나면(onCompleted) 비로소 유스케이스를 호출한다
+     * — 어떤 경로로 끝나든 스풀 파일은 항상 정리한다.
+     */
+    private static final class SubmitFileRequestObserver implements StreamObserver<SubmitFileRequest> {
+
+        private final StreamObserver<SubmitFileResponse> responseObserver;
+        private final SpoolPort spoolPort;
+        private final SubmitFileUseCase submitFileUseCase;
+
+        private SpoolSession spoolSession;
+        private String claimedSha256;
+        private long claimedFileSize;
+        private boolean metadataReceived;
+        private boolean failed;
+
+        SubmitFileRequestObserver(
+                StreamObserver<SubmitFileResponse> responseObserver, SpoolPort spoolPort,
+                SubmitFileUseCase submitFileUseCase) {
+            this.responseObserver = responseObserver;
+            this.spoolPort = spoolPort;
+            this.submitFileUseCase = submitFileUseCase;
+        }
+
+        @Override
+        public void onNext(SubmitFileRequest request) {
+            if (failed) {
+                return;
+            }
+            try {
+                switch (request.getPayloadCase()) {
+                    case METADATA -> handleMetadata(request.getMetadata());
+                    case CHUNK -> handleChunk(request.getChunk());
+                    case PAYLOAD_NOT_SET -> fail(Status.INVALID_ARGUMENT.withDescription("payload must be set"));
+                }
+            } catch (SpoolSizeExceededException e) {
+                fail(Status.RESOURCE_EXHAUSTED.withDescription(e.getMessage()).withCause(e));
+            } catch (RuntimeException e) {
+                log.error("SubmitFile 청크 처리 중 오류", e);
+                fail(Status.INTERNAL.withCause(e));
+            }
+        }
+
+        private void handleMetadata(SubmitFileMetadata metadata) {
+            if (metadataReceived) {
+                fail(Status.INVALID_ARGUMENT.withDescription("metadata는 첫 메시지에만 와야 한다"));
+                return;
+            }
+            HashKey hashKey;
+            try {
+                hashKey = HashKey.sha256(metadata.getSha256());
+            } catch (InvalidHashException e) {
+                fail(Status.INVALID_ARGUMENT.withDescription(e.getMessage()));
+                return;
+            }
+            try {
+                // analyses.event_id는 FK 순서 문제로 안 쓰지만(아래 onCompleted 참고), 형식은 검증한다.
+                UUID.fromString(metadata.getEventId());
+            } catch (IllegalArgumentException e) {
+                fail(Status.INVALID_ARGUMENT.withDescription("event_id must be a valid UUID"));
+                return;
+            }
+            this.claimedSha256 = hashKey.getHashValue();
+            this.claimedFileSize = metadata.getFileSize();
+            this.spoolSession = spoolPort.open();
+            this.metadataReceived = true;
+        }
+
+        private void handleChunk(ByteString chunk) {
+            if (!metadataReceived) {
+                fail(Status.INVALID_ARGUMENT.withDescription("첫 메시지는 metadata여야 한다"));
+                return;
+            }
+            spoolSession.write(chunk.toByteArray());
+        }
+
+        @Override
+        public void onError(Throwable t) {
+            // 클라이언트(에이전트) 쪽 문제로 스트림이 끊긴 것 — 우리가 이미 onError를 보낸 상태가
+            // 아니라면 로그만 남기고 스풀을 정리한다.
+            log.warn("SubmitFile 스트림이 끊겼다", t);
+            cleanup();
+        }
+
+        @Override
+        public void onCompleted() {
+            if (failed) {
+                return;
+            }
+            if (!metadataReceived) {
+                fail(Status.INVALID_ARGUMENT.withDescription("metadata를 받지 못했다"));
+                return;
+            }
+            try {
+                SpoolResult result = spoolSession.finish();
+                // file_size는 사전 정보일 뿐이고 실제 판정엔 실제 수신 바이트(result.bytesWritten())만
+                // 쓰지만, 둘이 다르면 에이전트 쪽 버그(또는 조작 시도)일 수 있어 여기서 먼저 걸러낸다.
+                // finish()/이 체크도 같은 try 블록 안에 둬서, delete()가 실패해도(아래 finally) 의도한
+                // 응답(INVALID_ARGUMENT)이 먼저 나간 뒤에 처리되게 한다.
+                if (result.bytesWritten() != claimedFileSize) {
+                    responseObserver.onError(Status.INVALID_ARGUMENT
+                            .withDescription(
+                                    "file_size=%d but received %d bytes"
+                                            .formatted(claimedFileSize, result.bytesWritten()))
+                            .asRuntimeException());
+                    return;
+                }
+                SubmitFileResult outcome = submitFileUseCase.submitFile(
+                        new SubmitFileCommand(claimedSha256, result.sha256(), result.bytesWritten(), result.path()));
+                responseObserver.onNext(toResponse(outcome));
+                responseObserver.onCompleted();
+            } catch (HashMismatchException e) {
+                responseObserver.onError(Status.DATA_LOSS.withDescription(e.getMessage()).asRuntimeException());
+            } catch (EngineUnavailableException e) {
+                log.error("SubmitFile: 엔진 호출 실패", e);
+                responseObserver.onError(
+                        Status.UNAVAILABLE.withDescription("탐지 엔진에 연결할 수 없다").withCause(e).asRuntimeException());
+            } catch (RuntimeException e) {
+                log.error("SubmitFile 처리 실패", e);
+                responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());
+            } finally {
+                spoolSession.delete();
+            }
+        }
+
+        private void fail(Status status) {
+            failed = true;
+            try {
+                cleanup();
+            } catch (RuntimeException e) {
+                // 정리 실패 때문에 의도한 상태 코드(RESOURCE_EXHAUSTED 등)가 안 나가면 안 된다 —
+                // 로그만 남기고 아래 onError는 계속 보낸다.
+                log.warn("SubmitFile 스풀 정리 실패", e);
+            }
+            responseObserver.onError(status.asRuntimeException());
+        }
+
+        private void cleanup() {
+            if (spoolSession != null) {
+                spoolSession.delete();
+            }
+        }
+
+        private static SubmitFileResponse toResponse(SubmitFileResult result) {
+            return SubmitFileResponse.newBuilder()
+                    .setDecision(toProtoDecision(result.decision()))
+                    .setSource(toProtoDecisionSource(result.source()))
+                    .setReason(result.reason() == null ? "" : result.reason())
+                    .addAllMatchedRules(result.matchedRules())
+                    .build();
+        }
     }
 }
