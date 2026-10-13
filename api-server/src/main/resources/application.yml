@@ -19,6 +19,11 @@ spring:
           # 격리된 engine-net 네트워크 안이라 TLS 불필요. docker compose 서비스명으로 해석된다.
           target: static://${ENGINE_ADDRESS:detection-engine:50051}
 
+platform:
+  cors:
+    # 쉼표로 구분. 운영은 Vercel 콘솔 도메인을 CORS_ALLOWED_ORIGINS로 넣는다.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
 management:
   endpoints:
     web:
