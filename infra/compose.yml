@@ -28,6 +28,11 @@ services:
     # 공격자가 만든 파일을 파싱하는 컨테이너다. 뚫려도 피해가 여기서 끝나야 한다.
     networks: [engine-net]
     read_only: true
+    # 받은 파일은 /spool(디스크 볼륨)에 쓰고 분석 후 지운다. tmpfs는 메모리라서 큰 파일을 둘 수 없다.
+    environment:
+      ENGINE_SPOOL_DIR: /spool
+    volumes:
+      - engine-spool:/spool
     tmpfs:
       - /tmp
     mem_limit: 1g
@@ -38,6 +43,9 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks: [default, engine-net]
+
+volumes:
+  engine-spool:
 
 networks:
   # 외부(인터넷·AWS·EC2 메타데이터)로 나가는 경로가 없는 네트워크. 탐지 엔진은 여기에만 붙는다.

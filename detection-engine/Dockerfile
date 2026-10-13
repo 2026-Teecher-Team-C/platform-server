@@ -23,7 +23,8 @@ COPY --from=build /gen/teecher ./src/teecher
 COPY detection-engine/src ./src
 COPY detection-engine/rules ./rules
 
-RUN useradd --system --uid 10001 engine
+# /spool: 분석할 파일을 잠깐 두는 곳. compose가 여기에 볼륨을 붙이는데, 빈 볼륨은 이미지 디렉터리의 소유권을 따른다.
+RUN useradd --system --uid 10001 engine && mkdir /spool && chown engine /spool
 USER engine
 EXPOSE 50051
 CMD ["/opt/venv/bin/python", "-m", "detection_engine.server"]
