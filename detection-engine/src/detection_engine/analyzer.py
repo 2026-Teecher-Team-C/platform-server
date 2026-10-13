@@ -31,7 +31,8 @@ class Analyzer:
             raise ValueError(f"YARA 룰이 없습니다: {rules_dir}")
         self._rules = yara.compile(filepaths=rule_files)
 
-    def analyze(self, data: bytes) -> Analysis:
+    def analyze_file(self, path: Path) -> Analysis:
+        """파일을 메모리에 올리지 않고 YARA가 경로로 직접 읽게 한다. 메모리 사용이 파일 크기와 무관하다."""
         started = time.monotonic()
         hits = [
             RuleHit(
@@ -39,7 +40,7 @@ class Analyzer:
                 severity=str(match.meta.get("severity", "MEDIUM")),
                 matched_strings=[string.identifier for string in match.strings][:MAX_MATCHED_STRINGS],
             )
-            for match in self._rules.match(data=data)
+            for match in self._rules.match(filepath=str(path))
         ]
         duration_ms = int((time.monotonic() - started) * 1000)
         return Analysis(malicious=bool(hits), matches=hits, duration_ms=duration_ms)
