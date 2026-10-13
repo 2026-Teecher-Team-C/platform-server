@@ -1,9 +1,13 @@
 package com.teecherteamc.platform.fleet.interfaces;
 
 import com.google.protobuf.Timestamp;
+import com.teecherteamc.platform.fleet.application.HeartbeatCommand;
+import com.teecherteamc.platform.fleet.application.HeartbeatUseCase;
 import com.teecherteamc.platform.fleet.application.RegisterAgentCommand;
 import com.teecherteamc.platform.fleet.application.RegisterAgentResult;
 import com.teecherteamc.platform.fleet.application.RegisterAgentUseCase;
+import com.teecherteamc.platform.fleet.domain.AgentNotFoundException;
+import com.teecherteamc.platform.fleet.domain.AgentRevokedException;
 import com.teecherteamc.platform.fleet.domain.EnrollmentTokenAlreadyRedeemedException;
 import com.teecherteamc.platform.fleet.domain.EnrollmentTokenExpiredException;
 import com.teecherteamc.platform.fleet.domain.InvalidEnrollmentTokenException;
@@ -20,16 +24,18 @@ import com.teecherteamc.platform.proto.agent.v1.RegisterAgentResponse;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.time.Instant;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
 
 /**
- * AgentService의 gRPC 어댑터. RegisterAgent만 실제 구현한다 — Heartbeat/RefreshAgentToken/GetPolicy는
- * proto가 요구하는 메서드지만 각각 별도 슬라이스(Heartbeat는 다음 PR, 나머지는 S4)라 지금은 명시적으로
- * UNIMPLEMENTED를 돌려준다.
+ * AgentService의 gRPC 어댑터. RegisterAgent/Heartbeat만 실제 구현한다 — RefreshAgentToken/GetPolicy는
+ * proto가 요구하는 메서드지만 이번 스프린트 범위 밖(S4에 팀과 재협의)이라 명시적으로 UNIMPLEMENTED를
+ * 돌려준다. AgentAuthServerInterceptor를 이 서비스에만 스코프를 걸어서, Bearer 토큰이 필요 없는
+ * RegisterAgent와 VerdictService의 기존 RPC들이 영향받지 않게 한다.
  */
-@GrpcService
+@GrpcService(interceptors = AgentAuthServerInterceptor.class)
 public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(AgentGrpcService.class);
@@ -40,9 +46,11 @@ public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
     private static final int MAX_HARDWARE_UUID_LENGTH = 64;
 
     private final RegisterAgentUseCase registerAgentUseCase;
+    private final HeartbeatUseCase heartbeatUseCase;
 
-    public AgentGrpcService(RegisterAgentUseCase registerAgentUseCase) {
+    public AgentGrpcService(RegisterAgentUseCase registerAgentUseCase, HeartbeatUseCase heartbeatUseCase) {
         this.registerAgentUseCase = registerAgentUseCase;
+        this.heartbeatUseCase = heartbeatUseCase;
     }
 
     @Override
@@ -80,8 +88,30 @@ public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
 
     @Override
     public void heartbeat(HeartbeatRequest request, StreamObserver<HeartbeatResponse> responseObserver) {
-        responseObserver.onError(
-                Status.UNIMPLEMENTED.withDescription("다음 PR에서 구현됨").asRuntimeException());
+        if (request.getAgentVersion().isBlank()) {
+            responseObserver.onError(
+                    Status.INVALID_ARGUMENT.withDescription("agent_version must not be blank").asRuntimeException());
+            return;
+        }
+        if (request.getAgentVersion().length() > MAX_AGENT_VERSION_LENGTH) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("agent_version must be at most " + MAX_AGENT_VERSION_LENGTH + " characters")
+                    .asRuntimeException());
+            return;
+        }
+        UUID agentId = AgentAuthContext.AGENT_ID.get();
+        try {
+            Instant serverTime = heartbeatUseCase.heartbeat(new HeartbeatCommand(agentId, request.getAgentVersion()));
+            responseObserver.onNext(
+                    HeartbeatResponse.newBuilder().setServerTime(toTimestamp(serverTime)).build());
+            responseObserver.onCompleted();
+        } catch (AgentNotFoundException | AgentRevokedException e) {
+            log.warn("Heartbeat 인증 실패 agent_id={}: {}", agentId, e.getMessage());
+            responseObserver.onError(Status.UNAUTHENTICATED.withDescription(e.getMessage()).asRuntimeException());
+        } catch (RuntimeException e) {
+            log.error("Heartbeat 실패 agent_id={}", agentId, e);
+            responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());
+        }
     }
 
     @Override
