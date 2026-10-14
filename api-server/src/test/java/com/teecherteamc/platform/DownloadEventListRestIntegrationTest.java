@@ -130,11 +130,23 @@ class DownloadEventListRestIntegrationTest {
 
         List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("items");
         assertThat(items).hasSize(3);
-        UUID expectedFirst = tie1.compareTo(tie2) > 0 ? tie1 : tie2;
-        UUID expectedSecond = tie1.compareTo(tie2) > 0 ? tie2 : tie1;
+        // Postgres의 UUID 비교는 16바이트를 unsigned로 본다 — Java UUID.compareTo()는 상위/하위
+        // 64비트를 signed long으로 비교해서 결과가 다를 수 있다(둘 다 랜덤 UUID라 비트에 따라
+        // 갈림). 쿼리의 ORDER BY event_id DESC와 같은 기준으로 비교해야 CI에서도 안 깨진다.
+        boolean tie1First = comparePostgresUuidDesc(tie1, tie2) < 0;
+        UUID expectedFirst = tie1First ? tie1 : tie2;
+        UUID expectedSecond = tie1First ? tie2 : tie1;
         assertThat(items.get(0).get("eventId")).isEqualTo(expectedFirst.toString());
         assertThat(items.get(1).get("eventId")).isEqualTo(expectedSecond.toString());
         assertThat(items.get(2).get("eventId")).isEqualTo(older.toString());
+    }
+
+    private static int comparePostgresUuidDesc(UUID a, UUID b) {
+        int mostCompare = Long.compareUnsigned(a.getMostSignificantBits(), b.getMostSignificantBits());
+        if (mostCompare != 0) {
+            return -mostCompare;
+        }
+        return -Long.compareUnsigned(a.getLeastSignificantBits(), b.getLeastSignificantBits());
     }
 
     @Test
