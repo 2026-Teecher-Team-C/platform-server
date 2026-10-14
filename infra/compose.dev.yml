@@ -8,6 +8,12 @@ services:
     environment:
       # make test 와 빌드 출력·잠금이 겹치지 않도록 컨테이너 안에 둔다
       GRADLE_BUILD_DIR: /tmp/build
+      # compose.yml은 QUARANTINE_S3_BUCKET/REGION만 요구한다 — MinIO 전용 값들은 운영 compose.yml이
+      # 모르는 설정이라 여기서만 직접 전달해야 실제로 컨테이너에 들어간다.
+      QUARANTINE_S3_ENDPOINT: ${QUARANTINE_S3_ENDPOINT}
+      QUARANTINE_S3_PATH_STYLE: ${QUARANTINE_S3_PATH_STYLE}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     volumes:
       - ..:/workspace
       - gradle-cache:/root/.gradle
@@ -16,6 +22,8 @@ services:
       - "9090:9090"
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   detection-engine:
@@ -43,6 +51,22 @@ services:
     image: redis:8-alpine
     ports:
       - "6379:6379"
+
+  # 로컬 개발용 S3 호환 스토리지. 운영은 실제 S3(ElastiCache/RDS와 같은 관리형 자원).
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   console:
     image: node:22-alpine

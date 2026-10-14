@@ -19,6 +19,8 @@ services:
       DB_URL: ${DB_URL:?DB_URL is required}
       DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      QUARANTINE_S3_BUCKET: ${QUARANTINE_S3_BUCKET:?QUARANTINE_S3_BUCKET is required}
+      QUARANTINE_S3_REGION: ${QUARANTINE_S3_REGION:?QUARANTINE_S3_REGION is required}
     networks: [default, engine-net]
 
   detection-engine:

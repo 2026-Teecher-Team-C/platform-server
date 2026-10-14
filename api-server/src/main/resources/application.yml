@@ -19,6 +19,15 @@ spring:
           # 격리된 engine-net 네트워크 안이라 TLS 불필요. docker compose 서비스명으로 해석된다.
           target: static://${ENGINE_ADDRESS:detection-engine:50051}
 
+quarantine:
+  s3:
+    bucket: ${QUARANTINE_S3_BUCKET:platform-quarantine}
+    region: ${QUARANTINE_S3_REGION:us-east-1}
+    # 비어있으면 실제 AWS 엔드포인트 사용(운영). 로컬은 MinIO를 가리킨다.
+    endpoint-override: ${QUARANTINE_S3_ENDPOINT:}
+    # MinIO는 path-style 접근이 필요하다(virtual-hosted-style 기본은 AWS 실제 S3 기준).
+    path-style-access: ${QUARANTINE_S3_PATH_STYLE:false}
+
 management:
   endpoints:
     web:

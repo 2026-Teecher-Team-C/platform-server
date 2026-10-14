@@ -19,6 +19,9 @@ repositories {
 }
 
 dependencies {
+    // S3 격리 업로드. Spring Boot BOM이 버전을 안 맞춰줘서 AWS SDK 자체 BOM을 따로 둔다.
+    implementation platform('software.amazon.awssdk:bom:2.25.11')
+    implementation 'software.amazon.awssdk:s3'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
