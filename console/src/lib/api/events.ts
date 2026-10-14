@@ -2,7 +2,9 @@ import { apiRequest } from './client'
 import type { CursorPage } from './types'
 import { toQueryString } from './types'
 
-export type DownloadDecision = 'ALLOWED' | 'BLOCKED'
+// 실제 DB CHECK 제약(ck_download_events_decision/ck_download_events_decision_source)과 1:1.
+export type DownloadDecision = 'RELEASED' | 'BLOCKED' | 'BYPASSED' | 'FAIL_CLOSE'
+export type DownloadDecisionSource = 'WHITELIST' | 'BLACKLIST' | 'CACHE' | 'ENGINE' | 'POLICY'
 
 export type DownloadEventListItem = {
   eventId: string
@@ -13,7 +15,7 @@ export type DownloadEventListItem = {
   mimeType: string | null
   fileSize: number | null
   decision: DownloadDecision
-  decisionSource: string
+  decisionSource: DownloadDecisionSource
   cacheHit: boolean
   holdDurationMs: number | null
   createdAt: string
