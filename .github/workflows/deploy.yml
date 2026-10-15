@@ -33,6 +33,7 @@ jobs:
             for i in $(seq 1 30); do
               if $C exec -T api-server curl -sf http://localhost:8080/actuator/health < /dev/null | grep -q '"status":"UP"'; then
                 ok=1
+                echo "헬스체크 통과: ${i}번째 시도"
                 break
               fi
               sleep 2
