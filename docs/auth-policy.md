@@ -26,8 +26,9 @@ api-server의 로그인·권한 적용 방침이다. 지금은 문서만 있고,
 - POST 요청에 CSRF 토큰이 필요해진다. 쿠키 세션을 쓰면 프론트 요청 방식도 같이 확인한다.
 - `GlobalExceptionHandler`의 `Exception` 처리가 `AccessDeniedException`, `AuthenticationException`까지 잡으면 401/403이 500으로 바뀐다. 이 예외들은 다시 던지거나 따로 처리한다.
 - 401/403 응답은 Security의 진입점(`AuthenticationEntryPoint`)과 접근 거부 처리기(`AccessDeniedHandler`)에서 `ErrorResponse` 형식으로 맞춘다.
-- CORS 설정을 Security 필터 체인과 함께 정리한다. 지금은 api-server에서 허용 도메인만 설정하고 있다.
-
+- CORS 설정을 Security 필터 체인과 함께 정리한다. 
+쿠키를 쓰므로 허용 도메인을 정확히 지정하고 자격 증명을 허용해야 한다. 
+지금은 api-server에서 허용 도메인만 설정하고 있다.
 ## 4. 로그인 방식과 SSE 인증
 
 관리 콘솔 로그인은 세션 쿠키를 쓰고, SSE도 같은 쿠키를 쓴다. (현재 방향이고, 구현할 때 팀과 확정한다)
@@ -38,7 +39,7 @@ api-server의 로그인·권한 적용 방침이다. 지금은 문서만 있고,
   - CORS는 허용 도메인을 `*`가 아니라 정확한 주소로 지정하고, 자격 증명(`allowCredentials`)을 허용한다.
   - 프론트는 요청에 쿠키를 싣는 옵션(`credentials: 'include'`, `EventSource`는 `withCredentials: true`)을 켠다.
 - 세션 쿠키를 쓰면 POST 요청에 CSRF 방어가 필요하다. CSRF 토큰을 쓸지, `SameSite` 설정으로 막을지 정한다.
-- 에이전트 요청에서 쿠키 적용이 어려우면 쿼리 토큰을 대안으로 쓴다.   <- 여기에 추가
+- 에이전트 요청에서 쿠키 적용이 어려우면 쿼리 토큰을 대안으로 쓴다.   
 
 ## 5. 에이전트 업로드 인증
 
