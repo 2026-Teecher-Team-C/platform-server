@@ -16,7 +16,4 @@ public interface BlacklistEntryRepository {
      * 판정에 쓰면 안 되고, 중복 등록 확인이나 비활성화 같은 관리 용도다.
      */
     Optional<BlacklistEntry> findByKey(HashKey key);
-
-    /** 조회 사슬이 쓰는 메서드. 활성 항목만 본다. 비활성화된 해시는 false다. */
-    boolean existsActive(HashKey key);
 }
