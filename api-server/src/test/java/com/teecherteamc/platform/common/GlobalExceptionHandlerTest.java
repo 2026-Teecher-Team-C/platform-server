@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 어떤 예외가 나도 응답이 공통 ErrorResponse 모양으로 내려가는지 확인한다.
+ * 어떤 예외가 나도 응답이 공통 ErrorResponse 형식으로 내려가는지 확인한다.
  * 앱 전체를 띄우지 않고, 테스트용 컨트롤러와 GlobalExceptionHandler만 연결해서 본다.
  */
 class GlobalExceptionHandlerTest {
@@ -87,6 +87,16 @@ class GlobalExceptionHandlerTest {
                 .andExpect(content().string(not(containsString("secret-host"))));
     }
 
+    @Test
+    void 서버_오류_ApiException은_직접_넣은_메시지를_응답에_싣지_않는다() throws Exception {
+        mvc.perform(get("/test/internal-with-message"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.message").value("서버 오류가 발생했습니다."))
+                // 던진 쪽이 쓴 문장이 응답 어디에도 없어야 한다
+                .andExpect(content().string(not(containsString("DB 접속 정보 노출"))));
+    }
+
     /** 테스트 전용 컨트롤러. 일부러 예외를 던진다. */
     @RestController
     @RequestMapping("/test")
@@ -109,9 +119,16 @@ class GlobalExceptionHandlerTest {
         void validate(@Valid @RequestBody Body body) {
         }
 
+        /** ApiException이 아닌 예상 못 한 예외. 메시지에 내부 정보가 섞여 있다. */
         @GetMapping("/boom")
         void boom() {
-            throw new IllegalStateException("jdbc:postgresql://secret-host password=hunter2");
+            throw new IllegalStateException("db password=hunter2 host=secret-host");
+        }
+
+        /** 5xx ErrorCode에 직접 메시지를 넣어 던지는 경우. 이 문장은 응답에 나가면 안 된다. */
+        @GetMapping("/internal-with-message")
+        void internalWithMessage() {
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "DB 접속 정보 노출");
         }
     }
 }

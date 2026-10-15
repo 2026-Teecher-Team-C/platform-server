@@ -14,18 +14,29 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 모든 컨트롤러에서 나는 예외를 잡아 공통 ErrorResponse로 바꾼다.
- * 어떤 경로로 실패하든 응답 모양이 같아야 프론트가 한 가지 방식으로만 처리할 수 있다.
+ * 어떤 경로로 실패하든 응답 형식이 같아야 프론트가 한 가지 방식으로만 처리할 수 있다.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /** 우리가 의도해서 던진 예외. ErrorCode의 상태와 메시지대로 내려간다. */
+    /**
+     * 우리가 의도해서 던진 예외. ErrorCode의 상태대로 내려간다.
+     * 5xx는 던진 쪽이 쓴 메시지를 응답에 싣지 않는다(내부 정보가 새는 것을 막기 위해).
+     * 원인은 로그에만 남기고, 응답에는 ErrorCode의 기본 메시지를 쓴다.
+     */
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ErrorResponse> handleApi(ApiException ex, HttpServletRequest req) {
+        ErrorCode code = ex.getErrorCode();
+
+        if (code.getStatus().is5xxServerError()) {
+            log.error("ApiException {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage(), ex);
+            return build(code, code.getMessage(), req);
+        }
+
         log.warn("ApiException {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
-        return build(ex.getErrorCode(), ex.getMessage(), req);
+        return build(code, ex.getMessage(), req);
     }
 
     /** @Valid 입력 검증 실패. 틀린 필드별 사유를 fieldErrors에 담는다. */
@@ -69,12 +80,13 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {
-        log.error("Unhandled exception {} {}", req.getMethod(), req.getRequestURI(), ex);
+        log.error("처리되지 않은 예외 {} {}", req.getMethod(), req.getRequestURI(), ex);
         return build(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.getMessage(), req);
     }
 
-    private ResponseEntity<ErrorResponse> build(ErrorCode errorCode, String message, HttpServletRequest req) {
-        return ResponseEntity.status(errorCode.getStatus())
-                .body(ErrorResponse.of(errorCode, message, req.getRequestURI()));
+    /** ErrorCode의 HTTP 상태와 함께 ErrorResponse를 만든다. */
+    private ResponseEntity<ErrorResponse> build(ErrorCode ec, String message, HttpServletRequest req) {
+        return ResponseEntity.status(ec.getStatus())
+                .body(ErrorResponse.of(ec, message, req.getRequestURI()));
     }
 }
