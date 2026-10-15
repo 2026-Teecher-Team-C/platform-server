@@ -4,7 +4,7 @@ export const mockAgents: AgentListItem[] = [
   {
     agentId: '10000000-0000-4000-8000-000000000001',
     hostname: 'DESKTOP-7F2K91',
-    osPlatform: 'WINDOW',
+    osPlatform: 'WINDOWS',
     agentVersion: '0.3.1',
     status: 'ACTIVE',
     lastHeartbeatAt: '2026-10-11T17:58:12+09:00',
@@ -12,7 +12,7 @@ export const mockAgents: AgentListItem[] = [
   {
     agentId: '10000000-0000-4000-8000-000000000002',
     hostname: 'MACBOOK-DEV',
-    osPlatform: 'MAC',
+    osPlatform: 'MACOS',
     agentVersion: '0.3.1',
     status: 'ACTIVE',
     lastHeartbeatAt: '2026-10-11T17:57:42+09:00',

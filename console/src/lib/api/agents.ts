@@ -17,7 +17,7 @@ export function createEnrollmentToken(body: CreateEnrollmentTokenRequest) {
 }
 
 export type AgentStatus = 'ACTIVE' | 'INACTIVE' | 'REVOKED'
-export type OsPlatform = 'WINDOW' | 'MAC' | 'LINUX'
+export type OsPlatform = 'WINDOWS' | 'MACOS' | 'LINUX'
 
 export type AgentListItem = {
   agentId: string
