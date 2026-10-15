@@ -4,6 +4,14 @@ name: deploy
 # 재기동 동안 모든 에이전트가 다운로드를 차단한다 (fail-close). 데모 직전 배포 금지.
 # 필요한 Secrets: EC2_HOST, EC2_USER, EC2_SSH_KEY, EC2_APP_DIR
 on:
+  push:
+    branches: [develop]
+    paths:
+      - "api-server/**"
+      - "detection-engine/**"
+      - "proto/**"
+      - "infra/**"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 concurrency:
@@ -30,8 +38,11 @@ jobs:
             C="docker compose --env-file infra/.env -f infra/compose.yml -f infra/compose.temp-db.yml -f infra/compose.prod.yml"
             $C up -d --build < /dev/null
             ok=0
-            for i in $(seq 1 30); do
-              if $C exec -T api-server curl -sf http://localhost:8080/actuator/health < /dev/null | grep -q '"status":"UP"'; then
+            i=0
+            deadline=$((SECONDS + 60))
+            while [ "$SECONDS" -lt "$deadline" ]; do
+              i=$((i + 1))
+              if $C exec -T api-server curl -sf --connect-timeout 2 --max-time 3 http://localhost:8080/actuator/health < /dev/null | grep -q '"status":"UP"'; then
                 ok=1
                 echo "헬스체크 통과: ${i}번째 시도"
                 break
@@ -39,7 +50,7 @@ jobs:
               sleep 2
             done
             if [ "$ok" != 1 ]; then
-              echo "헬스 체크 실패: api-server가 약 60초(30회 x 2초) 안에 UP 응답을 하지 않았습니다."
+              echo "헬스 체크 실패: api-server가 60초 안에 UP 응답을 하지 않았습니다."
               $C ps < /dev/null || true
               $C logs --tail 30 api-server < /dev/null || true
               exit 1
