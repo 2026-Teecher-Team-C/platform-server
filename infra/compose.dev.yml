@@ -8,6 +8,12 @@ services:
     environment:
       # make test 와 빌드 출력·잠금이 겹치지 않도록 컨테이너 안에 둔다
       GRADLE_BUILD_DIR: /tmp/build
+      # compose.yml은 QUARANTINE_S3_BUCKET/REGION만 요구한다 — LocalStack 전용 값들은 운영 compose.yml이
+      # 모르는 설정이라 여기서만 직접 전달해야 실제로 컨테이너에 들어간다.
+      QUARANTINE_S3_ENDPOINT: ${QUARANTINE_S3_ENDPOINT}
+      QUARANTINE_S3_PATH_STYLE: ${QUARANTINE_S3_PATH_STYLE}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     volumes:
       - ..:/workspace
       - gradle-cache:/root/.gradle
@@ -16,6 +22,8 @@ services:
       - "9090:9090"
     depends_on:
       postgres:
+        condition: service_healthy
+      localstack:
         condition: service_healthy
 
   detection-engine:
@@ -43,6 +51,21 @@ services:
     image: redis:8-alpine
     ports:
       - "6379:6379"
+
+  # 로컬 개발용 S3 호환 스토리지. 운영은 실제 S3(ElastiCache/RDS와 같은 관리형 자원).
+  # MinIO는 2026-09에 Docker Hub/quay.io에서 커뮤니티 에디션 이미지를 내려서 pull이 안 된다 —
+  # LocalStack(S3 에뮬레이터)으로 대체. 자격증명은 아무 문자열이나 받아준다(커뮤니티 에디션은 검증 안 함).
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:4566/_localstack/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   console:
     image: node:22-alpine

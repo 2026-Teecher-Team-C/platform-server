@@ -71,9 +71,10 @@ public class WhitelistEntry {
         this.active = false;
     }
 
-    /**
+        /**
      * now 시점에 이 예외가 유효한가? 활성이면서 만료 전이어야 한다.
-     * 나중에 만들 리포지토리의 existsEffective 쿼리와 같은 규칙이어야 한다.
+     * 만료 시각 정각은 유효하지 않다. (expiresAt이 now보다 뒤일 때만 유효)
+     * lookup의 화이트리스트 전용 쿼리도 같은 규칙을 써야 한다.
      */
     public boolean isEffectiveAt(Instant now) {
         return active && (expiresAt == null || expiresAt.isAfter(now));

@@ -1,3 +1,6 @@
+import { notifyUnauthorized } from '../auth/events'
+import { getAccessToken } from '../auth/tokenStore'
+
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:8080'
 
@@ -19,12 +22,13 @@ type ApiRequestOptions = RequestInit & {
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { token, headers, ...requestInit } = options
+  const accessToken = token ?? getAccessToken()
   const response = await fetch(API_BASE_URL + path, {
     ...requestInit,
     headers: {
       Accept: 'application/json',
       ...(requestInit.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}),
       ...headers,
     },
   })
@@ -35,6 +39,10 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     : await response.text()
 
   if (!response.ok) {
+    if (response.status === 401 && path !== '/api/admin/auth/login') {
+      notifyUnauthorized()
+    }
+
     throw new ApiError(response.status, body)
   }
 

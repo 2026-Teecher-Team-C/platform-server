@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../../app/useAuth'
 
 const navigation = [
   { to: '/dashboard', label: '대시보드' },
   { to: '/events', label: '다운로드 이벤트' },
   { to: '/quarantine', label: '격리 파일' },
   { to: '/agents', label: 'PC 현황' },
+  { to: '/agents/enrollment-token', label: '등록 토큰 발급', adminOnly: true },
   { to: '/whitelist', label: '화이트리스트' },
   { to: '/blacklist', label: '블랙리스트' },
   { to: '/policies', label: '정책' },
@@ -13,6 +15,9 @@ const navigation = [
 ]
 
 export function Sidebar() {
+  const { user } = useAuth()
+  const visibleNavigation = navigation.filter((item) => !item.adminOnly || user?.role === 'ADMIN')
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -24,10 +29,11 @@ export function Sidebar() {
       </div>
 
       <nav className="sidebar-nav" aria-label="관리 콘솔 메뉴">
-        {navigation.map((item) => (
+        {visibleNavigation.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
+            end={item.to === '/agents'}
             className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}
           >
             {item.label}
@@ -36,8 +42,8 @@ export function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        <span>Console Sprint 1</span>
-        <small>Mock-first development</small>
+        <span>Console Sprint 2</span>
+        <small>Auth · Deployment · Observability</small>
       </div>
     </aside>
   )

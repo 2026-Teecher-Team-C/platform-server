@@ -24,6 +24,15 @@ platform:
     # 쉼표로 구분. 운영은 Vercel 콘솔 도메인을 CORS_ALLOWED_ORIGINS로 넣는다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+quarantine:
+  s3:
+    bucket: ${QUARANTINE_S3_BUCKET:platform-quarantine}
+    region: ${QUARANTINE_S3_REGION:us-east-1}
+    # 비어있으면 실제 AWS 엔드포인트 사용(운영). 로컬은 LocalStack을 가리킨다.
+    endpoint-override: ${QUARANTINE_S3_ENDPOINT:}
+    # LocalStack은 path-style 접근이 필요하다(virtual-hosted-style 기본은 AWS 실제 S3 기준).
+    path-style-access: ${QUARANTINE_S3_PATH_STYLE:false}
+
 management:
   endpoints:
     web:

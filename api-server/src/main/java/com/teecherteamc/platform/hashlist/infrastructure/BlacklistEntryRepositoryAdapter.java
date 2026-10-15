@@ -28,9 +28,4 @@ class BlacklistEntryRepositoryAdapter implements BlacklistEntryRepository {
     public Optional<BlacklistEntry> findByKey(HashKey key) {
         return jpaRepository.findById(key);
     }
-
-    @Override
-    public boolean existsActive(HashKey key) {
-        return jpaRepository.existsActive(key);
-    }
 }
