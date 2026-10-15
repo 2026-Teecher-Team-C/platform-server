@@ -253,6 +253,76 @@ class ReportEventGrpcIntegrationTest {
                         .isEqualTo(Status.Code.INVALID_ARGUMENT));
     }
 
+    @Test
+    void 격리_대기중인_업로드가_있으면_BLOCKED_때_quarantine_files를_만들고_스테이징_행을_지운다() {
+        String sha256 = "2".repeat(64);
+        jdbcTemplate.update(
+                "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'MALICIOUS', 'ENGINE')",
+                sha256);
+        jdbcTemplate.update(
+                """
+                INSERT INTO pending_quarantine_uploads (sha256, file_size, s3_bucket, s3_key)
+                VALUES (?, 12345, 'platform-quarantine', 'test-key-1')
+                """,
+                sha256);
+
+        UUID eventId = UUID.randomUUID();
+        Instant heldAt = Instant.now();
+
+        verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                .setEventId(eventId.toString())
+                .setSha256(sha256)
+                .setRequestHost("malicious.example.com")
+                .setUrl("https://malicious.example.com/evil.exe")
+                .setFilename("evil.exe")
+                .setDecision(FinalDecision.FINAL_DECISION_BLOCKED)
+                .setDecisionSource(DecisionSource.DECISION_SOURCE_ENGINE)
+                .setHeldAt(toTimestamp(heldAt))
+                .setDecidedAt(toTimestamp(heldAt.plusMillis(300)))
+                .build());
+
+        Map<String, Object> quarantineRow = jdbcTemplate.queryForMap(
+                "SELECT * FROM quarantine_files WHERE event_id = ?", eventId);
+        assertThat(quarantineRow.get("sha256")).isEqualTo(sha256);
+        assertThat(quarantineRow.get("agent_id")).isEqualTo(DEV_AGENT_ID);
+        assertThat(quarantineRow.get("original_filename")).isEqualTo("evil.exe");
+        assertThat(quarantineRow.get("file_size")).isEqualTo(12345L);
+        assertThat(quarantineRow.get("s3_bucket")).isEqualTo("platform-quarantine");
+        assertThat(quarantineRow.get("s3_key")).isEqualTo("test-key-1");
+        assertThat(quarantineRow.get("status")).isEqualTo("QUARANTINED");
+
+        Integer pendingCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pending_quarantine_uploads WHERE sha256 = ?", Integer.class, sha256);
+        assertThat(pendingCount).isZero();
+    }
+
+    @Test
+    void 격리_대기중인_업로드가_없으면_BLOCKED여도_quarantine_files를_안_만든다() {
+        String sha256 = "3".repeat(64);
+        jdbcTemplate.update(
+                "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'test')", sha256);
+        jdbcTemplate.update(
+                "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'MALICIOUS', 'MANUAL')",
+                sha256);
+
+        UUID eventId = UUID.randomUUID();
+        Instant heldAt = Instant.now();
+
+        verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                .setEventId(eventId.toString())
+                .setSha256(sha256)
+                .setRequestHost("example.com")
+                .setUrl("https://example.com/evil.exe")
+                .setDecision(FinalDecision.FINAL_DECISION_BLOCKED)
+                .setDecisionSource(DecisionSource.DECISION_SOURCE_BLACKLIST)
+                .setHeldAt(toTimestamp(heldAt))
+                .build());
+
+        Integer quarantineCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM quarantine_files WHERE event_id = ?", Integer.class, eventId);
+        assertThat(quarantineCount).isZero();
+    }
+
     private static Timestamp toTimestamp(Instant instant) {
         return Timestamp.newBuilder()
                 .setSeconds(instant.getEpochSecond())

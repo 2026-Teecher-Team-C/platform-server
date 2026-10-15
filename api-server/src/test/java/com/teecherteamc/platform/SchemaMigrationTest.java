@@ -18,7 +18,7 @@ class SchemaMigrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void 마이그레이션이_16개_테이블을_만든다() {
+    void 마이그레이션이_17개_테이블을_만든다() {
         List<String> tables = jdbcTemplate.queryForList("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -30,7 +30,7 @@ class SchemaMigrationTest {
                 "file_verdicts", "download_events", "analyses", "analysis_matches",
                 "hash_blacklist", "hash_whitelist", "quarantine_files",
                 "bypass_domains", "file_type_policies", "audit_logs",
-                "agent_enrollment_tokens");
+                "agent_enrollment_tokens", "pending_quarantine_uploads");
     }
 
     @Test
