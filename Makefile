@@ -27,7 +27,7 @@ test-engine:
 	$(ENGINE_TEST) "./scripts/gen_proto.sh && uv run --group dev ruff check . && uv run --group dev pytest -q"
 
 test-console:
-	$(NODE) "npm ci && npm run lint && npm run build"
+	$(NODE) "npm ci && npm run lint && npm test && npm run build"
 
 proto:          ## proto 변경 후 Java·Python 코드 재생성
 	$(GRADLE) generateProto
