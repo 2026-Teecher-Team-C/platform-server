@@ -3,7 +3,6 @@ package com.teecherteamc.platform.hashlist.infrastructure;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
-import java.time.Instant;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
@@ -28,10 +27,5 @@ class WhitelistEntryRepositoryAdapter implements WhitelistEntryRepository {
     @Override
     public Optional<WhitelistEntry> findByKey(HashKey key) {
         return jpaRepository.findById(key);
-    }
-
-    @Override
-    public boolean existsEffective(HashKey key, Instant now) {
-        return jpaRepository.existsEffective(key, now);
     }
 }
