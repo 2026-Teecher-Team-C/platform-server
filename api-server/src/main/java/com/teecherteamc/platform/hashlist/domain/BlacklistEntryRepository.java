@@ -13,7 +13,7 @@ public interface BlacklistEntryRepository {
 
     /**
      * 비활성 항목까지 포함해서 찾는다.
-     * 판정에 쓰면 안 되고, 중복 등록 확인이나 비활성화 같은 관리 용도다.
+     * 해시 판정은 lookup이 전용 쿼리로 하므로, 여기서는 중복 등록 확인이나 비활성화 같은 관리 용도로만 쓴다.
      */
     Optional<BlacklistEntry> findByKey(HashKey key);
 }
