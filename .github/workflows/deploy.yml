@@ -23,9 +23,24 @@ jobs:
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
       - name: EC2에서 빌드·기동
         run: |
-          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'EOF'
             set -e
             cd '${{ secrets.EC2_APP_DIR }}'
             git fetch origin develop && git checkout develop && git reset --hard origin/develop
-            docker compose --env-file infra/.env -f infra/compose.yml -f infra/compose.temp-db.yml -f infra/compose.prod.yml up -d --build
-          "
+            C="docker compose --env-file infra/.env -f infra/compose.yml -f infra/compose.temp-db.yml -f infra/compose.prod.yml"
+            $C up -d --build < /dev/null
+            ok=0
+            for i in $(seq 1 30); do
+              if $C exec -T api-server curl -sf http://localhost:8080/actuator/health < /dev/null | grep -q '"status":"UP"'; then
+                ok=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ok" != 1 ]; then
+              echo "헬스 체크 실패: api-server가 약 60초(30회 x 2초) 안에 UP 응답을 하지 않았습니다."
+              $C ps < /dev/null || true
+              $C logs --tail 30 api-server < /dev/null || true
+              exit 1
+            fi
+          EOF
