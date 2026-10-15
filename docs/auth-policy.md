@@ -38,6 +38,7 @@ api-server의 로그인·권한 적용 방침이다. 지금은 문서만 있고,
   - CORS는 허용 도메인을 `*`가 아니라 정확한 주소로 지정하고, 자격 증명(`allowCredentials`)을 허용한다.
   - 프론트는 요청에 쿠키를 싣는 옵션(`credentials: 'include'`, `EventSource`는 `withCredentials: true`)을 켠다.
 - 세션 쿠키를 쓰면 POST 요청에 CSRF 방어가 필요하다. CSRF 토큰을 쓸지, `SameSite` 설정으로 막을지 정한다.
+- 에이전트 요청에서 쿠키 적용이 어려우면 쿼리 토큰을 대안으로 쓴다.   <- 여기에 추가
 
 ## 5. 에이전트 업로드 인증
 
