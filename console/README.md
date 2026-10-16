@@ -27,11 +27,24 @@ cp console/.env.example console/.env
 현재 사용 가능한 환경변수:
 
 ```env
-VITE_API_MODE=mock
+VITE_API_MODE=real
 VITE_API_BASE_URL=http://localhost:8080
+VITE_AUTH_MODE=disabled
 ```
 
-Vite 개발 서버에서 `VITE_API_MODE=mock`이면 MSW가 Admin REST 요청을 가로채 현재 Notion API 명세 기반 mock 응답을 반환한다. 실제 API와 통합할 때는 `VITE_API_MODE=real`로 바꾼다. production build에서는 mock이 활성화되지 않는다.
+| 변수 | 값 | 설명 |
+| --- | --- | --- |
+| `VITE_API_MODE` | `real` \| `mock` | `mock`이면 Vite 개발 서버에서 MSW가 Admin REST 요청을 가로채 Notion API 명세 기반 mock 응답을 반환한다. production build에서는 mock이 활성화되지 않는다. |
+| `VITE_API_BASE_URL` | URL | API 서버 주소. 비우면 `http://localhost:8080`. Vercel에서는 프로젝트 환경변수로 넣는다. |
+| `VITE_AUTH_MODE` | `disabled` \| `enabled` | `disabled`면 로그인 없이 콘솔을 연다. 서버에 로그인 API가 아직 없어서 real 모드에서는 `disabled`로 둔다. 비우면 `enabled`. |
+
+mock 화면을 개발할 때는 `VITE_API_MODE=mock`, `VITE_AUTH_MODE=enabled`로 바꾼다.
+
+## 테스트
+
+```bash
+npm test
+```
 
 개발용 mock 계정은 아래와 같다. 비밀번호는 모두 `password`다.
 

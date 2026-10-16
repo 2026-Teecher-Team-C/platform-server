@@ -41,8 +41,8 @@ IntelliJ로 열면 `.idea/codeStyles`의 우테코 스타일이 자동 적용된
 
 ## 브랜치
 
-- `develop`: 기본 브랜치. 기능 브랜치(`feat/…`, `fix/…`)는 여기로 PR
-- `main`: 배포 브랜치. `develop` → `main` 머지 후 `deploy` 워크플로를 수동 실행
+- `develop`: 기본 브랜치이자 배포 브랜치. 기능 브랜치(`feat/…`, `fix/…`)는 여기로 PR. 머지 후 `deploy` 워크플로를 수동 실행
+- `main`: 현재 사용하지 않는다. 릴리스 브랜치로 쓸지는 추후 결정
 - PR은 승인 1명 + CI 통과가 필요하다
 
 ## proto를 바꿀 때

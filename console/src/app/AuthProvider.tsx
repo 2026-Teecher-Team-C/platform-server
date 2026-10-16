@@ -7,15 +7,24 @@ import {
   getAccessToken,
   setAccessToken,
 } from '../lib/auth/tokenStore'
+import { AUTH_DISABLED_ADMIN, authDisabled } from '../lib/auth/authMode'
 import { AUTH_UNAUTHORIZED_EVENT } from '../lib/auth/events'
 import { AuthContext } from './auth-context'
 import type { AuthContextValue } from './auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<CurrentAdmin | null>(null)
-  const [isInitializing, setIsInitializing] = useState(() => Boolean(getAccessToken()))
+  const [user, setUser] = useState<CurrentAdmin | null>(() =>
+    authDisabled ? AUTH_DISABLED_ADMIN : null,
+  )
+  const [isInitializing, setIsInitializing] = useState(
+    () => !authDisabled && Boolean(getAccessToken()),
+  )
 
   useEffect(() => {
+    if (authDisabled) {
+      return
+    }
+
     function handleUnauthorized() {
       clearAccessToken()
       setUser(null)
@@ -32,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = getAccessToken()
 
-    if (!token) {
+    if (authDisabled || !token) {
       return
     }
 
@@ -78,6 +87,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function signOut() {
+    if (authDisabled) {
+      return
+    }
+
     clearAccessToken()
     setUser(null)
   }

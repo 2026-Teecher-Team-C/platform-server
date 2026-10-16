@@ -9,10 +9,15 @@ import com.teecherteamc.platform.verdict.domain.EngineUnavailableException;
 import com.teecherteamc.platform.verdict.domain.FileVerdict;
 import com.teecherteamc.platform.verdict.domain.FileVerdictRepository;
 import com.teecherteamc.platform.verdict.domain.HashMismatchException;
+import com.teecherteamc.platform.verdict.domain.PendingQuarantineUploadPort;
+import com.teecherteamc.platform.verdict.domain.QuarantineUploadPort;
+import com.teecherteamc.platform.verdict.domain.QuarantineUploadResult;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -21,6 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class SubmitFileUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(SubmitFileUseCase.class);
     private static final String SOURCE_ENGINE = "ENGINE";
     private static final String SOURCE_CACHE = "CACHE";
     // V2__seed_default_ruleset.sql이 심어둔 placeholder 행. 엔진 호출 자체가 실패해서 어떤 룰셋이었는지
@@ -30,16 +36,22 @@ public class SubmitFileUseCase {
     private final FileVerdictRepository fileVerdictRepository;
     private final AnalysisRepository analysisRepository;
     private final EngineAnalysisPort engineAnalysisPort;
+    private final QuarantineUploadPort quarantineUploadPort;
+    private final PendingQuarantineUploadPort pendingQuarantineUploadPort;
     private final TransactionTemplate transactionTemplate;
 
     public SubmitFileUseCase(
             FileVerdictRepository fileVerdictRepository,
             AnalysisRepository analysisRepository,
             EngineAnalysisPort engineAnalysisPort,
+            QuarantineUploadPort quarantineUploadPort,
+            PendingQuarantineUploadPort pendingQuarantineUploadPort,
             PlatformTransactionManager transactionManager) {
         this.fileVerdictRepository = fileVerdictRepository;
         this.analysisRepository = analysisRepository;
         this.engineAnalysisPort = engineAnalysisPort;
+        this.quarantineUploadPort = quarantineUploadPort;
+        this.pendingQuarantineUploadPort = pendingQuarantineUploadPort;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -80,11 +92,31 @@ public class SubmitFileUseCase {
             throw e;
         }
 
-        return persistOutcome(command, cached, outcome);
+        // 신규 엔진 호출에서만 격리 대상을 판단한다 — 캐시 히트는 fromCachedVerdict()에서 이미
+        // 반환돼 여기 안 온다. S3 PUT도 엔진 호출처럼 느릴 수 있어 트랜잭션 밖에서 한다.
+        QuarantineUploadResult quarantineUpload = null;
+        if (isFreshMaliciousOrSuspicious(outcome)) {
+            try {
+                quarantineUpload = quarantineUploadPort.upload(command.spoolFile());
+            } catch (RuntimeException e) {
+                // S3 장애 하나가 엔진이 이미 확정한 MALICIOUS/SUSPICIOUS 판정 자체를 날려버리면
+                // 안 된다 — 격리는 포기하고 판정 저장과 BLOCK 응답은 그대로 진행한다(fail-close
+                // 원칙의 연장: 격리 저장소가 죽어도 판정 자체는 안전하게 내려가야 한다).
+                log.error("S3 격리 업로드 실패 — 격리 없이 판정만 저장함, sha256={}", command.verifiedSha256(), e);
+            }
+        }
+
+        return persistOutcome(command, cached, outcome, quarantineUpload);
+    }
+
+    private static boolean isFreshMaliciousOrSuspicious(AnalysisOutcome outcome) {
+        return "SUCCESS".equals(outcome.status())
+                && ("MALICIOUS".equals(outcome.verdict()) || "SUSPICIOUS".equals(outcome.verdict()));
     }
 
     private SubmitFileResult persistOutcome(
-            SubmitFileCommand command, Optional<FileVerdict> cached, AnalysisOutcome outcome) {
+            SubmitFileCommand command, Optional<FileVerdict> cached, AnalysisOutcome outcome,
+            QuarantineUploadResult quarantineUpload) {
         try {
             return transactionTemplate.execute(status -> {
                 // status가 SUCCESS가 아니면(TIMEOUT/CRASH/OOM/UNSUPPORTED) toResult()는 무조건 BLOCK을
@@ -108,6 +140,12 @@ public class SubmitFileUseCase {
                                 outcome.rulesetsVersion(),
                                 Instant.now()));
                 fileVerdictRepository.save(fileVerdict);
+                if (quarantineUpload != null) {
+                    // file_verdicts가 방금 저장된 뒤라야 FK가 만족된다 — 순서 중요.
+                    pendingQuarantineUploadPort.save(
+                            command.verifiedSha256(), command.fileSize(), quarantineUpload.bucket(),
+                            quarantineUpload.key());
+                }
                 saveAnalysis(command.verifiedSha256(), outcome);
                 return toResult(outcome);
             });

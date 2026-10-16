@@ -16,6 +16,9 @@ EICAR = ("X5O!P%@AP[4\\PZX54(P^)7CC)7}$" + "EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$
 # YARA 룰이 보는 부분만. 엔진이 입력을 디스크에 쓰므로, 완전한 EICAR를 쓰는 테스트는 로컬 백신이 임시 파일을
 # 격리해서 실패할 수 있다(Windows Defender). 엔진 동작만 보는 테스트는 이 조각을 쓴다.
 EICAR_MARKER = b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE!"
+# 데모용 가짜 악성 샘플의 표식(rules/teecher_demo.yar). 실행 코드가 없는 무해한 문자열이다.
+DEMO_MARKER = b"TEECHER-DEMO-MALWARE"
+DEMO_C2 = b"evil-c2.teecher.invalid"
 
 
 @pytest.fixture(scope="module")
@@ -61,6 +64,24 @@ def test_EICAR가_청크_경계에_걸쳐도_찾는다(stub):
     response = stub.Analyze(stream(b"padding-" + EICAR_MARKER + b"-padding", chunk_size=7))
 
     assert response.verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS
+
+
+def test_데모_샘플은_표식과_C2_주소가_모두_있으면_악성으로_판정한다(stub):
+    sample = b"MZ fake header\n" + DEMO_MARKER + b"\nconnect " + DEMO_C2 + b"\n"
+
+    response = stub.Analyze(stream(sample))
+
+    assert response.verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS
+    assert [match.rule_name for match in response.matches] == ["Teecher_Demo_Fake_Malware"]
+    assert response.matches[0].severity == "HIGH"
+
+
+@pytest.mark.parametrize("data", [DEMO_MARKER, DEMO_C2], ids=["표식만", "C2_주소만"])
+def test_데모_표식이_하나만_있으면_안전으로_판정한다(stub, data):
+    # 문서나 로그가 표식 하나를 언급하는 정도로는 막지 않는다.
+    response = stub.Analyze(stream(b"note: " + data))
+
+    assert response.verdict == engine_pb2.ENGINE_VERDICT_CLEAN
 
 
 def test_분석이_끝나면_임시_파일이_남지_않는다(stub, spool_dir):

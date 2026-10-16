@@ -159,6 +159,50 @@ class SubmitFileGrpcIntegrationTest {
     }
 
     @Test
+    void 신규_악성_판정은_S3_업로드_위치를_스테이징한다() throws Exception {
+        byte[] content =
+                ("격리 대상" + FakeDetectionEngineService.MALICIOUS_MARKER).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        submitFile(sha256, content);
+
+        Map<String, Object> pendingRow =
+                jdbcTemplate.queryForMap("SELECT * FROM pending_quarantine_uploads WHERE sha256 = ?", sha256);
+        assertThat(pendingRow.get("file_size")).isEqualTo((long) content.length);
+        assertThat(pendingRow.get("s3_bucket")).isNotNull();
+        assertThat(pendingRow.get("s3_key")).isNotNull();
+    }
+
+    @Test
+    void 캐시_히트_BLOCK은_S3에_중복_업로드하지_않는다() throws Exception {
+        byte[] content =
+                ("재제출 격리 파일" + FakeDetectionEngineService.MALICIOUS_MARKER).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        submitFile(sha256, content); // 신규 엔진 호출 — 스테이징 행 1개 생김
+        SubmitFileResponse second = submitFile(sha256, content); // 캐시 히트
+        assertThat(second.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_CACHE);
+
+        Integer pendingCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pending_quarantine_uploads WHERE sha256 = ?", Integer.class, sha256);
+        assertThat(pendingCount).isEqualTo(1);
+    }
+
+    @Test
+    void 엔진_장애로_인한_BLOCK은_S3에_업로드하지_않는다() throws Exception {
+        byte[] content = ("엔진_죽음" + FakeDetectionEngineService.CRASH_MARKER).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        assertThatThrownBy(() -> submitFile(sha256, content))
+                .extracting(this::unwrapStatus)
+                .isEqualTo(Status.Code.UNAVAILABLE);
+
+        Integer pendingCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pending_quarantine_uploads WHERE sha256 = ?", Integer.class, sha256);
+        assertThat(pendingCount).isZero();
+    }
+
+    @Test
     void 같은_해시를_두번_올리면_두번째는_엔진을_안_거치고_캐시로_응답한다() throws Exception {
         byte[] content = "캐시 재확인 테스트".getBytes(StandardCharsets.UTF_8);
         String sha256 = sha256Hex(content);

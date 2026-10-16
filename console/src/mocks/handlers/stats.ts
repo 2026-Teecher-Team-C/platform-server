@@ -28,8 +28,14 @@ export const statsHandlers = [
       return createdAt >= from && createdAt < to
     })
 
-    const blockedCount = events.filter((event) => event.decision === 'BLOCKED').length
-    const allowedCount = events.filter((event) => event.decision === 'ALLOWED').length
+    // "허용" = RELEASED(정상 통과) + BYPASSED(바이패스 도메인), "차단" = BLOCKED(탐지) + FAIL_CLOSE
+    // (분석 실패로 인한 안전차단) — 둘 다 파일이 사용자에게 안 넘어갔다는 뜻이라 같은 그룹.
+    const blockedCount = events.filter(
+      (event) => event.decision === 'BLOCKED' || event.decision === 'FAIL_CLOSE',
+    ).length
+    const allowedCount = events.filter(
+      (event) => event.decision === 'RELEASED' || event.decision === 'BYPASSED',
+    ).length
     const cacheHits = events.filter((event) => event.cacheHit).length
     const totalBytesUploaded = events.reduce(
       (sum, event) => sum + event.bytesUploaded,
