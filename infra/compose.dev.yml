@@ -49,15 +49,10 @@ services:
       timeout: 3s
       retries: 30
 
+  # 이미지·헬스체크는 compose.yml에 있다. 로컬에서는 호스트에서도 붙을 수 있게 포트만 연다.
   redis:
-    image: redis:8-alpine
     ports:
       - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
 
   # 로컬 개발용 S3 호환 스토리지. 운영은 실제 S3(ElastiCache/RDS와 같은 관리형 자원).
   # MinIO는 2026-09에 Docker Hub/quay.io에서 커뮤니티 에디션 이미지를 내려서 pull이 안 된다 —
