@@ -6,8 +6,8 @@ export function AppLayout() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
 
-  function handleLogout() {
-    signOut()
+  async function handleLogout() {
+    await signOut()
     navigate('/login', { replace: true })
   }
 

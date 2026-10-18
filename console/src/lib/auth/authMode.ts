@@ -1,6 +1,6 @@
 import type { CurrentAdmin } from '../api/auth'
 
-// 서버에 로그인 API가 생기기 전까지 VITE_AUTH_MODE=disabled로 로그인 없이 콘솔을 연다.
+// VITE_AUTH_MODE=disabled면 로그인 없이 콘솔을 연다. 서버 로그인(세션 쿠키)을 쓰려면 enabled로 둔다.
 export function isAuthDisabled(mode: string | undefined) {
   return mode === 'disabled'
 }

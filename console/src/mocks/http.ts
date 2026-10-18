@@ -3,14 +3,15 @@ import type { AdminRole } from '../lib/api/auth'
 import { getAuthenticatedMockAccount } from './auth'
 import { hasAtLeastRole } from './data/auth'
 
-export function authorizeMockRequest(request: Request, required: AdminRole = 'VIEWER') {
-  const account = getAuthenticatedMockAccount(request)
+// 실제 서버는 아직 역할로 막지 않는다(로그인 여부만 본다). mock은 역할 화면을 미리 보려고 남겨 둔다.
+export function authorizeMockRequest(_request: Request, required: AdminRole = 'VIEWER') {
+  const account = getAuthenticatedMockAccount()
 
   if (!account) {
     return {
       account: null,
       error: HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: '인증 정보가 없거나 만료되었습니다.' },
+        { status: 401, code: 'UNAUTHORIZED', message: '로그인이 필요합니다.', fieldErrors: [] },
         { status: 401 },
       ),
     }
@@ -20,7 +21,7 @@ export function authorizeMockRequest(request: Request, required: AdminRole = 'VI
     return {
       account: null,
       error: HttpResponse.json(
-        { code: 'FORBIDDEN', message: '이 리소스에 접근할 권한이 없습니다.' },
+        { status: 403, code: 'FORBIDDEN', message: '접근 권한이 없습니다.', fieldErrors: [] },
         { status: 403 },
       ),
     }
