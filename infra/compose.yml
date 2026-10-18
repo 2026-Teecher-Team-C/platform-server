@@ -19,6 +19,8 @@ services:
       DB_URL: ${DB_URL:?DB_URL is required}
       DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      REDIS_HOST: ${REDIS_HOST:?REDIS_HOST is required}
+      REDIS_PORT: ${REDIS_PORT:?REDIS_PORT is required}
       # 관리 콘솔 출처(쉼표 구분). 운영 infra/.env에 Vercel 도메인을 넣는다.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       QUARANTINE_S3_BUCKET: ${QUARANTINE_S3_BUCKET:?QUARANTINE_S3_BUCKET is required}
