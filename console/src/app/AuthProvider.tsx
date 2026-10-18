@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { getMe, login as loginApi } from '../lib/api/auth'
+import { getMe, login as loginApi, logout as logoutApi } from '../lib/api/auth'
 import type { CurrentAdmin, LoginRequest } from '../lib/api/auth'
-import {
-  clearAccessToken,
-  getAccessToken,
-  setAccessToken,
-} from '../lib/auth/tokenStore'
 import { AUTH_DISABLED_ADMIN, authDisabled } from '../lib/auth/authMode'
 import { AUTH_UNAUTHORIZED_EVENT } from '../lib/auth/events'
 import { AuthContext } from './auth-context'
@@ -16,9 +11,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentAdmin | null>(() =>
     authDisabled ? AUTH_DISABLED_ADMIN : null,
   )
-  const [isInitializing, setIsInitializing] = useState(
-    () => !authDisabled && Boolean(getAccessToken()),
-  )
+  // 세션 쿠키는 HttpOnly라 읽을 수 없으므로 로그인 여부는 항상 /me로 확인한다.
+  const [isInitializing, setIsInitializing] = useState(() => !authDisabled)
 
   useEffect(() => {
     if (authDisabled) {
@@ -26,7 +20,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     function handleUnauthorized() {
-      clearAccessToken()
       setUser(null)
       setIsInitializing(false)
     }
@@ -39,9 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const token = getAccessToken()
-
-    if (authDisabled || !token) {
+    if (authDisabled) {
       return
     }
 
@@ -54,7 +45,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch(() => {
-        clearAccessToken()
         if (!cancelled) {
           setUser(null)
         }
@@ -71,28 +61,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function signIn(credentials: LoginRequest) {
-    const response = await loginApi(credentials)
-
-    setAccessToken(response.accessToken)
-
-    try {
-      const currentUser = await getMe()
-      setUser(currentUser)
-      return currentUser
-    } catch (error) {
-      clearAccessToken()
-      setUser(null)
-      throw error
-    }
+    const currentUser = await loginApi(credentials)
+    setUser(currentUser)
+    return currentUser
   }
 
-  function signOut() {
+  async function signOut() {
     if (authDisabled) {
       return
     }
 
-    clearAccessToken()
-    setUser(null)
+    try {
+      await logoutApi()
+    } catch {
+      // 세션이 이미 끊겼거나 서버에 닿지 않아도 화면은 로그아웃 상태로 돌린다.
+    } finally {
+      setUser(null)
+    }
   }
 
   const value = useMemo<AuthContextValue>(
