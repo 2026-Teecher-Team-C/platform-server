@@ -34,6 +34,20 @@ make dev | make test | make proto | make down     # 전부 Docker 안에서 실�
 - 스키마는 Flyway가 소유한다(`ddl-auto: validate`). 기존 마이그레이션 파일은 수정하지 않고 `V{n}__...`를 추가한다
 - 코드 스타일: 우테코 스타일(4칸, 줄바꿈 8칸, 120자). 테스트 메서드 이름은 한글 가능
 
+## 관리 REST API 공통 규칙 (2026-10-18 팀 결정)
+
+- **목록 응답은 `PageResponse`**(`common/PageResponse`: `content`·`page`(0부터)·`size`·`totalElements`·`totalPages`).
+  쿼리는 `page`·`size`. 커서 방식(`items`·`nextCursor`)은 폐기했다 — 다시 만들지 않는다
+- **에러 응답은 공통 `ErrorResponse`.** interfaces 계층에서 `ApiException(ErrorCode.X, 메시지)`를 던지고
+  `GlobalExceptionHandler`가 바꾼다. 컨트롤러가 자체 에러 바디를 만들지 않는다. 상세는 `docs/api-convention.md`
+- **인증은 세션 쿠키.** Bearer 토큰을 쓰지 않는다. 콘솔(Vercel)과 API(EC2)가 다른 사이트라 운영 쿠키는
+  `SameSite=None; Secure; HttpOnly`, CORS는 정확한 출처 + `allowCredentials`, 콘솔은 `credentials: 'include'`.
+  SSE도 같은 쿠키로 인증한다. 상세는 `docs/auth-policy.md`
+- **API를 바꾸는 사람이 콘솔 `console/src/lib/api/*.ts` 타입과 mock 핸들러도 같은 PR에서 고친다.**
+  서버와 콘솔 응답 모양이 어긋난 채로 머지하지 않는다
+- **관리자 쓰기 작업은 감사 로그를 남긴다.** `AuditLogRecorder`로 그 작업과 같은 트랜잭션에서 기록하고,
+  비밀번호·토큰 원문은 `detail`에 넣지 않는다
+
 ## proto
 
 - 원본은 `proto/`. 에이전트 레포가 `proto-v*` 태그로 고정해 쓴다
