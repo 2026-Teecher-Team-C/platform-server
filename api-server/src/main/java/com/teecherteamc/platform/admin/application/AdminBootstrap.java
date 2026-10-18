@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +21,11 @@ import org.springframework.stereotype.Component;
  * 기존 계정의 비밀번호는 그대로다. 비밀번호는 로그에 남기지 않는다.
  */
 @Component
+@Order(AdminBootstrap.ORDER)
 public class AdminBootstrap implements ApplicationRunner {
+
+    /** AuthDisabledAdmin이 이 다음에 돌아 계정이 만들어졌는지 확인한다. */
+    static final int ORDER = 0;
 
     private static final Logger log = LoggerFactory.getLogger(AdminBootstrap.class);
 
