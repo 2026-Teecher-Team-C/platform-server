@@ -6,7 +6,7 @@ import { usePolling } from '../lib/hooks/usePolling'
 
 const POLL_INTERVAL_MS = 5000
 const REQUEST_TIMEOUT_MS = 8000
-// 서버가 아직 커서를 주지 않으므로(nextCursor=null) 한 번에 받을 수 있는 최대치로 집계한다.
+// 첫 페이지만 서버가 허용하는 최대 크기(size 200)로 받아 집계한다. 넘치면 totalElements로 알린다.
 const EVENT_LIMIT = 200
 const RECENT_ROWS = 20
 
@@ -37,7 +37,7 @@ function loadTodayEvents(signal: AbortSignal) {
   return getDownloadEvents(
     {
       from: startOfLocalDay(new Date()).toISOString(),
-      limit: EVENT_LIMIT,
+      size: EVENT_LIMIT,
     },
     signal,
   )
@@ -67,7 +67,8 @@ export function DashboardPage() {
     REQUEST_TIMEOUT_MS,
   )
   const failedBeforeFirstLoad = data === null && error !== null
-  const events = data?.items ?? []
+  const events = data?.content ?? []
+  const totalToday = data?.totalElements ?? 0
   const summary = summarizeEvents(events)
   const recent = events.slice(0, RECENT_ROWS)
 
@@ -104,9 +105,9 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {events.length >= EVENT_LIMIT && (
+      {totalToday > events.length && (
         <p className="dashboard-note">
-          오늘 이벤트가 {EVENT_LIMIT}건을 넘어 최근 {EVENT_LIMIT}건으로만 집계했습니다.
+          오늘 이벤트 {totalToday.toLocaleString('ko-KR')}건 중 최근 {events.length}건으로만 집계했습니다.
         </p>
       )}
 

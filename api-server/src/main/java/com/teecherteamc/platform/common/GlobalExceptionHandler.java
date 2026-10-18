@@ -10,6 +10,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -56,6 +57,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex,
                                                           HttpServletRequest req) {
         return build(ErrorCode.INVALID_INPUT, "요청 본문을 읽을 수 없습니다.", req);
+    }
+
+    /** 쿼리 파라미터 타입이 맞지 않음 (예: page=abc). 따로 잡지 않으면 아래 catch-all 때문에 500이 된다. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+                                                            HttpServletRequest req) {
+        return build(ErrorCode.INVALID_INPUT, ex.getName() + " 값의 형식이 올바르지 않습니다.", req);
     }
 
     /** 존재하지 않는 경로. 이걸 따로 잡지 않으면 아래 catch-all 때문에 404가 500으로 바뀐다. */

@@ -11,5 +11,9 @@ import java.util.UUID;
  */
 public interface ListDownloadEventsPort {
 
-    List<DownloadEventListRow> list(UUID agentId, String decision, Instant from, Instant to, int limit);
+    List<DownloadEventListRow> list(
+            UUID agentId, String decision, Instant from, Instant to, long offset, int limit);
+
+    /** list()와 같은 조건의 전체 행 수. 페이지 정보(totalElements)에 쓴다. */
+    long count(UUID agentId, String decision, Instant from, Instant to);
 }

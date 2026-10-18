@@ -68,7 +68,7 @@ npm test
 - 감사: `GET /api/admin/audit-logs`
 - 대시보드: `GET /api/admin/stats`
 
-목록 mock은 현재 화면 개발용 소량 데이터라 `nextCursor=null`을 반환한다. 주요 필터와 역할별 401/403은 재현한다. 쓰기 mock은 브라우저 메모리에서만 상태가 바뀌며 새로고침하면 초기 데이터로 돌아간다.
+목록 응답은 서버와 같은 `PageResponse`(`content/page/size/totalElements/totalPages`)다. 다운로드 이벤트 mock은 이미 이 모양이고, 서버가 아직 없는 API의 mock은 예전 `items/nextCursor` 모양이라 그 API를 구현할 때 같이 바꾼다. 주요 필터와 역할별 401/403은 재현한다. 쓰기 mock은 브라우저 메모리에서만 상태가 바뀌며 새로고침하면 초기 데이터로 돌아간다.
 
 등록 토큰의 `expiresInMinutes`를 생략했을 때 mock에서는 개발 편의를 위해 30분을 사용한다. 실제 서버의 기본값/최대값은 서버 정책이 확정되면 그 계약을 따른다.
 
