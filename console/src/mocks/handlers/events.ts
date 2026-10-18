@@ -13,8 +13,10 @@ export const eventHandlers = [
     const decision = url.searchParams.get('decision')
     const from = url.searchParams.get('from')
     const to = url.searchParams.get('to')
+    const page = Number(url.searchParams.get('page') ?? 0)
+    const size = Number(url.searchParams.get('size') ?? 20)
 
-    const items = mockDownloadEvents
+    const matched = mockDownloadEvents
       .filter((event) => {
         if (agentId && event.agentId !== agentId) return false
         if (decision && event.decision !== decision) return false
@@ -24,7 +26,14 @@ export const eventHandlers = [
       })
       .map(({ requestHost: _requestHost, url: _url, bytesUploaded: _bytesUploaded, heldAt: _heldAt, decidedAt: _decidedAt, ...event }) => event)
 
-    return HttpResponse.json({ items, nextCursor: null })
+    // 서버 PageResponse와 같은 모양으로 한 페이지만 잘라 준다.
+    return HttpResponse.json({
+      content: matched.slice(page * size, (page + 1) * size),
+      page,
+      size,
+      totalElements: matched.length,
+      totalPages: Math.ceil(matched.length / size),
+    })
   }),
 
   http.get(

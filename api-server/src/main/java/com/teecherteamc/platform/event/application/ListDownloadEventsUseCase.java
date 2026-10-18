@@ -5,17 +5,18 @@ import com.teecherteamc.platform.event.domain.ListDownloadEventsPort;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 /**
  * 관리자 콘솔의 다운로드 이벤트 목록 조회. 포트가 조인까지 끝낸 행을 그대로 돌려주고, 이 유스케이스는
- * limit의 기본값/상한만 강제한다 — 그 외 조회 로직은 전부 포트의 SQL 한 줄짜리 쿼리에 있다.
+ * 한 페이지 분량의 행과 전체 개수를 묶어 Page로 만든다 — 조회 로직은 전부 포트의 SQL에 있다.
+ * page·size 범위 검증은 interfaces 계층이 한다.
  */
 @Service
 public class ListDownloadEventsUseCase {
-
-    private static final int DEFAULT_LIMIT = 50;
-    private static final int MAX_LIMIT = 200;
 
     private final ListDownloadEventsPort listDownloadEventsPort;
 
@@ -23,9 +24,12 @@ public class ListDownloadEventsUseCase {
         this.listDownloadEventsPort = listDownloadEventsPort;
     }
 
-    public List<DownloadEventListRow> list(
-            UUID agentId, String decision, Instant from, Instant to, Integer requestedLimit) {
-        int limit = requestedLimit == null ? DEFAULT_LIMIT : Math.min(requestedLimit, MAX_LIMIT);
-        return listDownloadEventsPort.list(agentId, decision, from, to, limit);
+    public Page<DownloadEventListRow> list(
+            UUID agentId, String decision, Instant from, Instant to, int page, int size) {
+        PageRequest pageRequest = PageRequest.of(page, size);
+        List<DownloadEventListRow> rows = listDownloadEventsPort.list(
+                agentId, decision, from, to, (int) pageRequest.getOffset(), size);
+        long total = listDownloadEventsPort.count(agentId, decision, from, to);
+        return new PageImpl<>(rows, pageRequest, total);
     }
 }

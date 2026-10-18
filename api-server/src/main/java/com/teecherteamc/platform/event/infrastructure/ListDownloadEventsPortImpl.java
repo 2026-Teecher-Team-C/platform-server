@@ -29,6 +29,15 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
             WHERE 1 = 1
             """;
 
+    private static final String COUNT_SQL =
+            """
+            SELECT COUNT(*)
+            FROM download_events e
+            JOIN agents a ON a.agent_id = e.agent_id
+            JOIN devices d ON d.device_id = a.device_id
+            WHERE 1 = 1
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     ListDownloadEventsPortImpl(JdbcTemplate jdbcTemplate) {
@@ -36,29 +45,14 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
     }
 
     @Override
-    public List<DownloadEventListRow> list(UUID agentId, String decision, Instant from, Instant to, int limit) {
+    public List<DownloadEventListRow> list(
+            UUID agentId, String decision, Instant from, Instant to, int offset, int limit) {
         StringBuilder sql = new StringBuilder(BASE_SQL);
         List<Object> params = new ArrayList<>();
-
-        if (agentId != null) {
-            sql.append(" AND e.agent_id = ?");
-            params.add(agentId);
-        }
-        if (decision != null) {
-            sql.append(" AND e.decision = ?");
-            params.add(decision);
-        }
-        if (from != null) {
-            sql.append(" AND e.created_at >= ?");
-            params.add(Timestamp.from(from));
-        }
-        if (to != null) {
-            sql.append(" AND e.created_at < ?");
-            params.add(Timestamp.from(to));
-        }
-        sql.append(" ORDER BY e.created_at DESC, e.event_id DESC LIMIT ?");
+        appendFilters(sql, params, agentId, decision, from, to);
+        sql.append(" ORDER BY e.created_at DESC, e.event_id DESC LIMIT ? OFFSET ?");
         params.add(limit);
-
+        params.add(offset);
         return jdbcTemplate.query(
                 sql.toString(),
                 (rs, rowNum) -> new DownloadEventListRow(
@@ -77,5 +71,35 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
                         rs.getObject("hold_duration_ms", Integer.class),
                         rs.getTimestamp("created_at").toInstant()),
                 params.toArray());
+    }
+
+    @Override
+    public long count(UUID agentId, String decision, Instant from, Instant to) {
+        // list()와 같은 조인을 거쳐야 목록에 안 나오는 행(에이전트·장비가 없는 이벤트)이 개수에 섞이지 않는다.
+        StringBuilder sql = new StringBuilder(COUNT_SQL);
+        List<Object> params = new ArrayList<>();
+        appendFilters(sql, params, agentId, decision, from, to);
+        Long total = jdbcTemplate.queryForObject(sql.toString(), Long.class, params.toArray());
+        return total == null ? 0 : total;
+    }
+
+    private static void appendFilters(
+            StringBuilder sql, List<Object> params, UUID agentId, String decision, Instant from, Instant to) {
+        if (agentId != null) {
+            sql.append(" AND e.agent_id = ?");
+            params.add(agentId);
+        }
+        if (decision != null) {
+            sql.append(" AND e.decision = ?");
+            params.add(decision);
+        }
+        if (from != null) {
+            sql.append(" AND e.created_at >= ?");
+            params.add(Timestamp.from(from));
+        }
+        if (to != null) {
+            sql.append(" AND e.created_at < ?");
+            params.add(Timestamp.from(to));
+        }
     }
 }

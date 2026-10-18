@@ -76,7 +76,7 @@ class DownloadEventListRestIntegrationTest {
                 (Class<Map<String, Object>>) (Class<?>) Map.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("items");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("content");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).get("hostname")).isEqualTo("DESKTOP-ABC");
     }
@@ -93,7 +93,7 @@ class DownloadEventListRestIntegrationTest {
                 "/api/admin/download-events?agentId=" + agentA,
                 (Class<Map<String, Object>>) (Class<?>) Map.class);
 
-        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("items");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("content");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).get("agentId")).isEqualTo(agentA.toString());
     }
@@ -110,7 +110,7 @@ class DownloadEventListRestIntegrationTest {
                 "/api/admin/download-events?decision=BLOCKED&agentId=" + agentId,
                 (Class<Map<String, Object>>) (Class<?>) Map.class);
 
-        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("items");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("content");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).get("decision")).isEqualTo("BLOCKED");
     }
@@ -128,7 +128,7 @@ class DownloadEventListRestIntegrationTest {
                 "/api/admin/download-events?agentId=" + agentId,
                 (Class<Map<String, Object>>) (Class<?>) Map.class);
 
-        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("items");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("content");
         assertThat(items).hasSize(3);
         // Postgres의 UUID 비교는 16바이트를 unsigned로 본다 — Java UUID.compareTo()는 상위/하위
         // 64비트를 signed long으로 비교해서 결과가 다를 수 있다(둘 다 랜덤 UUID라 비트에 따라
@@ -164,26 +164,79 @@ class DownloadEventListRestIntegrationTest {
     }
 
     @Test
-    void limit이_0이거나_200초과면_400이다() {
-        assertThat(restTemplate.getForEntity("/api/admin/download-events?limit=0", String.class)
+    void size가_0이거나_200초과면_400이다() {
+        assertThat(restTemplate.getForEntity("/api/admin/download-events?size=0", String.class)
                         .getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(restTemplate.getForEntity("/api/admin/download-events?limit=201", String.class)
+        assertThat(restTemplate.getForEntity("/api/admin/download-events?size=201", String.class)
                         .getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
-    void nextCursor는_항상_null이다() {
+    void page가_음수면_400이다() {
+        ResponseEntity<String> response =
+                restTemplate.getForEntity("/api/admin/download-events?page=-1", String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void page가_숫자가_아니면_500이_아니라_400이다() {
+        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+                "/api/admin/download-events?page=abc",
+                (Class<Map<String, Object>>) (Class<?>) Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("code")).isEqualTo("INVALID_INPUT");
+    }
+
+    @Test
+    void 잘못된_파라미터는_공통_ErrorResponse로_내려간다() {
+        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+                "/api/admin/download-events?decision=NOPE",
+                (Class<Map<String, Object>>) (Class<?>) Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("code")).isEqualTo("INVALID_INPUT");
+        assertThat(response.getBody().get("path")).isEqualTo("/api/admin/download-events");
+    }
+
+    @Test
+    void PageResponse_형식으로_페이지_정보를_내려준다() {
         UUID deviceId = seedDevice("host-d");
         UUID agentId = seedAgent(deviceId);
         seedEvent(agentId, "BLOCKED", Instant.parse("2026-10-14T04:00:00Z"));
+        seedEvent(agentId, "BLOCKED", Instant.parse("2026-10-14T04:01:00Z"));
+        seedEvent(agentId, "BLOCKED", Instant.parse("2026-10-14T04:02:00Z"));
 
         ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
-                "/api/admin/download-events?agentId=" + agentId,
+                "/api/admin/download-events?size=2&agentId=" + agentId,
                 (Class<Map<String, Object>>) (Class<?>) Map.class);
 
-        assertThat(response.getBody()).containsKey("nextCursor");
-        assertThat(response.getBody().get("nextCursor")).isNull();
+        Map<String, Object> body = response.getBody();
+        assertThat((List<?>) body.get("content")).hasSize(2);
+        assertThat(body.get("page")).isEqualTo(0);
+        assertThat(body.get("size")).isEqualTo(2);
+        assertThat(body.get("totalElements")).isEqualTo(3);
+        assertThat(body.get("totalPages")).isEqualTo(2);
+        assertThat(body).doesNotContainKeys("items", "nextCursor");
+    }
+
+    @Test
+    void page로_다음_페이지를_가져온다() {
+        UUID deviceId = seedDevice("host-e");
+        UUID agentId = seedAgent(deviceId);
+        seedEvent(agentId, "BLOCKED", Instant.parse("2026-10-14T05:00:00Z"));
+        seedEvent(agentId, "BLOCKED", Instant.parse("2026-10-14T05:01:00Z"));
+        UUID oldest = seedEvent(agentId, "BLOCKED", Instant.parse("2026-10-14T04:59:00Z"));
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+                "/api/admin/download-events?page=1&size=2&agentId=" + agentId,
+                (Class<Map<String, Object>>) (Class<?>) Map.class);
+
+        List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
+        assertThat(response.getBody().get("page")).isEqualTo(1);
+        assertThat(content).hasSize(1);
+        assertThat(content.get(0).get("eventId")).isEqualTo(oldest.toString());
     }
 }

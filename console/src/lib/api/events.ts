@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { CursorPage } from './types'
+import type { PageResponse } from './types'
 import { toQueryString } from './types'
 
 // 실제 DB CHECK 제약(ck_download_events_decision/ck_download_events_decision_source)과 1:1.
@@ -35,12 +35,13 @@ export type DownloadEventQuery = {
   decision?: DownloadDecision
   from?: string
   to?: string
-  cursor?: string
-  limit?: number
+  // page는 0부터. size 상한은 서버 기준 200.
+  page?: number
+  size?: number
 }
 
 export function getDownloadEvents(query: DownloadEventQuery = {}, signal?: AbortSignal) {
-  return apiRequest<CursorPage<DownloadEventListItem>>(
+  return apiRequest<PageResponse<DownloadEventListItem>>(
     '/api/admin/download-events' + toQueryString(query),
     { signal },
   )
