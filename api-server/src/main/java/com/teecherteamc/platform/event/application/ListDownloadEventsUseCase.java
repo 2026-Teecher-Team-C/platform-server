@@ -28,7 +28,7 @@ public class ListDownloadEventsUseCase {
             UUID agentId, String decision, Instant from, Instant to, int page, int size) {
         PageRequest pageRequest = PageRequest.of(page, size);
         List<DownloadEventListRow> rows = listDownloadEventsPort.list(
-                agentId, decision, from, to, (int) pageRequest.getOffset(), size);
+                agentId, decision, from, to, pageRequest.getOffset(), size);
         long total = listDownloadEventsPort.count(agentId, decision, from, to);
         return new PageImpl<>(rows, pageRequest, total);
     }

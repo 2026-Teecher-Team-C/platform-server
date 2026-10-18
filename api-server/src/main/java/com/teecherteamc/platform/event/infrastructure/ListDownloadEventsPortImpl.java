@@ -46,7 +46,7 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
 
     @Override
     public List<DownloadEventListRow> list(
-            UUID agentId, String decision, Instant from, Instant to, int offset, int limit) {
+            UUID agentId, String decision, Instant from, Instant to, long offset, int limit) {
         StringBuilder sql = new StringBuilder(BASE_SQL);
         List<Object> params = new ArrayList<>();
         appendFilters(sql, params, agentId, decision, from, to);

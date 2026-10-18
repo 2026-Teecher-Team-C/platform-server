@@ -181,6 +181,17 @@ class DownloadEventListRestIntegrationTest {
     }
 
     @Test
+    void page가_매우_커도_offset이_넘치지_않고_빈_페이지를_준다() {
+        // page * size가 int 범위를 넘으면 offset이 음수가 되어 Postgres가 거부했었다(500).
+        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+                "/api/admin/download-events?page=2147483647&size=2",
+                (Class<Map<String, Object>>) (Class<?>) Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat((List<?>) response.getBody().get("content")).isEmpty();
+    }
+
+    @Test
     void page가_숫자가_아니면_500이_아니라_400이다() {
         ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
                 "/api/admin/download-events?page=abc",
