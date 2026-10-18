@@ -90,6 +90,16 @@ public class Agent implements Persistable<UUID> {
         return new Agent(agentId, deviceId, agentVersion, enrollmentTokenHash, agentTokenHash, agentTokenExpiresAt, now);
     }
 
+    /** Heartbeat가 호출한다. 인터셉터가 REVOKED를 이미 걸러내지만, 레이어마다 다시 확인한다. */
+    public void recordHeartbeat(String agentVersion, Instant now) {
+        if ("REVOKED".equals(status)) {
+            throw new AgentRevokedException();
+        }
+        this.agentVersion = agentVersion;
+        this.lastHeartbeatAt = now;
+        this.updatedAt = now;
+    }
+
     @Override
     public UUID getId() {
         return agentId;
