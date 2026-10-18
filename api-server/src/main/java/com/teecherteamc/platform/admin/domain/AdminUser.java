@@ -80,6 +80,11 @@ public class AdminUser implements Persistable<UUID> {
         this.updatedAt = now;
     }
 
+    public void deactivate(Instant now) {
+        this.active = false;
+        this.updatedAt = now;
+    }
+
     @Override
     public UUID getId() {
         return adminId;

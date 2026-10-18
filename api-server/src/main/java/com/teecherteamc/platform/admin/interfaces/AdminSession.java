@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.util.List;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
@@ -36,11 +37,19 @@ class AdminSession {
         request.getSession(true);
 
         SecurityContext context = securityContextHolderStrategy.createEmptyContext();
-        // 역할(role)별 권한은 아직 나누지 않는다(docs/auth-policy.md 1장). 로그인 여부만 본다.
-        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
-                new AdminPrincipal(admin.adminId(), admin.username()), null, List.of()));
+        context.setAuthentication(authenticationOf(admin));
         securityContextHolderStrategy.setContext(context);
         securityContextRepository.saveContext(context, request, response);
+    }
+
+    /**
+     * 컨트롤러는 이 인증의 주체를 {@code @AuthenticationPrincipal AdminPrincipal}로 받는다. 로그인 세션이든
+     * AUTH_ENABLED=false의 초기 관리자든 같은 방식이다.
+     */
+    static Authentication authenticationOf(AdminView admin) {
+        // 역할(role)별 권한은 아직 나누지 않는다(docs/auth-policy.md 1장). 로그인 여부만 본다.
+        return UsernamePasswordAuthenticationToken.authenticated(
+                new AdminPrincipal(admin.adminId(), admin.username()), null, List.of());
     }
 
     void terminate(HttpServletRequest request) {
