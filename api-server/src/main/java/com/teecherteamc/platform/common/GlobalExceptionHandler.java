@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -81,11 +83,21 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 그 밖의 모든 예외. 내부 정보(DB 주소, 스택트레이스 등)는 응답에 싣지 않고 로그에만 남긴다.
-     *
-     * 주의: 나중에 Spring Security를 추가하면 AccessDeniedException·AuthenticationException을
-     * 여기서 다시 던지거나 따로 처리해야 한다. 안 그러면 403/401이 500으로 바뀐다.
+     * 컨트롤러 안에서 난 인증 예외. 보안 필터에서 난 401은 SecurityConfig의 진입점이 처리하지만,
+     * 여기서 따로 잡지 않으면 아래 catch-all 때문에 401이 500으로 바뀐다.
      */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex, HttpServletRequest req) {
+        return build(ErrorCode.UNAUTHORIZED, ErrorCode.UNAUTHORIZED.getMessage(), req);
+    }
+
+    /** 컨트롤러 안에서 난 접근 거부. 위와 같은 이유로 따로 잡는다. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex, HttpServletRequest req) {
+        return build(ErrorCode.FORBIDDEN, ErrorCode.FORBIDDEN.getMessage(), req);
+    }
+
+    /** 그 밖의 모든 예외. 내부 정보(DB 주소, 스택트레이스 등)는 응답에 싣지 않고 로그에만 남긴다. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {
         log.error("처리되지 않은 예외 {} {}", req.getMethod(), req.getRequestURI(), ex);

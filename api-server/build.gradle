@@ -31,6 +31,8 @@ dependencies {
     implementation 'io.grpc:grpc-services'
     // 블룸 필터 비트맵 저장용. Lettuce가 기본 클라이언트로 같이 들어온다.
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // 관리 콘솔 세션 로그인. gRPC(9090)는 서블릿 필터 체인을 타지 않으므로 영향이 없다.
+    implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.flywaydb:flyway-database-postgresql'
@@ -41,6 +43,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-flyway-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-grpc-client-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-grpc-server-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     // TestRestTemplate이 Boot 4.1에서 spring-boot-test-autoconfigure가 아니라 이 모듈로 옮겨짐
