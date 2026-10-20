@@ -43,8 +43,6 @@ make dev | make test | make proto | make down     # 전부 Docker 안에서 실�
 - **인증은 세션 쿠키.** Bearer 토큰을 쓰지 않는다. 콘솔(Vercel)과 API(EC2)가 다른 사이트라 운영 쿠키는
   `SameSite=None; Secure; HttpOnly`, CORS는 정확한 출처 + `allowCredentials`, 콘솔은 `credentials: 'include'`.
   SSE도 같은 쿠키로 인증한다. 상세는 `docs/auth-policy.md`
-- **API를 바꾸는 사람이 콘솔 `console/src/lib/api/*.ts` 타입과 mock 핸들러도 같은 PR에서 고친다.**
-  서버와 콘솔 응답 모양이 어긋난 채로 머지하지 않는다
 - **관리자 쓰기 작업은 감사 로그를 남긴다.** `AuditLogRecorder`로 그 작업과 같은 트랜잭션에서 기록하고,
   비밀번호·토큰 원문은 `detail`에 넣지 않는다
 
