@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { getDownloadEvents } from '../lib/api/events'
 import type { DownloadDecision, DownloadEventQuery } from '../lib/api/events'
 import type { PageResponse } from '../lib/api/types'
@@ -9,6 +10,7 @@ const PAGE_SIZE = 20
 
 
 function formatSize(bytes: number | null) {
+  // 파일 크기를 알 수 없는 이벤트는 0 KB로 오해하지 않도록 빈 값으로 보여준다.
   return bytes === null ? '—' : `${(bytes / 1024).toLocaleString('ko-KR', { maximumFractionDigits: 1 })} KB`
 }
 
@@ -26,6 +28,8 @@ export function EventsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
 
+  // 입력 중인 폼 값과 실제 조회 조건(filters)을 분리해 '조회'를 눌렀을 때만 재검색한다.
+  // 페이지·크기·재시도 키가 바뀌면 다시 요청하고, 이전 요청의 늦은 응답은 무시한다.
   useEffect(() => {
     let active = true
     getDownloadEvents({ ...filters, page: pageNumber, size: limit })
@@ -49,6 +53,7 @@ export function EventsPage() {
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    // 종료 시각은 미포함 경계이므로 시작 시각보다 반드시 늦어야 한다.
     const fromDate = from ? new Date(from) : null
     const toDate = to ? new Date(to) : null
     if ((fromDate && Number.isNaN(fromDate.getTime())) || (toDate && Number.isNaN(toDate.getTime())) ||
@@ -63,6 +68,7 @@ export function EventsPage() {
       from: fromDate?.toISOString(),
       to: toDate?.toISOString(),
     })
+    // 조건이 달라지면 이전 페이지 번호와 결과가 새 검색에 섞이지 않게 초기화한다.
     setPageNumber(0)
     setPage(null)
     setIsLoading(true)
@@ -75,6 +81,7 @@ export function EventsPage() {
   }
 
   function nextPage() {
+    // 목록 API의 PageResponse.totalPages를 사용한다. 마지막 페이지 이후로는 요청하지 않는다.
     if (!page || pageNumber + 1 >= page.totalPages || isLoading) return
     setPageNumber((current) => current + 1)
     setPage(null)
@@ -153,7 +160,7 @@ export function EventsPage() {
               <thead><tr>
                 <th scope="col">발생 시각</th><th scope="col">파일명</th><th scope="col">PC / hostname</th>
                 <th scope="col">판정</th><th scope="col">판정 소스</th><th scope="col">캐시</th>
-                <th scope="col">파일 크기</th><th scope="col">처리 시간</th>
+                <th scope="col">파일 크기</th><th scope="col">처리 시간</th><th scope="col">상세</th>
               </tr></thead>
               <tbody>{page.content.map((item) => (
                 <tr key={item.eventId}>
@@ -165,6 +172,8 @@ export function EventsPage() {
                   <td>{item.cacheHit ? 'Hit' : 'Miss'}</td>
                   <td>{formatSize(item.fileSize)}</td>
                   <td>{item.holdDurationMs === null ? '—' : `${item.holdDurationMs.toLocaleString()} ms`}</td>
+                  {/* ID를 경로에 안전하게 넣어 선택한 이벤트의 상세 화면으로 이동한다. */}
+                  <td><Link className="events-detail-link" to={'/events/' + encodeURIComponent(item.eventId)}>상세 보기</Link></td>
                 </tr>
               ))}</tbody>
             </table>
