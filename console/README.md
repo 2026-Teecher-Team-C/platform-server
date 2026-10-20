@@ -36,7 +36,7 @@ VITE_AUTH_MODE=disabled
 | --- | --- | --- |
 | `VITE_API_MODE` | `real` \| `mock` | `mock`이면 Vite 개발 서버에서 MSW가 Admin REST 요청을 가로채 Notion API 명세 기반 mock 응답을 반환한다. production build에서는 mock이 활성화되지 않는다. |
 | `VITE_API_BASE_URL` | URL | API 서버 주소. 비우면 `http://localhost:8080`. Vercel에서는 프로젝트 환경변수로 넣는다. |
-| `VITE_AUTH_MODE` | `disabled` \| `enabled` | `disabled`면 로그인 없이 콘솔을 연다. 비우면 `enabled`. 로그인은 서버 세션 쿠키(HttpOnly)라 콘솔은 토큰을 들고 있지 않고 모든 요청에 `credentials: 'include'`를 싣는다. 로컬 `make dev`에서는 `infra/dev.env`의 초기 관리자(`admin` / `dev-admin-password`)로 로그인한다. |
+| `VITE_AUTH_MODE` | `disabled` \| `enabled` | `disabled`면 로그인 없이 콘솔을 연다. 서버에 로그인 API가 아직 없어서 real 모드에서는 `disabled`로 둔다. 비우면 `enabled`. |
 
 mock 화면을 개발할 때는 `VITE_API_MODE=mock`, `VITE_AUTH_MODE=enabled`로 바꾼다.
 
@@ -56,7 +56,7 @@ npm test
 
 현재 mock으로 제공하는 주요 API:
 
-- 인증: `POST /api/admin/auth/login`, `POST /api/admin/auth/logout`, `GET /api/admin/auth/me`
+- 인증: `POST /api/admin/auth/login`, `GET /api/admin/auth/me`
 - 등록: `POST /api/admin/agents/enrollment-tokens`
 - PC: `GET /api/admin/agents`, `GET /api/admin/agents/{agentId}`
 - 이벤트: `GET /api/admin/download-events`, `GET /api/admin/download-events/{eventId}`

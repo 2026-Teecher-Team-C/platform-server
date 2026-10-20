@@ -1,79 +1,68 @@
 import { http, HttpResponse } from 'msw'
 import type { LoginRequest } from '../../lib/api/auth'
 import { API_BASE_URL } from '../../lib/api/client'
-import {
-  endMockSession,
-  getAuthenticatedMockAccount,
-  startMockSession,
-} from '../auth'
+import { getAuthenticatedMockAccount } from '../auth'
 import {
   findMockAccountByCredentials,
   toCurrentAdmin,
 } from '../data/auth'
 
-// 실제 서버의 ErrorResponse와 같은 모양으로 맞춘다(docs/api-convention.md).
-function errorResponse(
-  status: number,
-  code: string,
-  message: string,
-  path: string,
-  fieldErrors: { field: string; reason: string }[] = [],
-) {
-  return HttpResponse.json(
-    { timestamp: new Date().toISOString(), status, code, message, path, fieldErrors },
-    { status },
-  )
+const invalidCredentials = {
+  code: 'INVALID_CREDENTIALS',
+  message: '아이디 또는 비밀번호가 올바르지 않습니다.',
 }
 
 export const authHandlers = [
   http.post(API_BASE_URL + '/api/admin/auth/login', async ({ request }) => {
-    const path = '/api/admin/auth/login'
     const body = (await request.json().catch(() => null)) as
       | Partial<LoginRequest>
       | null
 
-    const fieldErrors: { field: string; reason: string }[] = []
-    if (typeof body?.username !== 'string' || body.username.trim() === '') {
-      fieldErrors.push({ field: 'username', reason: '공백일 수 없습니다' })
-    }
-    if (typeof body?.password !== 'string' || body.password.trim() === '') {
-      fieldErrors.push({ field: 'password', reason: '공백일 수 없습니다' })
-    }
-    if (!body || fieldErrors.length > 0) {
-      return errorResponse(400, 'INVALID_INPUT', '입력값이 올바르지 않습니다.', path, fieldErrors)
+    if (
+      !body ||
+      typeof body.username !== 'string' ||
+      body.username.trim() === '' ||
+      typeof body.password !== 'string' ||
+      body.password === ''
+    ) {
+      return HttpResponse.json(
+        {
+          code: 'VALIDATION_ERROR',
+          message: 'username과 password는 필수입니다.',
+        },
+        { status: 400 },
+      )
     }
 
-    // 실제 서버처럼 없는 계정·틀린 비밀번호·비활성 계정을 구분하지 않는다.
     const account = findMockAccountByCredentials(
-      body.username as string,
-      body.password as string,
+      body.username.trim(),
+      body.password,
     )
 
     if (!account) {
-      return errorResponse(401, 'UNAUTHORIZED', '아이디 또는 비밀번호가 올바르지 않습니다.', path)
+      return HttpResponse.json(invalidCredentials, { status: 401 })
     }
 
     account.lastLoginAt = new Date().toISOString()
-    startMockSession(account.adminId)
 
-    return HttpResponse.json(toCurrentAdmin(account))
+    return HttpResponse.json({
+      accessToken: account.accessToken,
+      refreshToken: account.refreshToken,
+      tokenType: 'Bearer',
+    })
   }),
 
-  http.post(API_BASE_URL + '/api/admin/auth/logout', () => {
-    if (!getAuthenticatedMockAccount()) {
-      return errorResponse(401, 'UNAUTHORIZED', '로그인이 필요합니다.', '/api/admin/auth/logout')
-    }
-
-    endMockSession()
-
-    return new HttpResponse(null, { status: 204 })
-  }),
-
-  http.get(API_BASE_URL + '/api/admin/auth/me', () => {
-    const account = getAuthenticatedMockAccount()
+  http.get(API_BASE_URL + '/api/admin/auth/me', ({ request }) => {
+    const account = getAuthenticatedMockAccount(request)
 
     if (!account) {
-      return errorResponse(401, 'UNAUTHORIZED', '로그인이 필요합니다.', '/api/admin/auth/me')
+      return HttpResponse.json(
+        {
+          code: 'UNAUTHORIZED',
+          message: '인증 정보가 없거나 만료되었습니다.',
+        },
+        { status: 401 },
+      )
     }
 
     return HttpResponse.json(toCurrentAdmin(account))

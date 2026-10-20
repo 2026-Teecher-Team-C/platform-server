@@ -7,6 +7,12 @@ export type LoginRequest = {
   password: string
 }
 
+export type LoginResponse = {
+  accessToken: string
+  refreshToken?: string
+  tokenType: string
+}
+
 export type CurrentAdmin = {
   adminId: string
   username: string
@@ -15,16 +21,11 @@ export type CurrentAdmin = {
   lastLoginAt: string | null
 }
 
-// 성공하면 서버가 세션 쿠키를 내려주고 본문으로 현재 관리자를 준다.
 export function login(body: LoginRequest) {
-  return apiRequest<CurrentAdmin>('/api/admin/auth/login', {
+  return apiRequest<LoginResponse>('/api/admin/auth/login', {
     method: 'POST',
     body: JSON.stringify(body),
   })
-}
-
-export function logout() {
-  return apiRequest<void>('/api/admin/auth/logout', { method: 'POST' })
 }
 
 export function getMe() {

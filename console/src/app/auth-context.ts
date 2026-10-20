@@ -6,7 +6,7 @@ export type AuthContextValue = {
   isInitializing: boolean
   isAuthenticated: boolean
   signIn: (credentials: LoginRequest) => Promise<CurrentAdmin>
-  signOut: () => Promise<void>
+  signOut: () => void
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
