@@ -1,4 +1,5 @@
 import { notifyUnauthorized } from '../auth/events'
+import { getAccessToken } from '../auth/tokenStore'
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:8080'
@@ -15,16 +16,19 @@ export class ApiError extends Error {
   }
 }
 
-// 로그인은 서버 세션 쿠키(HttpOnly)라 콘솔이 토큰을 들고 있지 않는다.
-// 콘솔과 API가 다른 사이트이므로 credentials: 'include'여야 쿠키가 실린다.
-export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const { headers, ...requestInit } = options
+type ApiRequestOptions = RequestInit & {
+  token?: string
+}
+
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { token, headers, ...requestInit } = options
+  const accessToken = token ?? getAccessToken()
   const response = await fetch(API_BASE_URL + path, {
     ...requestInit,
-    credentials: 'include',
     headers: {
       Accept: 'application/json',
       ...(requestInit.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}),
       ...headers,
     },
   })

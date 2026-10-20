@@ -2,6 +2,8 @@ import type { AdminRole, CurrentAdmin } from '../../lib/api/auth'
 
 type MockAdminAccount = CurrentAdmin & {
   password: string
+  accessToken: string
+  refreshToken: string
 }
 
 const initialLastLoginAt = '2026-10-11T18:00:00+09:00'
@@ -14,6 +16,8 @@ export const mockAdminAccounts: MockAdminAccount[] = [
     role: 'ADMIN',
     isActive: true,
     lastLoginAt: initialLastLoginAt,
+    accessToken: 'mock-access-admin',
+    refreshToken: 'mock-refresh-admin',
   },
   {
     adminId: '00000000-0000-4000-8000-000000000002',
@@ -22,6 +26,8 @@ export const mockAdminAccounts: MockAdminAccount[] = [
     role: 'ANALYST',
     isActive: true,
     lastLoginAt: initialLastLoginAt,
+    accessToken: 'mock-access-analyst',
+    refreshToken: 'mock-refresh-analyst',
   },
   {
     adminId: '00000000-0000-4000-8000-000000000003',
@@ -30,6 +36,8 @@ export const mockAdminAccounts: MockAdminAccount[] = [
     role: 'VIEWER',
     isActive: true,
     lastLoginAt: initialLastLoginAt,
+    accessToken: 'mock-access-viewer',
+    refreshToken: 'mock-refresh-viewer',
   },
 ]
 
@@ -42,9 +50,9 @@ export function findMockAccountByCredentials(username: string, password: string)
   )
 }
 
-export function findMockAccountById(adminId: string) {
+export function findMockAccountByAccessToken(token: string) {
   return mockAdminAccounts.find(
-    (account) => account.adminId === adminId && account.isActive,
+    (account) => account.accessToken === token && account.isActive,
   )
 }
 
