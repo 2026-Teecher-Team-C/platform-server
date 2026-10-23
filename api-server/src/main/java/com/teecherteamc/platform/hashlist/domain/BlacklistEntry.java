@@ -72,6 +72,30 @@ public class BlacklistEntry {
         this.deactivatedAt = now;
     }
 
+        /**
+     * 해제했던 해시를 다시 등록한다. 행을 새로 만들지 않고 기존 행을 되살린다.
+     * PK가 (hash_type, hash_value)라서 같은 해시를 INSERT하면 충돌하기 때문이다.
+     *
+     * 사유·심각도·출처·등록자는 이번 등록 기준으로 덮어쓴다.
+     * createdAt은 updatable = false라서 그대로 남는다. (최초 등록 시각)
+     */
+    public void reactivate(String reason, Severity severity, EntrySource source, UUID addedBy) {
+        // 이미 활성인 항목을 되살리는 건 호출한 쪽의 실수다. 중복 등록은 유스케이스에서 먼저 걸러야 한다.
+        if (active) {
+            throw new IllegalStateException("이미 활성 상태입니다.");
+        }
+        // register()와 같은 규칙: 사유는 필수
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("등록 사유는 필수입니다.");
+        }
+        this.reason = reason;
+        this.severity = severity;
+        this.source = source;
+        this.addedBy = addedBy;
+        this.active = true;
+        this.deactivatedAt = null;   // 해제 시각을 지워서 다시 활성 상태로 돌린다
+    }
+
     public HashKey getId() {
         return id;
     }
