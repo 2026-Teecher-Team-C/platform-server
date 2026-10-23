@@ -3,16 +3,19 @@ package com.teecherteamc.platform.admin.interfaces;
 import com.teecherteamc.platform.common.ApiException;
 import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
+import com.teecherteamc.platform.quarantine.application.FindQuarantineFileUseCase;
 import com.teecherteamc.platform.quarantine.application.ListQuarantineFilesUseCase;
+import com.teecherteamc.platform.quarantine.domain.QuarantineDetailRow;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 관리자 콘솔의 격리 파일 목록 REST 엔드포인트. 데모 범위라 인증 없음 — 다운로드 이벤트 목록과 같은
- * 이유로 인증 미들웨어가 아직 없는 상태에서 명시적으로 생략하기로 합의됐다.
+ * 관리자 콘솔의 격리 파일 목록/상세 REST 엔드포인트. 데모 범위라 인증 없음 — 다운로드 이벤트 목록과
+ * 같은 이유로 인증 미들웨어가 아직 없는 상태에서 명시적으로 생략하기로 합의됐다.
  *
  * <p>응답에 S3 저장 위치(bucket/key)는 절대 포함하지 않는다 — 콘솔을 거치지 않고 격리 저장소에
  * 직접 접근하는 경로가 드러나면 안 된다는 요구사항.
@@ -26,9 +29,13 @@ public class QuarantineController {
     private static final int MAX_SIZE = 200;
 
     private final ListQuarantineFilesUseCase listQuarantineFilesUseCase;
+    private final FindQuarantineFileUseCase findQuarantineFileUseCase;
 
-    public QuarantineController(ListQuarantineFilesUseCase listQuarantineFilesUseCase) {
+    public QuarantineController(
+            ListQuarantineFilesUseCase listQuarantineFilesUseCase,
+            FindQuarantineFileUseCase findQuarantineFileUseCase) {
         this.listQuarantineFilesUseCase = listQuarantineFilesUseCase;
+        this.findQuarantineFileUseCase = findQuarantineFileUseCase;
     }
 
     @GetMapping("/api/admin/quarantine")
@@ -53,14 +60,23 @@ public class QuarantineController {
                 QuarantineListItem::from);
     }
 
+    @GetMapping("/api/admin/quarantine/{quarantineId}")
+    public QuarantineDetail detail(@PathVariable String quarantineId) {
+        UUID parsedQuarantineId = parseUuid(quarantineId, "quarantineId");
+        QuarantineDetailRow row = findQuarantineFileUseCase.find(parsedQuarantineId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "quarantine file not found: " + quarantineId));
+        return QuarantineDetail.from(row);
+    }
+
     private static UUID parseUuidOrNull(String value) {
-        if (value == null) {
-            return null;
-        }
+        return value == null ? null : parseUuid(value, "agentId");
+    }
+
+    private static UUID parseUuid(String value, String fieldName) {
         try {
             return UUID.fromString(value);
         } catch (IllegalArgumentException e) {
-            throw invalid("agentId must be a valid UUID");
+            throw invalid(fieldName + " must be a valid UUID");
         }
     }
 
