@@ -4,7 +4,9 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/platform}
     username: ${DB_USERNAME:platform}
-    password: ${DB_PASSWORD:platform}
+    # 기본값을 두지 않는다 — DB_PASSWORD가 없으면 그냥 기동 실패해야 한다(커밋된 파일에 비밀번호
+    # 형태의 기본값을 남기지 않기 위함). 로컬은 infra/dev.env가 항상 채워준다.
+    password: ${DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
