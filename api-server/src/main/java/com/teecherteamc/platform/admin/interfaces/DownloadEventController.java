@@ -3,18 +3,21 @@ package com.teecherteamc.platform.admin.interfaces;
 import com.teecherteamc.platform.common.ApiException;
 import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
+import com.teecherteamc.platform.event.application.FindDownloadEventUseCase;
 import com.teecherteamc.platform.event.application.ListDownloadEventsUseCase;
+import com.teecherteamc.platform.event.domain.DownloadEventDetailRow;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 관리자 콘솔의 다운로드 이벤트 목록 REST 엔드포인트. 데모 범위라 인증 없음 — 인증 미들웨어가 아직
- * 없는 상태에서 명시적으로 생략하기로 합의됐다(2026-10-14 요구사항).
+ * 관리자 콘솔의 다운로드 이벤트 목록/상세 REST 엔드포인트. 데모 범위라 인증 없음 — 인증 미들웨어가
+ * 아직 없는 상태에서 명시적으로 생략하기로 합의됐다(2026-10-14 요구사항).
  *
  * <p>목록 응답은 API 컨벤션의 PageResponse(page는 0부터)로 내린다. 커서 방식(nextCursor)은
  * 2026-10-18 팀 결정으로 폐기했다.
@@ -28,9 +31,13 @@ public class DownloadEventController {
     private static final int MAX_SIZE = 200;
 
     private final ListDownloadEventsUseCase listDownloadEventsUseCase;
+    private final FindDownloadEventUseCase findDownloadEventUseCase;
 
-    public DownloadEventController(ListDownloadEventsUseCase listDownloadEventsUseCase) {
+    public DownloadEventController(
+            ListDownloadEventsUseCase listDownloadEventsUseCase,
+            FindDownloadEventUseCase findDownloadEventUseCase) {
         this.listDownloadEventsUseCase = listDownloadEventsUseCase;
+        this.findDownloadEventUseCase = findDownloadEventUseCase;
     }
 
     @GetMapping("/api/admin/download-events")
@@ -59,14 +66,23 @@ public class DownloadEventController {
                 DownloadEventListItem::from);
     }
 
+    @GetMapping("/api/admin/download-events/{eventId}")
+    public DownloadEventDetail detail(@PathVariable String eventId) {
+        UUID parsedEventId = parseUuid(eventId, "eventId");
+        DownloadEventDetailRow row = findDownloadEventUseCase.find(parsedEventId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "download event not found: " + eventId));
+        return DownloadEventDetail.from(row);
+    }
+
     private static UUID parseUuidOrNull(String value) {
-        if (value == null) {
-            return null;
-        }
+        return value == null ? null : parseUuid(value, "agentId");
+    }
+
+    private static UUID parseUuid(String value, String fieldName) {
         try {
             return UUID.fromString(value);
         } catch (IllegalArgumentException e) {
-            throw invalid("agentId must be a valid UUID");
+            throw invalid(fieldName + " must be a valid UUID");
         }
     }
 
