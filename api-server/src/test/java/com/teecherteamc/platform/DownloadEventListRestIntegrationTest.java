@@ -17,7 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-// 인증 없음 — 데모 범위로 명시적으로 생략(2026-10-14 요구사항). VIEWER 권한 게이트는 범위 밖.
+// 로그인 없음 — 시연용으로 이 경로만 열어 둔다(2026-10-14 요구사항, SecurityConfig). VIEWER 권한 게이트는 범위 밖.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @Import(TestcontainersConfiguration.class)

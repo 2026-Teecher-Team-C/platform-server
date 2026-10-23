@@ -1,6 +1,25 @@
+server:
+  servlet:
+    session:
+      # 세션 ID를 URL(;jsessionid=)에 싣지 않는다.
+      tracking-modes: cookie
+      cookie:
+        http-only: true
+        # 콘솔(Vercel)과 api-server가 다른 사이트라 운영은 SameSite=None; Secure여야 쿠키가 실린다.
+        # 로컬(localhost:5173 → localhost:8080)은 같은 사이트라 infra/dev.env에서 Lax·비보안으로 낮춘다.
+        same-site: ${SESSION_COOKIE_SAME_SITE:none}
+        secure: ${SESSION_COOKIE_SECURE:true}
+
 spring:
   application:
     name: api-server
+  autoconfigure:
+    # 관리자는 admin_users로만 로그인한다. Boot가 만드는 메모리 사용자("user" + 로그에 찍히는 임시 비밀번호)를 끈다.
+    # gRPC OAuth2 리소스 서버 설정도 쓰지 않는다(에이전트는 AgentAuthServerInterceptor로 인증). OAuth2 클래스가 없어
+    # 기동할 때마다 조건 검사 경고가 찍히던 것을 없앤다.
+    exclude:
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.grpc.server.autoconfigure.security.GrpcServerOAuth2ResourceServerAutoConfiguration
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/platform}
     username: ${DB_USERNAME:platform}
@@ -35,9 +54,18 @@ lookup:
     rebuild-interval-ms: 300000
 
 platform:
+  auth:
+    # 기본은 켬. 끄면(로컬 개발 전용, infra/dev.env) 관리 API가 로그인 없이 열리고 모든 요청이 초기 관리자로
+    # 처리된다. 운영에서는 끄지 않는다 — 값이 없으면 켜진 채로 뜬다.
+    enabled: ${AUTH_ENABLED:true}
   cors:
     # 쉼표로 구분. 운영은 Vercel 콘솔 도메인을 CORS_ALLOWED_ORIGINS로 넣는다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  admin:
+    bootstrap:
+      # 둘 다 있고 같은 계정명이 없을 때만 기동 시 ADMIN 계정을 만든다(AdminBootstrap). 비우면 아무것도 안 한다.
+      username: ${ADMIN_BOOTSTRAP_USERNAME:}
+      password: ${ADMIN_BOOTSTRAP_PASSWORD:}
 
 quarantine:
   s3:
