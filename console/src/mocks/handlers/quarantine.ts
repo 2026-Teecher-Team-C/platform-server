@@ -14,14 +14,23 @@ export const quarantineHandlers = [
     const url = new URL(request.url)
     const status = url.searchParams.get('status')
     const agentId = url.searchParams.get('agentId')
+    const page = Number(url.searchParams.get('page') ?? 0)
+    const size = Number(url.searchParams.get('size') ?? 20)
 
-    const items = mockQuarantine.filter((item) => {
+    const matched = mockQuarantine.filter((item) => {
       if (status && item.status !== status) return false
       if (agentId && item.agentId !== agentId) return false
       return true
     })
 
-    return HttpResponse.json({ items, nextCursor: null })
+    // 서버 PageResponse와 같은 모양으로 한 페이지만 잘라 준다.
+    return HttpResponse.json({
+      content: matched.slice(page * size, (page + 1) * size),
+      page,
+      size,
+      totalElements: matched.length,
+      totalPages: Math.ceil(matched.length / size),
+    })
   }),
 
   http.get(

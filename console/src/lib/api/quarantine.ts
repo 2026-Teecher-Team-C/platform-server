@@ -1,8 +1,9 @@
 import { apiRequest } from './client'
-import type { CursorPage } from './types'
+import type { PageResponse } from './types'
 import { toQueryString } from './types'
 
-export type QuarantineStatus = 'QUARANTINED' | 'RESTORED'
+// 실제 DB CHECK 제약(ck_quarantine_files_status)과 1:1.
+export type QuarantineStatus = 'QUARANTINED' | 'RESTORED' | 'DELETED' | 'EXPIRED'
 
 export type QuarantineListItem = {
   quarantineId: string
@@ -10,7 +11,8 @@ export type QuarantineListItem = {
   agentId: string
   hostname: string
   sha256: string
-  originalFilename: string
+  // original_filename은 DB에서 nullable이다.
+  originalFilename: string | null
   fileSize: number
   status: QuarantineStatus
   quarantinedAt: string
@@ -20,8 +22,9 @@ export type QuarantineListItem = {
 export type QuarantineQuery = {
   status?: QuarantineStatus
   agentId?: string
-  cursor?: string
-  limit?: number
+  // page는 0부터. size 상한은 서버 기준 200.
+  page?: number
+  size?: number
 }
 
 export type RestoreQuarantineResponse = {
@@ -33,7 +36,7 @@ export type RestoreQuarantineResponse = {
 }
 
 export function getQuarantineFiles(query: QuarantineQuery = {}) {
-  return apiRequest<CursorPage<QuarantineListItem>>(
+  return apiRequest<PageResponse<QuarantineListItem>>(
     '/api/admin/quarantine' + toQueryString(query),
   )
 }
