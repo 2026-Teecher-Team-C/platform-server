@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.hashlist.application;
 
+import com.teecherteamc.platform.audit.application.RecordAuditLogService;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntryRepository;
 import com.teecherteamc.platform.hashlist.domain.EntrySource;
@@ -25,13 +26,16 @@ public class AddBlacklistEntryUseCase {
     private final BlacklistEntryRepository blacklist;
     private final WhitelistEntryRepository whitelist;
     private final Clock clock;   // 현재 시각을 밖에서 받아야 테스트에서 고정할 수 있다
+    private final RecordAuditLogService recordAuditLog;
 
     public AddBlacklistEntryUseCase(BlacklistEntryRepository blacklist,
                                     WhitelistEntryRepository whitelist,
-                                    Clock clock) {
+                                    Clock clock,
+                                    RecordAuditLogService recordAuditLog) {
         this.blacklist = blacklist;
         this.whitelist = whitelist;
         this.clock = clock;
+        this.recordAuditLog = recordAuditLog;
     }
 
     /**
@@ -70,6 +74,8 @@ public class AddBlacklistEntryUseCase {
             // 4. 해제했던 행이 있으면 새로 INSERT하지 않고 되살린다. (PK 충돌 방지)
             entry.reactivate(command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy());
             blacklist.save(entry);
+            // 6. 감사 로그. 로그 저장이 실패하면 이 트랜잭션이 취소되어 재등록도 되돌려진다.
+            recordAuditLog.record(command.addedBy(), "ADD_BLACKLIST", "BLACKLIST", key.getHashValue(), null);
             return entry;
         }
 
@@ -77,8 +83,8 @@ public class AddBlacklistEntryUseCase {
         BlacklistEntry entry = BlacklistEntry.register(
                 key, command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy(), now);
         blacklist.save(entry);
+        // 6. 감사 로그 (재등록과 같은 내용)
+        recordAuditLog.record(command.addedBy(), "ADD_BLACKLIST", "BLACKLIST", key.getHashValue(), null);
         return entry;
-
-        // 6. 감사 로그는 다음 단계에서 추가한다.
     }
 }
