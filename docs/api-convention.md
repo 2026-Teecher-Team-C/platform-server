@@ -91,12 +91,12 @@ return PageResponse.from(page, BlacklistEntryView::from);
 
 ## 3. 인증
 
-관리 콘솔은 서버 세션 쿠키로 로그인한다. 자세한 내용은 [인증 방침](auth-policy.md)에 있다.
+관리 콘솔은 Bearer 토큰으로 로그인한다. 자세한 내용은 [인증 방침](auth-policy.md)에 있다.
 
-- 로그인이 필요한 요청에 세션이 없으면 401 `UNAUTHORIZED`, 허용되지 않은 출처의 쓰기 요청은 403 `FORBIDDEN`이다. 둘 다 `ErrorResponse` 형식이다.
-- 프론트는 모든 요청에 `credentials: 'include'`를 싣는다. `Authorization` 헤더는 쓰지 않는다.
+- 프론트는 모든 요청에 `Authorization: Bearer <access 토큰>`을 싣는다. 쿠키는 쓰지 않는다.
+- access 토큰이 없거나, 서명이 틀리거나, 만료됐으면 401 `UNAUTHORIZED`다. 권한 부족은 403 `FORBIDDEN`이다. 둘 다 `ErrorResponse` 형식이다.
 
 ## 4. 아직 정하지 않은 것
 
-- SSE 인증 방식: 로그인과 같은 세션 쿠키를 쓴다(`EventSource`는 `withCredentials: true`). SSE를 구현할 때 확인한다.
+- SSE 인증 방식: `EventSource`는 `Authorization` 헤더를 못 싣는다. 쿼리 토큰 등은 SSE를 구현할 때 정한다.
 - `size` 상한: 지금은 제한이 없다.
