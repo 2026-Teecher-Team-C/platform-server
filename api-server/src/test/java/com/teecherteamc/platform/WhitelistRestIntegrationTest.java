@@ -390,6 +390,102 @@ class WhitelistRestIntegrationTest {
         assertThat(list("?origin=MANUAL").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // ---- 해제 DELETE ----
+
+    @Test
+    void 해제하면_204이고_행은_남고_비활성이며_감사_로그가_남는다() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, null, T1);
+
+        ResponseEntity<Map<String, Object>> response = call(HttpMethod.DELETE, URL + "/" + sha256, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(isActive(sha256)).isFalse();
+        Map<String, Object> audit = lastAudit("REMOVE_WHITELIST", sha256);
+        assertThat(audit.get("actor_id")).isEqualTo(adminClient.adminId());
+        assertThat(audit.get("target_type")).isEqualTo("WHITELIST");
+    }
+
+    @Test
+    void 대문자_해시로_해제해도_적용된다() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, null, T1);
+
+        ResponseEntity<Map<String, Object>> response =
+                call(HttpMethod.DELETE, URL + "/" + sha256.toUpperCase(), null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(isActive(sha256)).isFalse();
+    }
+
+    @Test
+    void 없는_해시를_해제하면_404() {
+        ResponseEntity<Map<String, Object>> response = call(HttpMethod.DELETE, URL + "/" + randomSha256(), null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody().get("code")).isEqualTo("NOT_FOUND");
+    }
+
+    @Test
+    void 이미_해제된_해시를_해제하면_404() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, false, null, T1);
+
+        assertThat(call(HttpMethod.DELETE, URL + "/" + sha256, null).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void 형식이_틀린_해시를_해제하면_400() {
+        assertThat(call(HttpMethod.DELETE, URL + "/not-a-hash", null).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    // ---- 사유 수정 PATCH ----
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 사유를_수정하면_200과_바뀐_항목을_돌려주고_감사_로그에_이전_이후가_남는다() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, null, T1);
+
+        ResponseEntity<Map<String, Object>> response =
+                call(HttpMethod.PATCH, URL + "/" + sha256, Map.of("reason", "사내 배포 도구 v2"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("reason")).isEqualTo("사내 배포 도구 v2");
+        assertThat(response.getBody().get("isActive")).isEqualTo(true);
+        assertThat(((Map<String, Object>) response.getBody().get("addedBy")).get("username"))
+                .asString().startsWith("seed-");
+        Map<String, Object> audit = lastAudit("UPDATE_WHITELIST", sha256);
+        assertThat(audit.get("actor_id")).isEqualTo(adminClient.adminId());
+        assertThat((String) audit.get("detail")).contains("seeded").contains("사내 배포 도구 v2");
+    }
+
+    @Test
+    void 빈_사유로_수정하면_400() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, null, T1);
+
+        assertThat(call(HttpMethod.PATCH, URL + "/" + sha256, Map.of("reason", " ")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void 없는_해시를_수정하면_404() {
+        assertThat(call(HttpMethod.PATCH, URL + "/" + randomSha256(), Map.of("reason", "r")).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void 해제된_해시를_수정하면_404() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, false, null, T1);
+
+        assertThat(call(HttpMethod.PATCH, URL + "/" + sha256, Map.of("reason", "r")).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> content(ResponseEntity<Map<String, Object>> response) {
         return (List<Map<String, Object>>) response.getBody().get("content");

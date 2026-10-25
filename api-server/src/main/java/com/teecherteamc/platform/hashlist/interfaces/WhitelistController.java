@@ -8,6 +8,11 @@ import com.teecherteamc.platform.common.PageResponse;
 import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import com.teecherteamc.platform.hashlist.application.HashListConflictException;
 import com.teecherteamc.platform.hashlist.application.ListWhitelistUseCase;
+import com.teecherteamc.platform.hashlist.application.RemoveWhitelistEntryUseCase;
+import com.teecherteamc.platform.hashlist.application.UpdateWhitelistReasonUseCase;
+import com.teecherteamc.platform.hashlist.application.WhitelistNotFoundException;
+import com.teecherteamc.platform.hashlist.domain.HashKey;
+import com.teecherteamc.platform.hashlist.domain.ListWhitelistPort;
 import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,7 +21,10 @@ import java.util.Locale;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,11 +46,20 @@ public class WhitelistController {
 
     private final ListWhitelistUseCase listWhitelistUseCase;
     private final AddWhitelistEntryUseCase addWhitelistEntryUseCase;
+    private final RemoveWhitelistEntryUseCase removeWhitelistEntryUseCase;
+    private final UpdateWhitelistReasonUseCase updateWhitelistReasonUseCase;
+    private final ListWhitelistPort listWhitelistPort;
 
     public WhitelistController(ListWhitelistUseCase listWhitelistUseCase,
-                               AddWhitelistEntryUseCase addWhitelistEntryUseCase) {
+                               AddWhitelistEntryUseCase addWhitelistEntryUseCase,
+                               RemoveWhitelistEntryUseCase removeWhitelistEntryUseCase,
+                               UpdateWhitelistReasonUseCase updateWhitelistReasonUseCase,
+                               ListWhitelistPort listWhitelistPort) {
         this.listWhitelistUseCase = listWhitelistUseCase;
         this.addWhitelistEntryUseCase = addWhitelistEntryUseCase;
+        this.removeWhitelistEntryUseCase = removeWhitelistEntryUseCase;
+        this.updateWhitelistReasonUseCase = updateWhitelistReasonUseCase;
+        this.listWhitelistPort = listWhitelistPort;
     }
 
     /**
@@ -93,6 +110,41 @@ public class WhitelistController {
             // 블랙리스트에 있거나 이미 화이트리스트에 있음 → 409
             throw new ApiException(ErrorCode.CONFLICT, e.getMessage());
         }
+    }
+
+    /** 화이트리스트 항목을 해제(비활성화)한다. 행은 남는다. */
+    @DeleteMapping("/api/admin/whitelist/{sha256}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void remove(@AuthenticationPrincipal AdminPrincipal principal,
+                       @PathVariable String sha256, HttpServletRequest httpRequest) {
+        try {
+            removeWhitelistEntryUseCase.remove(sha256, principal.adminId(), ClientIp.resolve(httpRequest));
+        } catch (InvalidHashException e) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());
+        } catch (WhitelistNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());
+        }
+    }
+
+    /** 등록 사유만 고친다. 다른 필드는 그대로다. */
+    @PatchMapping("/api/admin/whitelist/{sha256}")
+    public WhitelistItem updateReason(@AuthenticationPrincipal AdminPrincipal principal,
+                                      @PathVariable String sha256,
+                                      @Valid @RequestBody UpdateWhitelistReasonRequest request,
+                                      HttpServletRequest httpRequest) {
+        HashKey key;
+        try {
+            key = updateWhitelistReasonUseCase.update(sha256, request.reason(), principal.adminId(),
+                    ClientIp.resolve(httpRequest));
+        } catch (InvalidHashException e) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());
+        } catch (WhitelistNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());
+        }
+        // 등록자가 수정한 사람과 다를 수 있어서 username은 admin_users 조인으로 다시 읽는다.
+        return listWhitelistPort.find(key)
+                .map(WhitelistItem::from)
+                .orElseThrow(() -> new IllegalStateException("방금 수정한 화이트리스트 항목이 없습니다: " + key.getHashValue()));
     }
 
     private static ApiException invalid(String message) {
