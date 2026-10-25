@@ -25,8 +25,6 @@ services:
       REDIS_PORT: ${REDIS_PORT:-6379}
       # 관리 콘솔 출처(쉼표 구분). 운영 infra/.env에 Vercel 도메인을 넣는다.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
-      # 관리 API 인증. 운영은 켠 채로 둔다(값이 없어도 켜짐). 로컬 dev.env만 false다.
-      AUTH_ENABLED: ${AUTH_ENABLED:-true}
       # 관리자 access 토큰(JWT) 서명 키. 32바이트 이상. 운영 값은 infra/.env에만 둔다.
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       # 비우면 application.yml 기본값(access 1h, refresh 7d)을 쓴다.
