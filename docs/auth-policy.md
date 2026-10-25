@@ -68,7 +68,7 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 | `JWT_SECRET` | 없음(필수) | access 토큰 서명 키. 32바이트 이상. 없거나 짧으면 기동하지 않는다 |
 | `JWT_ACCESS_TOKEN_TTL` | `1h` | access 토큰 유효 기간 |
 | `JWT_REFRESH_TOKEN_TTL` | `7d` | refresh 토큰 유효 기간 |
-| `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD` | 없음 | 둘 다 있고 그 계정명이 없을 때만 기동 시 `ADMIN` 계정을 만든다. 이미 있으면 비밀번호를 바꾸지 않는다 |
+| `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD` | 없음 | 계정명이 있고 그 계정이 없을 때만 기동 시 `ADMIN` 계정을 만든다. 비밀번호가 비어 있으면 랜덤으로 정해 해시로만 저장하고 어디에도 남기지 않는다(아무도 모른다). 계정명 없이 비밀번호만 있으면 만들지 않는다. 이미 있으면 비밀번호를 바꾸지 않는다 |
 
 ## 8. 인증 끄기 (`AUTH_ENABLED`, 로컬 개발 전용)
 
