@@ -1,7 +1,8 @@
 package com.teecherteamc.platform.audit.domain;
 
 /**
- * audit_logs.action 값. 설계 레포 감사 로그 규격(2026-09-18-audit-log-spec.md) 2장의 목록이다.
+ * audit_logs.action 값. 설계 레포 감사 로그 규격(2026-09-18-audit-log-spec.md) 2장의 목록에, 기능 API 명세
+ * "감사 로그 조회"가 이번 범위로 더한 ISSUE_ENROLLMENT_TOKEN·UPDATE_WHITELIST·UPDATE_BLACKLIST를 합쳤다.
  * 같은 행위를 구현자마다 다른 문자열로 남기면 집계가 안 되므로 문자열을 직접 넘기지 않고 이 값을 쓴다.
  */
 public enum AuditAction {
@@ -15,8 +16,10 @@ public enum AuditAction {
     DEACTIVATE_ADMIN,
     // 해시 리스트
     ADD_WHITELIST,
+    UPDATE_WHITELIST,
     REMOVE_WHITELIST,
     ADD_BLACKLIST,
+    UPDATE_BLACKLIST,
     REMOVE_BLACKLIST,
     // 격리
     RESTORE_QUARANTINE,
@@ -31,6 +34,7 @@ public enum AuditAction {
     UPDATE_FILE_TYPE_POLICY,
     // 판정 / 에이전트 / 캐시
     SET_MANUAL_VERDICT,
+    ISSUE_ENROLLMENT_TOKEN,
     REVOKE_AGENT,
     INVALIDATE_CACHE
 }
