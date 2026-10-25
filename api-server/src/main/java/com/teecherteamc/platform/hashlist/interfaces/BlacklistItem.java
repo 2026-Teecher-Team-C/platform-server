@@ -2,6 +2,7 @@ package com.teecherteamc.platform.hashlist.interfaces;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
+import com.teecherteamc.platform.hashlist.domain.BlacklistListRow;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -29,7 +30,7 @@ public record BlacklistItem(
     public record AdminSummary(UUID adminId, String username) {
     }
 
-    /** username을 모르는 곳(목록 등)에서 쓴다. addedBy가 있으면 username은 null로 나간다. */
+    /** username을 모르는 곳에서 쓴다. addedBy가 있으면 username은 null로 나간다. */
     public static BlacklistItem from(BlacklistEntry entry) {
         return from(entry, null);
     }
@@ -49,6 +50,20 @@ public record BlacklistItem(
                 entry.isActive(),
                 entry.getCreatedAt(),
                 entry.getDeactivatedAt());
+    }
+
+    /** 목록 조회용. admin_users와 조인해서 읽은 행을 응답으로 바꾼다. */
+    public static BlacklistItem fromRow(BlacklistListRow row) {
+        return new BlacklistItem(
+                row.hashType(),
+                row.hashValue(),
+                row.reason(),
+                row.severity(),
+                row.source(),
+                toAdminSummary(row.addedBy(), row.addedByUsername()),
+                row.active(),
+                row.createdAt(),
+                row.deactivatedAt());
     }
 
     private static AdminSummary toAdminSummary(UUID addedBy, String username) {
