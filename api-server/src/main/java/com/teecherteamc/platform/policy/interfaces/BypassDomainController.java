@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 바이패스 도메인 관리 REST 엔드포인트. 지금은 목록 조회만 있다.
  *
- * 지금은 인증이 없다. 인증은 세션 쿠키 로그인(PR #30)이 들어오면 붙인다. (docs/auth-policy.md)
+ * 로그인(access 토큰)이 필요하다. SecurityConfig가 막는다. (docs/auth-policy.md)
  */
 @RestController
 public class BypassDomainController {

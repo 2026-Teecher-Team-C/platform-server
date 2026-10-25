@@ -10,7 +10,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -18,16 +17,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-// 인증 없음 — 세션 쿠키 로그인(PR #30)이 들어오기 전이라 명시적으로 생략. VIEWER 권한 게이트는 범위 밖.
+// 로그인이 필요한 API라 AdminApiClient로 로그인한 access 토큰으로 요청한다. VIEWER 권한 게이트는 범위 밖.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class BypassDomainListRestIntegrationTest {
 
     private static final String URL = "/api/admin/bypass-domains";
 
     @Autowired
-    private TestRestTemplate restTemplate;
+    private AdminApiClient adminClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -52,7 +51,7 @@ class BypassDomainListRestIntegrationTest {
 
     @SuppressWarnings("unchecked")
     private ResponseEntity<Map<String, Object>> get(String query) {
-        return restTemplate.getForEntity(URL + query, (Class<Map<String, Object>>) (Class<?>) Map.class);
+        return adminClient.getForEntity(URL + query, (Class<Map<String, Object>>) (Class<?>) Map.class);
     }
 
     @SuppressWarnings("unchecked")

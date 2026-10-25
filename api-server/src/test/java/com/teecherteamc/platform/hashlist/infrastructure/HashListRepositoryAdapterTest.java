@@ -34,7 +34,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * 해시 판정(조회 사슬)은 lookup이 전용 쿼리로 하므로 여기서 다루지 않는다.
  * 여기서는 "저장하고 다시 읽으면 값이 그대로인가"와 엔티티의 판정 규칙을 확인한다.
  */
-@SpringBootTest
+// 공용 TestcontainersConfiguration을 쓰지 않아서 기동에 필요한 JWT 서명 키를 여기서 넣는다.
+@SpringBootTest(properties = "platform.auth.jwt.secret=hash-list-repository-test-secret-at-least-32-bytes")
 @Testcontainers
 @Transactional
 class HashListRepositoryAdapterTest {

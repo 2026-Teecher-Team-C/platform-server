@@ -40,9 +40,9 @@ make dev | make test | make proto | make down     # 전부 Docker 안에서 실�
   쿼리는 `page`·`size`. 커서 방식(`items`·`nextCursor`)은 폐기했다 — 다시 만들지 않는다
 - **에러 응답은 공통 `ErrorResponse`.** interfaces 계층에서 `ApiException(ErrorCode.X, 메시지)`를 던지고
   `GlobalExceptionHandler`가 바꾼다. 컨트롤러가 자체 에러 바디를 만들지 않는다. 상세는 `docs/api-convention.md`
-- **인증은 세션 쿠키.** Bearer 토큰을 쓰지 않는다. 콘솔(Vercel)과 API(EC2)가 다른 사이트라 운영 쿠키는
-  `SameSite=None; Secure; HttpOnly`, CORS는 정확한 출처 + `allowCredentials`, 콘솔은 `credentials: 'include'`.
-  SSE도 같은 쿠키로 인증한다. 상세는 `docs/auth-policy.md`
+- **인증은 Bearer 토큰.** 로그인하면 access(JWT)·refresh 토큰을 주고, 관리 API는 `Authorization: Bearer <access>`로
+  인증한다. 세션·쿠키는 쓰지 않는다(STATELESS, CSRF 방어 불필요). 컨트롤러는 `@AuthenticationPrincipal AdminPrincipal`로
+  현재 관리자를 받는다. 상세는 `docs/auth-policy.md`
 - **관리자 쓰기 작업은 감사 로그를 남긴다.** `AuditLogRecorder`로 그 작업과 같은 트랜잭션에서 기록하고,
   비밀번호·토큰 원문은 `detail`에 넣지 않는다
 
