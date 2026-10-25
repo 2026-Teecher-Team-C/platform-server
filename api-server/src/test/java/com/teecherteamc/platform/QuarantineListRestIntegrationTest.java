@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -17,14 +16,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-// 인증 없음 — 데모 범위로 명시적으로 생략(다운로드 이벤트 목록과 같은 이유). VIEWER 권한 게이트는 범위 밖.
+// 로그인이 필요한 API라 AdminApiClient로 로그인한 access 토큰으로 요청한다. 역할 구분은 아직 하지 않는다.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class QuarantineListRestIntegrationTest {
 
     @Autowired
-    private TestRestTemplate restTemplate;
+    private AdminApiClient adminClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -97,7 +96,7 @@ class QuarantineListRestIntegrationTest {
     void hostname이_devices_조인으로_채워지고_S3_위치는_노출되지_않는다() {
         seedFullChain("DESKTOP-QUARANTINE", "QUARANTINED", Instant.parse("2026-10-23T00:00:00Z"));
 
-        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+        ResponseEntity<Map<String, Object>> response = adminClient.getForEntity(
                 "/api/admin/quarantine", (Class<Map<String, Object>>) (Class<?>) Map.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -120,7 +119,7 @@ class QuarantineListRestIntegrationTest {
         seedQuarantineFile(seedDownloadEvent(agentA, shaA), shaA, agentA, "QUARANTINED", Instant.now());
         seedQuarantineFile(seedDownloadEvent(agentB, shaB), shaB, agentB, "QUARANTINED", Instant.now());
 
-        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+        ResponseEntity<Map<String, Object>> response = adminClient.getForEntity(
                 "/api/admin/quarantine?agentId=" + agentA, (Class<Map<String, Object>>) (Class<?>) Map.class);
 
         List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
@@ -154,7 +153,7 @@ class QuarantineListRestIntegrationTest {
                 """,
                 restoredId, eventId2, sha2, agentId, "key-" + restoredId, adminId);
 
-        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+        ResponseEntity<Map<String, Object>> response = adminClient.getForEntity(
                 "/api/admin/quarantine?status=RESTORED&agentId=" + agentId,
                 (Class<Map<String, Object>>) (Class<?>) Map.class);
 
@@ -176,7 +175,7 @@ class QuarantineListRestIntegrationTest {
                 seedDownloadEvent(agentId, shaNew), shaNew, agentId, "QUARANTINED",
                 Instant.parse("2026-10-23T00:00:00Z"));
 
-        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+        ResponseEntity<Map<String, Object>> response = adminClient.getForEntity(
                 "/api/admin/quarantine?agentId=" + agentId, (Class<Map<String, Object>>) (Class<?>) Map.class);
 
         List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
@@ -187,7 +186,7 @@ class QuarantineListRestIntegrationTest {
 
     @Test
     void status가_유효하지_않은_값이면_400이다() {
-        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity(
+        ResponseEntity<Map<String, Object>> response = adminClient.getForEntity(
                 "/api/admin/quarantine?status=NOPE", (Class<Map<String, Object>>) (Class<?>) Map.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
