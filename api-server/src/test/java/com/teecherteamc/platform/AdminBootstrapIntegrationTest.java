@@ -67,11 +67,27 @@ class AdminBootstrapIntegrationTest {
     }
 
     @Test
-    void 값이_비어_있으면_아무것도_만들지_않는다() throws Exception {
+    void 비밀번호가_비어_있으면_랜덤_비밀번호로_ADMIN을_만든다() throws Exception {
+        String first = "boot-" + UUID.randomUUID();
+        String second = "boot-" + UUID.randomUUID();
+
+        bootstrap(first, "").run(null);
+        bootstrap(second, null).run(null);
+
+        List<Map<String, Object>> firstRows = rowsFor(first);
+        List<Map<String, Object>> secondRows = rowsFor(second);
+        assertThat(firstRows).hasSize(1);
+        assertThat(secondRows).hasSize(1);
+        assertThat(firstRows.get(0).get("role")).isEqualTo("ADMIN");
+        assertThat((String) firstRows.get(0).get("password_hash")).startsWith("$2");
+        assertThat(firstRows.get(0).get("password_hash")).isNotEqualTo(secondRows.get(0).get("password_hash"));
+    }
+
+    @Test
+    void 계정명이_비어_있으면_아무것도_만들지_않는다() throws Exception {
         Integer before = jdbcTemplate.queryForObject("SELECT count(*) FROM admin_users", Integer.class);
 
         bootstrap("", "").run(null);
-        bootstrap("boot-" + UUID.randomUUID(), "").run(null);
         bootstrap("", "password-only").run(null);
         bootstrap(null, null).run(null);
 
