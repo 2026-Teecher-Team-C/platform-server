@@ -1,8 +1,12 @@
 package com.teecherteamc.platform.config;
 
+import com.teecherteamc.platform.admin.application.AuthDisabledAdmin;
 import com.teecherteamc.platform.admin.interfaces.AdminAuthentication;
+import com.teecherteamc.platform.admin.interfaces.AuthDisabledAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -11,6 +15,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.servlet.HandlerExceptionResolver;
@@ -25,6 +30,9 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *
  * <p>로그인 없이 열린 곳: 로그인·refresh API, 시연용 다운로드 이벤트 목록(시연이 끝나면 막는다), 헬스체크·Prometheus
  * (nginx가 actuator를 바깥에 노출하지 않는다). 나머지는 전부 로그인이 필요하다. 역할별 권한은 아직 나누지 않는다.
+ *
+ * <p>platform.auth.enabled(AUTH_ENABLED)가 false면 로컬 개발용으로 전부 열고, access 토큰 없는 요청을
+ * 초기 관리자로 처리한다(AuthDisabledAdmin). 기본값은 true이고 운영에서는 끄지 않는다.
  */
 @Configuration
 public class SecurityConfig {
@@ -33,8 +41,9 @@ public class SecurityConfig {
     SecurityFilterChain apiSecurityFilterChain(
             HttpSecurity http,
             CorsConfigurationSource corsConfigurationSource,
-            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver)
-            throws Exception {
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver,
+            @Value("${platform.auth.enabled:true}") boolean authEnabled,
+            ObjectProvider<AuthDisabledAdmin> authDisabledAdmin) throws Exception {
         ErrorResponseSecurityHandler errorHandler = new ErrorResponseSecurityHandler(handlerExceptionResolver);
 
         http
@@ -51,15 +60,24 @@ public class SecurityConfig {
                         .accessDeniedHandler(errorHandler))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(errorHandler)
-                        .accessDeniedHandler(errorHandler))
-                .authorizeHttpRequests(authorize -> authorize
-                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/admin/auth/login", "/api/admin/auth/refresh")
-                        .permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/admin/download-events").permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus")
-                        .permitAll()
-                        .anyRequest().authenticated());
+                        .accessDeniedHandler(errorHandler));
+
+        if (!authEnabled) {
+            // AUTH_ENABLED=false(로컬 개발 전용): 전부 연다. access 토큰이 없으면 행위자는 초기 관리자다.
+            http
+                    .addFilterAfter(new AuthDisabledAuthenticationFilter(authDisabledAdmin.getObject()),
+                            BearerTokenAuthenticationFilter.class)
+                    .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll());
+            return http.build();
+        }
+
+        http.authorizeHttpRequests(authorize -> authorize
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/admin/auth/login", "/api/admin/auth/refresh").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/admin/download-events").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus")
+                .permitAll()
+                .anyRequest().authenticated());
         return http.build();
     }
 
