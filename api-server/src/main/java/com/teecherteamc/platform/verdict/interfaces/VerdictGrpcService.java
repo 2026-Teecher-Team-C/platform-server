@@ -115,6 +115,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             return DecisionSource.DECISION_SOURCE_UNSPECIFIED;
         }
         return switch (source) {
+            case "WHITELIST" -> DecisionSource.DECISION_SOURCE_WHITELIST;
             case "BLACKLIST" -> DecisionSource.DECISION_SOURCE_BLACKLIST;
             case "CACHE" -> DecisionSource.DECISION_SOURCE_CACHE;
             case "ENGINE" -> DecisionSource.DECISION_SOURCE_ENGINE;

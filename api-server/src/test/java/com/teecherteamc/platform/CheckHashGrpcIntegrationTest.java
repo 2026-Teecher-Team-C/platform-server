@@ -11,6 +11,10 @@ import com.teecherteamc.platform.proto.verdict.v1.DecisionSource;
 import com.teecherteamc.platform.proto.verdict.v1.VerdictServiceGrpc;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.grpc.test.autoconfigure.AutoConfigureTestGrpcTransport;
@@ -160,5 +164,89 @@ class CheckHashGrpcIntegrationTest {
                 .isInstanceOf(StatusRuntimeException.class)
                 .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode())
                         .isEqualTo(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @Test
+    void 화이트리스트에_있으면_ALLOW_WHITELIST를_반환한다() {
+        String sha256 = "2".repeat(64);
+        seedWhitelist(sha256, true, null);
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+        assertThat(response.getReason()).isEmpty();
+    }
+
+    @Test
+    void 화이트리스트와_블랙리스트에_모두_있으면_화이트리스트가_이긴다() {
+        String sha256 = "3".repeat(64);
+        seedWhitelist(sha256, true, null);
+        seedBlacklist(sha256);
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    @Test
+    void 비활성화된_화이트리스트_항목은_무시한다() {
+        String sha256 = "4".repeat(64);
+        seedWhitelist(sha256, false, null);
+        seedBlacklist(sha256);
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+    }
+
+    @Test
+    void 만료된_화이트리스트_항목은_무시한다() {
+        String sha256 = "5".repeat(64);
+        seedWhitelist(sha256, true, Instant.now().minus(1, ChronoUnit.MINUTES));
+        seedBlacklist(sha256);
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+    }
+
+    @Test
+    void 만료_전인_화이트리스트_항목은_통과시킨다() {
+        String sha256 = "6".repeat(64);
+        seedWhitelist(sha256, true, Instant.now().plus(1, ChronoUnit.HOURS));
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    // hash_whitelist.added_by가 admin_users FK라 등록자 계정을 먼저 만든다.
+    private void seedWhitelist(String sha256, boolean active, Instant expiresAt) {
+        UUID adminId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO admin_users (admin_id, username, password_hash) VALUES (?, ?, 'unused')",
+                adminId, "whitelist-seed-" + adminId);
+        jdbcTemplate.update(
+                """
+                INSERT INTO hash_whitelist (hash_type, hash_value, reason, added_by, is_active, expires_at)
+                VALUES ('SHA256', ?, 'test exception', ?, ?, ?)
+                """,
+                sha256, adminId, active, expiresAt == null ? null : Timestamp.from(expiresAt));
+    }
+
+    private void seedBlacklist(String sha256) {
+        jdbcTemplate.update(
+                "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'known bad')",
+                sha256);
     }
 }
