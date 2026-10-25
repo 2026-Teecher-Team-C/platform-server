@@ -26,6 +26,8 @@ public class AdminApiClient {
     private final PasswordEncoder passwordEncoder;
 
     private String accessToken;
+    private UUID adminId;
+    private String username;
 
     public AdminApiClient(TestRestTemplate restTemplate, JdbcTemplate jdbcTemplate,
                           PasswordEncoder passwordEncoder) {
@@ -35,9 +37,28 @@ public class AdminApiClient {
     }
 
     public <T> ResponseEntity<T> getForEntity(String url, Class<T> responseType) {
+        return exchange(url, HttpMethod.GET, null, responseType);
+    }
+
+    /** body는 JSON으로 보낸다. 본문이 없으면 null. */
+    public <T> ResponseEntity<T> exchange(String url, HttpMethod method, Object body, Class<T> responseType) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken());
-        return restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), responseType);
+        if (body != null) {
+            headers.setContentType(MediaType.APPLICATION_JSON);
+        }
+        return restTemplate.exchange(url, method, new HttpEntity<>(body, headers), responseType);
+    }
+
+    /** 이 클라이언트가 로그인한 관리자의 admin_id. 필요하면 먼저 로그인한다. */
+    public UUID adminId() {
+        accessToken();
+        return adminId;
+    }
+
+    public String username() {
+        accessToken();
+        return username;
     }
 
     private String accessToken() {
@@ -49,13 +70,14 @@ public class AdminApiClient {
 
     @SuppressWarnings("unchecked")
     private String login() {
-        String username = "test-admin-" + UUID.randomUUID();
+        username = "test-admin-" + UUID.randomUUID();
+        adminId = UUID.randomUUID();
         jdbcTemplate.update(
                 """
                 INSERT INTO admin_users (admin_id, username, password_hash, role, is_active)
                 VALUES (?, ?, ?, 'ADMIN', true)
                 """,
-                UUID.randomUUID(), username, passwordEncoder.encode(PASSWORD));
+                adminId, username, passwordEncoder.encode(PASSWORD));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
