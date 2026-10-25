@@ -33,7 +33,7 @@ public class AuthDisabledAdmin implements ApplicationRunner {
                              @Value("${platform.admin.bootstrap.username:}") String username) {
         if (username == null || username.isBlank()) {
             throw new IllegalStateException("AUTH_ENABLED=false면 모든 요청을 초기 관리자로 처리합니다. "
-                    + "ADMIN_BOOTSTRAP_USERNAME(과 처음 만들 때는 ADMIN_BOOTSTRAP_PASSWORD)을 설정하세요.");
+                    + "ADMIN_BOOTSTRAP_USERNAME을 설정하세요.");
         }
         this.adminUserRepository = adminUserRepository;
         this.username = username;
@@ -54,7 +54,7 @@ public class AuthDisabledAdmin implements ApplicationRunner {
                     .filter(AdminUser::isActive)
                     .map(AdminView::from)
                     .orElseThrow(() -> new IllegalStateException("AUTH_ENABLED=false인데 초기 관리자 계정 "
-                            + username + "이 없거나 비활성입니다. ADMIN_BOOTSTRAP_PASSWORD도 설정하면 기동 시 만들어집니다."));
+                            + username + "이 없거나 비활성입니다."));
             admin = resolved;
         }
         return resolved;
