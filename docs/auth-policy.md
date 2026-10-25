@@ -69,12 +69,3 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 | `JWT_ACCESS_TOKEN_TTL` | `1h` | access 토큰 유효 기간 |
 | `JWT_REFRESH_TOKEN_TTL` | `7d` | refresh 토큰 유효 기간 |
 | `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD` | 없음 | 둘 다 있고 그 계정명이 없을 때만 기동 시 `ADMIN` 계정을 만든다. 이미 있으면 비밀번호를 바꾸지 않는다 |
-
-## 8. 인증 끄기 (`AUTH_ENABLED`, 로컬 개발 전용)
-
-- 기본값은 **켬**(`true`)이다. 값이 없으면 켜진 채로 뜬다. 운영(EC2)에서는 절대 끄지 않는다.
-- 로컬 `infra/dev.env`만 `AUTH_ENABLED=false`다. 끄면 기동 로그에 `AUTH DISABLED` 경고가 찍힌다.
-- 끄면 모든 요청이 허용된다. CORS는 그대로라 허용 목록 밖의 출처는 여전히 막힌다.
-- 끄더라도 행위자는 있어야 한다(`added_by`·`restored_by` NOT NULL, 감사 로그 `actor_id`). access 토큰을 실은 요청은 그 관리자로, 싣지 않은 요청은 초기 관리자(`ADMIN_BOOTSTRAP_USERNAME`)로 처리되고, `GET /api/admin/auth/me`도 그 계정을 돌려준다. 그 계정이 없거나 비활성이면 기동하지 않는다.
-- 컨트롤러는 두 모드 모두 `@AuthenticationPrincipal AdminPrincipal`로 현재 관리자를 받는다.
-- 콘솔의 `VITE_AUTH_MODE`와는 별개다. 서버를 끄면 콘솔은 `enabled`여도 `/me`가 초기 관리자를 돌려줘 로그인 화면 없이 열린다.
