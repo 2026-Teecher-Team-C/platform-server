@@ -42,7 +42,7 @@ public class BlacklistController {
             // addedBy: 로그인한 관리자 / ip: 감사 로그에 남길 클라이언트 IP (X-Forwarded-For의 첫 주소)
             BlacklistEntry entry = addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(
                     request.sha256(), request.reason(), principal.adminId(), ClientIp.resolve(httpRequest)));
-            return BlacklistItem.from(entry);
+            return BlacklistItem.from(entry, principal.username());
         } catch (InvalidHashException e) {
             // SHA-256 형식이 틀림 → 400. 메시지는 HashKey가 쓴 문장을 그대로 쓴다.
             throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());
