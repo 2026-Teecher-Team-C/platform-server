@@ -89,10 +89,14 @@ return PageResponse.from(page, BlacklistEntryView::from);
 
 엔티티를 그대로 내리지 않고 변환 함수를 넘겨 응답 DTO로 바꾼다.
 
-## 3. 아직 정하지 않은 것
+## 3. 인증
 
-- 인증 적용: 헬스체크를 제외한 엔드포인트에 인증을 적용하는 방안이다. 기능 개발과 테스트에 지장을 줄 수 있어 문서화만 먼저 하고, 실제 구현은 마무리 단계에서 한다.
-- Spring Security의 401/403 응답: 인증 의존성을 추가할 때 같은 `ErrorResponse` 형식으로 맞춘다.
-- SSE 인증 방식: `EventSource`는 `Authorization` 헤더를 못 보내므로 쿠키 사용을 우선 검토한다. 적용이 어려우면 쿼리 토큰을 대안으로 쓴다. 구현할 때 확정한다.
-- CORS: 현재는 api-server에서 허용 도메인을 설정한다. 인증을 추가할 때 Security 필터 체인과 함께 정리한다.
+관리 콘솔은 Bearer 토큰으로 로그인한다. 자세한 내용은 [인증 방침](auth-policy.md)에 있다.
+
+- 프론트는 모든 요청에 `Authorization: Bearer <access 토큰>`을 싣는다. 쿠키는 쓰지 않는다.
+- access 토큰이 없거나, 서명이 틀리거나, 만료됐으면 401 `UNAUTHORIZED`다. 권한 부족은 403 `FORBIDDEN`이다. 둘 다 `ErrorResponse` 형식이다.
+
+## 4. 아직 정하지 않은 것
+
+- SSE 인증 방식: `EventSource`는 `Authorization` 헤더를 못 싣는다. 쿼리 토큰 등은 SSE를 구현할 때 정한다.
 - `size` 상한: 지금은 제한이 없다.

@@ -12,6 +12,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -97,6 +99,21 @@ class GlobalExceptionHandlerTest {
                 .andExpect(content().string(not(containsString("DB 접속 정보 노출"))));
     }
 
+    @Test
+    void 인증_예외는_500이_아니라_401_UNAUTHORIZED다() throws Exception {
+        mvc.perform(get("/test/unauthenticated"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.path").value("/test/unauthenticated"));
+    }
+
+    @Test
+    void 접근_거부_예외는_500이_아니라_403_FORBIDDEN이다() throws Exception {
+        mvc.perform(get("/test/access-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
     /** 테스트 전용 컨트롤러. 일부러 예외를 던진다. */
     @RestController
     @RequestMapping("/test")
@@ -123,6 +140,16 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/boom")
         void boom() {
             throw new IllegalStateException("db password=hunter2 host=secret-host");
+        }
+
+        @GetMapping("/unauthenticated")
+        void unauthenticated() {
+            throw new AuthenticationCredentialsNotFoundException("no credentials");
+        }
+
+        @GetMapping("/access-denied")
+        void accessDenied() {
+            throw new AccessDeniedException("denied");
         }
 
         /** 5xx ErrorCode에 직접 메시지를 넣어 던지는 경우. 이 문장은 응답에 나가면 안 된다. */

@@ -16,8 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 관리자 콘솔의 다운로드 이벤트 목록/상세 REST 엔드포인트. 데모 범위라 인증 없음 — 인증 미들웨어가
- * 아직 없는 상태에서 명시적으로 생략하기로 합의됐다(2026-10-14 요구사항).
+ * 관리자 콘솔의 다운로드 이벤트 목록/상세 REST 엔드포인트. 목록만 시연용으로 로그인 없이 열어 둔다(2026-10-14
+ * 요구사항, SecurityConfig에서 목록 경로만 permitAll). 상세는 로그인이 필요하다. 시연이 끝나면 목록도 막는다
+ * (docs/auth-policy.md 1장).
  *
  * <p>목록 응답은 API 컨벤션의 PageResponse(page는 0부터)로 내린다. 커서 방식(nextCursor)은
  * 2026-10-18 팀 결정으로 폐기했다.
