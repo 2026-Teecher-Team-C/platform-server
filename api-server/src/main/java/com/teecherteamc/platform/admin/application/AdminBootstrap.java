@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 @Order(AdminBootstrap.ORDER)
 public class AdminBootstrap implements ApplicationRunner {
 
+    /** AuthDisabledAdmin이 이 다음에 돌아 계정이 만들어졌는지 확인한다. */
     static final int ORDER = 0;
 
     private static final Logger log = LoggerFactory.getLogger(AdminBootstrap.class);
