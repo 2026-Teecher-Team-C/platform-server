@@ -1,5 +1,8 @@
 package com.teecherteamc.platform.hashlist.application;
 
+import com.teecherteamc.platform.audit.application.AuditLogRecorder;
+import com.teecherteamc.platform.audit.domain.AuditAction;
+import com.teecherteamc.platform.audit.domain.AuditTargetType;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntryRepository;
 import com.teecherteamc.platform.hashlist.domain.EntrySource;
@@ -25,23 +28,27 @@ public class AddBlacklistEntryUseCase {
     private final BlacklistEntryRepository blacklist;
     private final WhitelistEntryRepository whitelist;
     private final Clock clock;   // 현재 시각을 밖에서 받아야 테스트에서 고정할 수 있다
+    private final AuditLogRecorder auditLogRecorder;   // 관리자 쓰기 API가 공통으로 쓰는 감사 로그 기록기(#42)
 
     public AddBlacklistEntryUseCase(BlacklistEntryRepository blacklist,
                                     WhitelistEntryRepository whitelist,
-                                    Clock clock) {
+                                    Clock clock,
+                                    AuditLogRecorder auditLogRecorder) {
         this.blacklist = blacklist;
         this.whitelist = whitelist;
         this.clock = clock;
+        this.auditLogRecorder = auditLogRecorder;
     }
 
     /**
-     * 요청 값을 한 덩어리로 묶는다. addedBy는 로그인이 없는 지금은 null이다.
-     * (hash_blacklist.added_by가 nullable이라 가능. 인증을 붙이면 컨트롤러에서 채운다)
+     * 요청 값을 한 덩어리로 묶는다.
+     * addedBy는 로그인한 관리자의 admin_id, ip는 감사 로그에 남길 클라이언트 IP다. 둘 다 컨트롤러가 채운다.
+     * ip는 IP 리터럴이 아니거나 못 구하면 null일 수 있다.
      */
-    public record Command(String sha256, String reason, UUID addedBy) {
+    public record Command(String sha256, String reason, UUID addedBy, String ip) {
     }
 
-    @Transactional   // 검사와 저장이 한 트랜잭션이라 중간에 예외가 나면 모두 취소된다
+    @Transactional   // 검사와 저장과 감사 로그가 한 트랜잭션이라 중간에 예외가 나면 모두 취소된다
     public BlacklistEntry add(Command command) {
         // 1. 형식 검증 + 정규화. 틀리면 InvalidHashException (컨트롤러가 400으로 바꾼다)
         HashKey key = HashKey.sha256(command.sha256());
@@ -70,6 +77,7 @@ public class AddBlacklistEntryUseCase {
             // 4. 해제했던 행이 있으면 새로 INSERT하지 않고 되살린다. (PK 충돌 방지)
             entry.reactivate(command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy());
             blacklist.save(entry);
+            recordAudit(command, key);
             return entry;
         }
 
@@ -77,8 +85,24 @@ public class AddBlacklistEntryUseCase {
         BlacklistEntry entry = BlacklistEntry.register(
                 key, command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy(), now);
         blacklist.save(entry);
+        recordAudit(command, key);
         return entry;
+    }
 
-        // 6. 감사 로그는 다음 단계에서 추가한다.
+    /**
+     * 6. 감사 로그. 등록과 재등록 둘 다 ADD_BLACKLIST로 남긴다.
+     * target_id는 감사 로그 규격대로 "SHA256:해시값" 형식이다(해시 리스트 공통).
+     * 기록기는 MANDATORY라서 이 메서드가 속한 add()의 트랜잭션 안에서만 동작한다.
+     * 저장이 실패하면 등록도 같이 취소된다.
+     */
+    private void recordAudit(Command command, HashKey key) {
+        String targetId = key.getHashType().name() + ":" + key.getHashValue();
+        auditLogRecorder.record(
+                command.addedBy(),
+                AuditAction.ADD_BLACKLIST,
+                AuditTargetType.BLACKLIST,
+                targetId,
+                null,
+                command.ip());
     }
 }
