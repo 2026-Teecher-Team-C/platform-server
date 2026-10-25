@@ -43,6 +43,9 @@ lookup:
 
 platform:
   auth:
+    # 기본은 켬. 끄면(로컬 개발 전용, infra/dev.env) 관리 API가 로그인 없이 열리고 모든 요청이 초기 관리자로
+    # 처리된다. 운영에서는 끄지 않는다 — 값이 없으면 켜진 채로 뜬다.
+    enabled: ${AUTH_ENABLED:true}
     jwt:
       # access 토큰(JWT, HS256) 서명 키. 32바이트 이상. 기본값이 없어서 비어 있으면 기동하지 않는다(JwtConfig).
       secret: ${JWT_SECRET:}
