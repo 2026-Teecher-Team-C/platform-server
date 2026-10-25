@@ -4,16 +4,22 @@ import com.teecherteamc.platform.admin.interfaces.AdminPrincipal;
 import com.teecherteamc.platform.common.ApiException;
 import com.teecherteamc.platform.common.ClientIp;
 import com.teecherteamc.platform.common.ErrorCode;
+import com.teecherteamc.platform.common.PageResponse;
 import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import com.teecherteamc.platform.hashlist.application.HashListConflictException;
+import com.teecherteamc.platform.hashlist.application.ListWhitelistUseCase;
 import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.Locale;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -26,10 +32,46 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class WhitelistController {
 
+    private static final Set<String> VALID_ORIGINS = Set.of("RESTORED", "PREREGISTERED");
+    private static final int DEFAULT_SIZE = 20;
+    private static final int MAX_SIZE = 200;
+
+    private final ListWhitelistUseCase listWhitelistUseCase;
     private final AddWhitelistEntryUseCase addWhitelistEntryUseCase;
 
-    public WhitelistController(AddWhitelistEntryUseCase addWhitelistEntryUseCase) {
+    public WhitelistController(ListWhitelistUseCase listWhitelistUseCase,
+                               AddWhitelistEntryUseCase addWhitelistEntryUseCase) {
+        this.listWhitelistUseCase = listWhitelistUseCase;
         this.addWhitelistEntryUseCase = addWhitelistEntryUseCase;
+    }
+
+    /**
+     * 화이트리스트 목록. 기본은 활성이면서 만료되지 않은 항목만 최신순으로 내려준다.
+     * hashValue는 앞부분 일치(대소문자 무관)로 찾는다.
+     */
+    @GetMapping("/api/admin/whitelist")
+    public PageResponse<WhitelistItem> list(
+            @RequestParam(required = false) String hashValue,
+            @RequestParam(required = false) String origin,
+            @RequestParam(defaultValue = "true") boolean isActive,
+            @RequestParam(defaultValue = "false") boolean includeExpired,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "" + DEFAULT_SIZE) int size) {
+        if (origin != null && !VALID_ORIGINS.contains(origin)) {
+            throw invalid("origin must be one of " + VALID_ORIGINS);
+        }
+        if (page < 0) {
+            throw invalid("page must be 0 or greater");
+        }
+        if (size < 1 || size > MAX_SIZE) {
+            throw invalid("size must be between 1 and " + MAX_SIZE);
+        }
+        String hashPrefix = hashValue == null || hashValue.isBlank()
+                ? null : hashValue.strip().toLowerCase(Locale.ROOT);
+
+        return PageResponse.from(
+                listWhitelistUseCase.list(hashPrefix, origin, isActive, includeExpired, page, size),
+                WhitelistItem::from);
     }
 
     /** 해시를 화이트리스트에 등록한다. 등록 즉시 그 파일은 검사 없이 통과된다. */
@@ -51,5 +93,9 @@ public class WhitelistController {
             // 블랙리스트에 있거나 이미 화이트리스트에 있음 → 409
             throw new ApiException(ErrorCode.CONFLICT, e.getMessage());
         }
+    }
+
+    private static ApiException invalid(String message) {
+        return new ApiException(ErrorCode.INVALID_INPUT, message);
     }
 }

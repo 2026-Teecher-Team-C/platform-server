@@ -2,6 +2,7 @@ package com.teecherteamc.platform.hashlist.interfaces;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
+import com.teecherteamc.platform.hashlist.domain.WhitelistRow;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -42,5 +43,18 @@ public record WhitelistItem(
                 entry.isActive(),
                 entry.getExpiresAt(),
                 entry.getCreatedAt());
+    }
+
+    public static WhitelistItem from(WhitelistRow row) {
+        return new WhitelistItem(
+                row.hashType(),
+                row.hashValue(),
+                row.reason(),
+                origin(row.originQuarantineId()),
+                row.originQuarantineId(),
+                new AdminSummary(row.addedById(), row.addedByUsername()),
+                row.active(),
+                row.expiresAt(),
+                row.createdAt());
     }
 }
