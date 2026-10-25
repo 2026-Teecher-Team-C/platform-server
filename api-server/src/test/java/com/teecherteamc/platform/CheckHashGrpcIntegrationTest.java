@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.teecherteamc.platform.lookup.application.BloomFilterRebuildService;
+import com.teecherteamc.platform.lookup.domain.WhitelistLookupPort;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse;
 import com.teecherteamc.platform.proto.verdict.v1.Decision;
@@ -42,6 +43,9 @@ class CheckHashGrpcIntegrationTest {
 
     @Autowired
     private BloomFilterRebuildService bloomFilterRebuildService;
+
+    @Autowired
+    private WhitelistLookupPort whitelistLookupPort;
 
     @Test
     void 블랙리스트에_있으면_BLOCK을_반환한다() {
@@ -228,6 +232,16 @@ class CheckHashGrpcIntegrationTest {
 
         assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
         assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    @Test
+    void 만료_시각_정각에는_화이트리스트가_무효다() {
+        String sha256 = "7".repeat(64);
+        Instant expiresAt = Instant.parse("2026-10-25T00:00:00Z");
+        seedWhitelist(sha256, true, expiresAt);
+
+        assertThat(whitelistLookupPort.isEffective(sha256, expiresAt.minusMillis(1))).isTrue();
+        assertThat(whitelistLookupPort.isEffective(sha256, expiresAt)).isFalse();
     }
 
     // hash_whitelist.added_by가 admin_users FK라 등록자 계정을 먼저 만든다.
