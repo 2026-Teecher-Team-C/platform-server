@@ -7,6 +7,7 @@ import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
 import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import com.teecherteamc.platform.hashlist.application.HashListConflictException;
+import com.teecherteamc.platform.hashlist.application.InvalidExpiryException;
 import com.teecherteamc.platform.hashlist.application.ListWhitelistUseCase;
 import com.teecherteamc.platform.hashlist.application.RemoveWhitelistEntryUseCase;
 import com.teecherteamc.platform.hashlist.application.UpdateWhitelistReasonUseCase;
@@ -103,7 +104,7 @@ public class WhitelistController {
                     ClientIp.resolve(httpRequest)));
             // 방금 등록한 사람이 로그인한 관리자라 username을 다시 조회하지 않는다.
             return WhitelistItem.from(entry, principal.username());
-        } catch (InvalidHashException | IllegalArgumentException e) {
+        } catch (InvalidHashException | InvalidExpiryException e) {
             // SHA-256 형식이 틀렸거나 만료 시각이 과거 → 400
             throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());
         } catch (HashListConflictException e) {

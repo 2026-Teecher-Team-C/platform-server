@@ -259,6 +259,44 @@ class WhitelistRestIntegrationTest {
     }
 
     @Test
+    void 만료됐지만_활성으로_남은_항목은_다시_등록하면_새로_갱신된다() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, Instant.now().minus(1, ChronoUnit.DAYS), T1);
+
+        ResponseEntity<Map<String, Object>> response = create(sha256, "다시 허용", null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("expiresAt")).isNull();
+        assertThat(hashes(list(""))).containsExactly(sha256);
+    }
+
+    @Test
+    void 복원으로_들어왔던_항목을_직접_재등록하면_복원_출처가_비워진다() {
+        String sha256 = randomSha256();
+        seedRestoredWhitelist(sha256, T1);
+        jdbcTemplate.update("UPDATE hash_whitelist SET is_active = false WHERE hash_value = ?", sha256);
+
+        ResponseEntity<Map<String, Object>> response = create(sha256, "직접 등록", null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("origin")).isEqualTo("PREREGISTERED");
+        assertThat(response.getBody().get("originQuarantineId")).isNull();
+    }
+
+    @Test
+    void 해제된_블랙리스트_항목은_등록을_막지_않는다() {
+        String sha256 = randomSha256();
+        jdbcTemplate.update(
+                """
+                INSERT INTO hash_blacklist (hash_type, hash_value, reason, is_active, deactivated_at)
+                VALUES ('SHA256', ?, 'revoked', false, now())
+                """,
+                sha256);
+
+        assertThat(create(sha256, "오탐", null).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    @Test
     void 형식이_틀리면_400() {
         ResponseEntity<Map<String, Object>> response = create("not-a-hash", "사유", null);
 
@@ -367,6 +405,14 @@ class WhitelistRestIntegrationTest {
     }
 
     @Test
+    void hashValue의_LIKE_특수문자는_글자_그대로_찾는다() {
+        seedWhitelist(randomSha256(), true, null, T1);
+
+        assertThat(hashes(list("?hashValue=%25"))).isEmpty();
+        assertThat(hashes(list("?hashValue=_"))).isEmpty();
+    }
+
+    @Test
     void 페이지를_나눠서_내려준다() {
         String a = randomSha256();
         String b = randomSha256();
@@ -415,6 +461,16 @@ class WhitelistRestIntegrationTest {
                 call(HttpMethod.DELETE, URL + "/" + sha256.toUpperCase(), null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(isActive(sha256)).isFalse();
+    }
+
+    @Test
+    void 만료됐지만_활성인_항목도_해제할_수_있다() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, Instant.now().minus(1, ChronoUnit.DAYS), T1);
+
+        assertThat(call(HttpMethod.DELETE, URL + "/" + sha256, null).getStatusCode())
+                .isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(isActive(sha256)).isFalse();
     }
 

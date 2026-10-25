@@ -6,6 +6,7 @@ import com.teecherteamc.platform.audit.domain.AuditTargetType;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntryRepository;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
+import com.teecherteamc.platform.hashlist.domain.HashListWriteLock;
 import com.teecherteamc.platform.hashlist.domain.VerdictInvalidationPort;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
@@ -30,17 +31,20 @@ public class AddWhitelistEntryUseCase {
     private final WhitelistEntryRepository whitelist;
     private final BlacklistEntryRepository blacklist;
     private final VerdictInvalidationPort verdictInvalidation;
+    private final HashListWriteLock writeLock;
     private final AuditLogRecorder auditLogRecorder;
     private final Clock clock;
 
     public AddWhitelistEntryUseCase(WhitelistEntryRepository whitelist,
                                     BlacklistEntryRepository blacklist,
                                     VerdictInvalidationPort verdictInvalidation,
+                                    HashListWriteLock writeLock,
                                     AuditLogRecorder auditLogRecorder,
                                     Clock clock) {
         this.whitelist = whitelist;
         this.blacklist = blacklist;
         this.verdictInvalidation = verdictInvalidation;
+        this.writeLock = writeLock;
         this.auditLogRecorder = auditLogRecorder;
         this.clock = clock;
     }
@@ -55,8 +59,10 @@ public class AddWhitelistEntryUseCase {
         HashKey key = HashKey.sha256(command.sha256());
         Instant now = clock.instant();
         if (command.expiresAt() != null && !command.expiresAt().isAfter(now)) {
-            throw new IllegalArgumentException("만료 시각은 현재보다 뒤여야 합니다.");
+            throw new InvalidExpiryException();
         }
+        // 같은 해시의 블랙리스트 등록·중복 등록과 동시에 진행되지 않게 잠근다
+        writeLock.lock(key);
 
         // 2. 활성 블랙리스트에 있으면 거절
         if (blacklist.findByKey(key).filter(BlacklistEntry::isActive).isPresent()) {
@@ -67,11 +73,15 @@ public class AddWhitelistEntryUseCase {
         WhitelistEntry entry;
         if (existing.isPresent()) {
             entry = existing.get();
-            // 3. 이미 활성이면 거절 (만료됐어도 활성이면 중복으로 본다. 해제 후 다시 등록한다)
-            if (entry.isActive()) {
+            // 3. 지금 유효한 항목이 있으면 거절
+            if (entry.isEffectiveAt(now)) {
                 throw new HashListConflictException("이미 화이트리스트에 등록된 해시입니다.");
             }
-            // 4. 해제했던 행은 새로 INSERT하지 않고 되살린다. (PK 충돌 방지)
+            // 4. 해제했거나 만료된 행은 새로 INSERT하지 않고 되살린다. (PK 충돌 방지)
+            //    만료됐지만 활성으로 남은 행은 목록 기본 조회에도 안 보이고 통과도 안 되므로 재등록을 막지 않는다.
+            if (entry.isActive()) {
+                entry.deactivate();
+            }
             entry.reactivate(command.reason(), command.addedBy(), command.expiresAt());
         } else {
             // 5. 처음 등록
