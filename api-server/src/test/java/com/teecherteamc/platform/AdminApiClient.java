@@ -1,6 +1,6 @@
 package com.teecherteamc.platform;
 
-import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.test.context.TestComponent;
@@ -13,22 +13,22 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * 로그인이 필요한 관리 API 테스트용 클라이언트. 처음 요청할 때 관리자 계정을 하나 만들어 로그인하고, 그 세션 쿠키를 붙여
- * 요청한다. 테스트 클래스에 {@code @Import(AdminSessionClient.class)}로 넣어 쓴다.
+ * 로그인이 필요한 관리 API 테스트용 클라이언트. 처음 요청할 때 관리자 계정을 하나 만들어 로그인하고, 받은 access 토큰을
+ * {@code Authorization: Bearer}로 붙여 요청한다. 테스트 클래스에 {@code @Import(AdminApiClient.class)}로 넣어 쓴다.
  */
 @TestComponent
-public class AdminSessionClient {
+public class AdminApiClient {
 
-    private static final String PASSWORD = "admin-session-client-password";
+    private static final String PASSWORD = "admin-api-client-password";
 
     private final TestRestTemplate restTemplate;
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;
 
-    private String sessionCookie;
+    private String accessToken;
 
-    public AdminSessionClient(TestRestTemplate restTemplate, JdbcTemplate jdbcTemplate,
-                              PasswordEncoder passwordEncoder) {
+    public AdminApiClient(TestRestTemplate restTemplate, JdbcTemplate jdbcTemplate,
+                          PasswordEncoder passwordEncoder) {
         this.restTemplate = restTemplate;
         this.jdbcTemplate = jdbcTemplate;
         this.passwordEncoder = passwordEncoder;
@@ -36,17 +36,18 @@ public class AdminSessionClient {
 
     public <T> ResponseEntity<T> getForEntity(String url, Class<T> responseType) {
         HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.COOKIE, sessionCookie());
+        headers.setBearerAuth(accessToken());
         return restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), responseType);
     }
 
-    private String sessionCookie() {
-        if (sessionCookie == null) {
-            sessionCookie = login();
+    private String accessToken() {
+        if (accessToken == null) {
+            accessToken = login();
         }
-        return sessionCookie;
+        return accessToken;
     }
 
+    @SuppressWarnings("unchecked")
     private String login() {
         String username = "test-admin-" + UUID.randomUUID();
         jdbcTemplate.update(
@@ -59,14 +60,13 @@ public class AdminSessionClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String body = "{\"username\":\"" + username + "\",\"password\":\"" + PASSWORD + "\"}";
-        ResponseEntity<Void> response = restTemplate.exchange(
-                "/api/admin/auth/login", HttpMethod.POST, new HttpEntity<>(body, headers), Void.class);
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/admin/auth/login", HttpMethod.POST, new HttpEntity<>(body, headers), Map.class);
 
-        List<String> cookies = response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE);
-        return cookies.stream()
-                .filter(c -> c.startsWith("JSESSIONID="))
-                .map(c -> c.split(";", 2)[0])
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("로그인 실패: " + response.getStatusCode() + " " + cookies));
+        Object token = response.getBody() == null ? null : response.getBody().get("accessToken");
+        if (!(token instanceof String value)) {
+            throw new AssertionError("로그인 실패: " + response.getStatusCode() + " " + response.getBody());
+        }
+        return value;
     }
 }

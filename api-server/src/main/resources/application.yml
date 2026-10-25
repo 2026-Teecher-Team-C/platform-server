@@ -1,15 +1,3 @@
-server:
-  servlet:
-    session:
-      # 세션 ID를 URL(;jsessionid=)에 싣지 않는다.
-      tracking-modes: cookie
-      cookie:
-        http-only: true
-        # 콘솔(Vercel)과 api-server가 다른 사이트라 운영은 SameSite=None; Secure여야 쿠키가 실린다.
-        # 로컬(localhost:5173 → localhost:8080)은 같은 사이트라 infra/dev.env에서 Lax·비보안으로 낮춘다.
-        same-site: ${SESSION_COOKIE_SAME_SITE:none}
-        secure: ${SESSION_COOKIE_SECURE:true}
-
 spring:
   application:
     name: api-server
@@ -58,6 +46,12 @@ platform:
     # 기본은 켬. 끄면(로컬 개발 전용, infra/dev.env) 관리 API가 로그인 없이 열리고 모든 요청이 초기 관리자로
     # 처리된다. 운영에서는 끄지 않는다 — 값이 없으면 켜진 채로 뜬다.
     enabled: ${AUTH_ENABLED:true}
+    jwt:
+      # access 토큰(JWT, HS256) 서명 키. 32바이트 이상. 기본값이 없어서 비어 있으면 기동하지 않는다(JwtConfig).
+      secret: ${JWT_SECRET:}
+      # access는 짧게, refresh(Redis 저장, 쓸 때마다 새로 발급)는 길게 둔다.
+      access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:1h}
+      refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:7d}
   cors:
     # 쉼표로 구분. 운영은 Vercel 콘솔 도메인을 CORS_ALLOWED_ORIGINS로 넣는다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

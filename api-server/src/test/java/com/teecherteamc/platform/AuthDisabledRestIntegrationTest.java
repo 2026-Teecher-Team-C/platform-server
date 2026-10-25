@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * AUTH_ENABLED=false(로컬 개발 전용) 모드. 모든 요청이 초기 관리자(ADMIN_BOOTSTRAP_USERNAME)로 처리된다.
@@ -39,6 +40,9 @@ class AuthDisabledRestIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     private UUID bootstrapAdminId() {
         return jdbcTemplate.queryForObject(
@@ -82,22 +86,28 @@ class AuthDisabledRestIntegrationTest {
     }
 
     @Test
-    void Origin_검사를_하지_않는다() {
-        // 인증을 켜면 Origin 없이 세션 쿠키를 실은 쓰기 요청은 OriginCheckFilter가 403으로 막는다.
+    void access_토큰을_실으면_초기_관리자가_아니라_그_관리자로_처리한다() {
+        String username = "other-" + UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO admin_users (admin_id, username, password_hash, role, is_active)
+                VALUES (?, ?, ?, 'VIEWER', true)
+                """,
+                UUID.randomUUID(), username, passwordEncoder.encode("other-password"));
         HttpHeaders loginHeaders = new HttpHeaders();
         loginHeaders.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map<String, Object>> login = restTemplate.exchange("/api/admin/auth/login", HttpMethod.POST,
-                new HttpEntity<>("{\"username\":\"" + BOOTSTRAP_USERNAME + "\",\"password\":\"dev-password\"}",
+                new HttpEntity<>("{\"username\":\"" + username + "\",\"password\":\"other-password\"}",
                         loginHeaders),
                 mapType());
-        String cookie = login.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE).get(0).split(";", 2)[0];
         HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.COOKIE, cookie);
+        headers.setBearerAuth((String) login.getBody().get("accessToken"));
 
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                "/api/admin/auth/logout", HttpMethod.POST, new HttpEntity<>(headers), mapType());
+                "/api/admin/auth/me", HttpMethod.GET, new HttpEntity<>(headers), mapType());
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).containsEntry("username", username);
     }
 
     @Test

@@ -15,14 +15,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-// 로그인이 필요한 API라 AdminSessionClient로 로그인한 세션으로 요청한다. 역할 구분은 아직 하지 않는다.
+// 로그인이 필요한 API라 AdminApiClient로 로그인한 access 토큰으로 요청한다. 역할 구분은 아직 하지 않는다.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@Import({TestcontainersConfiguration.class, AdminSessionClient.class})
+@Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class DownloadEventDetailRestIntegrationTest {
 
     @Autowired
-    private AdminSessionClient adminClient;
+    private AdminApiClient adminClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

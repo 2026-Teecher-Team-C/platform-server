@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 세션의 관리자를 다시 읽는다. 로그인 뒤에 비활성화됐거나 지워졌으면 빈 값이다. */
+/** access 토큰의 관리자를 다시 읽는다. 로그인 뒤에 비활성화됐거나 지워졌으면 빈 값이다. */
 @Service
 public class CurrentAdminUseCase {
 

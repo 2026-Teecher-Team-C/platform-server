@@ -21,6 +21,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -39,6 +44,9 @@ class AdminAuthRestIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtEncoder jwtEncoder;
 
     private String seedAdmin(boolean active) {
         String username = "admin-" + UUID.randomUUID();
@@ -70,32 +78,28 @@ class AdminAuthRestIntegrationTest {
         return login(username, password, new HttpHeaders());
     }
 
-    private ResponseEntity<Map<String, Object>> get(String path, String sessionCookie) {
-        HttpHeaders headers = new HttpHeaders();
-        if (sessionCookie != null) {
-            headers.add(HttpHeaders.COOKIE, sessionCookie);
-        }
-        return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), mapType());
+    private ResponseEntity<Map<String, Object>> get(String path, String accessToken) {
+        return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(bearer(accessToken)), mapType());
     }
 
-    private static HttpHeaders withCookie(String sessionCookie) {
+    private static HttpHeaders bearer(String accessToken) {
         HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.COOKIE, sessionCookie);
+        if (accessToken != null) {
+            headers.setBearerAuth(accessToken);
+        }
         return headers;
     }
 
-    /** Set-Cookie 중 세션 쿠키 원문 한 줄. */
-    private static String rawSessionCookie(ResponseEntity<?> response) {
-        List<String> cookies = response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE);
-        return cookies.stream()
-                .filter(c -> c.startsWith("JSESSIONID="))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("세션 쿠키가 없다: " + cookies));
+    private ResponseEntity<Map<String, Object>> refresh(String refreshToken) {
+        return post("/api/admin/auth/refresh", "{\"refreshToken\":\"" + refreshToken + "\"}", new HttpHeaders());
     }
 
-    /** 다음 요청의 Cookie 헤더에 넣을 "JSESSIONID=..." 부분. */
-    private static String sessionCookie(ResponseEntity<?> response) {
-        return rawSessionCookie(response).split(";", 2)[0];
+    private static String accessToken(ResponseEntity<Map<String, Object>> response) {
+        return (String) response.getBody().get("accessToken");
+    }
+
+    private static String refreshToken(ResponseEntity<Map<String, Object>> response) {
+        return (String) response.getBody().get("refreshToken");
     }
 
     @SuppressWarnings("unchecked")
@@ -104,39 +108,37 @@ class AdminAuthRestIntegrationTest {
     }
 
     @Test
-    void 로그인에_성공하면_세션_쿠키를_주고_그_쿠키로_me를_조회한다() {
+    void 로그인에_성공하면_access와_refresh_토큰을_Bearer로_준다() {
         String username = seedAdmin(true);
 
         ResponseEntity<Map<String, Object>> response = login(username, PASSWORD);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody())
-                .containsEntry("adminId", adminIdOf(username).toString())
-                .containsEntry("username", username)
-                .containsEntry("role", "ANALYST")
-                .containsEntry("isActive", true)
-                .containsKey("lastLoginAt")
+                .containsEntry("tokenType", "Bearer")
+                .containsKeys("accessToken", "refreshToken")
                 .doesNotContainKeys("passwordHash", "password");
+        assertThat(accessToken(response)).isNotBlank().isNotEqualTo(refreshToken(response));
+        assertThat(refreshToken(response)).isNotBlank();
+        // 쿠키는 쓰지 않는다
+        assertThat(response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE)).isEmpty();
+    }
 
-        ResponseEntity<Map<String, Object>> me = get("/api/admin/auth/me", sessionCookie(response));
+    @Test
+    void access_토큰으로_me를_조회한다() {
+        String username = seedAdmin(true);
+        String accessToken = accessToken(login(username, PASSWORD));
+
+        ResponseEntity<Map<String, Object>> me = get("/api/admin/auth/me", accessToken);
+
         assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(me.getBody())
                 .containsEntry("adminId", adminIdOf(username).toString())
                 .containsEntry("username", username)
                 .containsEntry("role", "ANALYST")
                 .containsEntry("isActive", true)
+                .containsKey("lastLoginAt")
                 .doesNotContainKeys("passwordHash", "password");
-    }
-
-    @Test
-    void 세션_쿠키는_운영_기본값으로_HttpOnly_Secure_SameSite_None이다() {
-        String username = seedAdmin(true);
-
-        String cookie = rawSessionCookie(login(username, PASSWORD));
-
-        assertThat(cookie).containsIgnoringCase("HttpOnly")
-                .containsIgnoringCase("Secure")
-                .containsIgnoringCase("SameSite=None");
     }
 
     @Test
@@ -144,13 +146,12 @@ class AdminAuthRestIntegrationTest {
         String username = seedAdmin(true);
         Instant before = Instant.now().minusSeconds(1);
 
-        ResponseEntity<Map<String, Object>> response = login(username, PASSWORD);
+        login(username, PASSWORD);
 
         Timestamp lastLoginAt = jdbcTemplate.queryForObject(
                 "SELECT last_login_at FROM admin_users WHERE username = ?", Timestamp.class, username);
         assertThat(lastLoginAt).isNotNull();
         assertThat(lastLoginAt.toInstant()).isAfter(before);
-        assertThat(Instant.parse((String) response.getBody().get("lastLoginAt"))).isAfter(before);
     }
 
     @Test
@@ -187,7 +188,7 @@ class AdminAuthRestIntegrationTest {
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
             assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
             assertThat(response.getBody().get("path")).isEqualTo("/api/admin/auth/login");
-            assertThat(response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE)).isEmpty();
+            assertThat(response.getBody()).doesNotContainKeys("accessToken", "refreshToken");
         }
         assertThat(unknownUser.getBody().get("message")).isEqualTo(wrongPassword.getBody().get("message"));
         assertThat(inactiveUser.getBody().get("message")).isEqualTo(wrongPassword.getBody().get("message"));
@@ -228,21 +229,6 @@ class AdminAuthRestIntegrationTest {
     }
 
     @Test
-    void 로그인하면_세션_ID를_새로_발급하고_이전_세션은_쓸_수_없다() {
-        String username = seedAdmin(true);
-        String first = sessionCookie(login(username, PASSWORD));
-        // 세션 쿠키를 실은 쓰기 요청이라 브라우저처럼 Origin을 싣는다(없으면 OriginCheckFilter가 막는다).
-        HttpHeaders headers = withCookie(first);
-        headers.add(HttpHeaders.ORIGIN, ALLOWED_ORIGIN);
-
-        String second = sessionCookie(login(username, PASSWORD, headers));
-
-        assertThat(second).isNotEqualTo(first);
-        assertThat(get("/api/admin/auth/me", first).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(get("/api/admin/auth/me", second).getStatusCode()).isEqualTo(HttpStatus.OK);
-    }
-
-    @Test
     void 로그인하지_않고_me를_부르면_401_ErrorResponse다() {
         ResponseEntity<Map<String, Object>> response = get("/api/admin/auth/me", null);
 
@@ -255,6 +241,46 @@ class AdminAuthRestIntegrationTest {
     }
 
     @Test
+    void 서명이_틀린_토큰은_401_ErrorResponse다() {
+        String accessToken = accessToken(login(seedAdmin(true), PASSWORD));
+        String tampered = accessToken.substring(0, accessToken.length() - 2)
+                + (accessToken.endsWith("AA") ? "BB" : "AA");
+
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/auth/me", tampered);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
+    }
+
+    @Test
+    void 만료된_access_토큰은_401이다() {
+        UUID adminId = adminIdOf(seedAdmin(true));
+        Instant issuedAt = Instant.now().minusSeconds(7200);
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .subject(adminId.toString())
+                .claim("username", "whoever")
+                .issuedAt(issuedAt)
+                .expiresAt(issuedAt.plusSeconds(60))
+                .build();
+        String expired = jwtEncoder.encode(
+                JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/auth/me", expired);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
+    }
+
+    @Test
+    void refresh_토큰은_access_토큰으로_쓸_수_없다() {
+        String refreshToken = refreshToken(login(seedAdmin(true), PASSWORD));
+
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/auth/me", refreshToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
     void 로그인하지_않으면_다른_관리자_경로도_404나_500이_아니라_401이다() {
         ResponseEntity<Map<String, Object>> response = get("/api/admin/agents", null);
 
@@ -264,9 +290,9 @@ class AdminAuthRestIntegrationTest {
 
     @Test
     void 로그인하면_없는_관리자_경로는_404다() {
-        String cookie = sessionCookie(login(seedAdmin(true), PASSWORD));
+        String accessToken = accessToken(login(seedAdmin(true), PASSWORD));
 
-        ResponseEntity<Map<String, Object>> response = get("/api/admin/agents", cookie);
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/agents", accessToken);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody().get("code")).isEqualTo("NOT_FOUND");
@@ -287,16 +313,70 @@ class AdminAuthRestIntegrationTest {
     }
 
     @Test
-    void 로그아웃하면_세션이_끊기고_LOGOUT_감사_로그가_남는다() {
+    void refresh하면_새_access와_refresh_토큰을_주고_새_access로_me를_조회한다() {
         String username = seedAdmin(true);
-        String cookie = sessionCookie(login(username, PASSWORD));
-        HttpHeaders headers = withCookie(cookie);
-        headers.add(HttpHeaders.ORIGIN, ALLOWED_ORIGIN);
+        ResponseEntity<Map<String, Object>> loggedIn = login(username, PASSWORD);
 
-        ResponseEntity<Map<String, Object>> response = post("/api/admin/auth/logout", "", headers);
+        ResponseEntity<Map<String, Object>> refreshed = refresh(refreshToken(loggedIn));
+
+        assertThat(refreshed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(refreshed.getBody()).containsEntry("tokenType", "Bearer");
+        assertThat(refreshToken(refreshed)).isNotBlank().isNotEqualTo(refreshToken(loggedIn));
+        ResponseEntity<Map<String, Object>> me = get("/api/admin/auth/me", accessToken(refreshed));
+        assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(me.getBody()).containsEntry("username", username);
+    }
+
+    @Test
+    void refresh_토큰은_한_번만_쓸_수_있다() {
+        String refreshToken = refreshToken(login(seedAdmin(true), PASSWORD));
+        refresh(refreshToken);
+
+        ResponseEntity<Map<String, Object>> reused = refresh(refreshToken);
+
+        assertThat(reused.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(reused.getBody().get("code")).isEqualTo("UNAUTHORIZED");
+    }
+
+    @Test
+    void 모르는_refresh_토큰은_401이다() {
+        ResponseEntity<Map<String, Object>> response = refresh("not-a-real-refresh-token");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
+        assertThat(response.getBody().get("path")).isEqualTo("/api/admin/auth/refresh");
+    }
+
+    @Test
+    void refresh_토큰이_비면_400이다() {
+        ResponseEntity<Map<String, Object>> response = post("/api/admin/auth/refresh",
+                "{\"refreshToken\":\"\"}", new HttpHeaders());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("code")).isEqualTo("INVALID_INPUT");
+    }
+
+    @Test
+    void 비활성화된_계정은_refresh할_수_없다() {
+        String username = seedAdmin(true);
+        String refreshToken = refreshToken(login(username, PASSWORD));
+        jdbcTemplate.update("UPDATE admin_users SET is_active = false WHERE username = ?", username);
+
+        ResponseEntity<Map<String, Object>> response = refresh(refreshToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void 로그아웃하면_refresh_토큰을_폐기하고_LOGOUT_감사_로그가_남는다() {
+        String username = seedAdmin(true);
+        ResponseEntity<Map<String, Object>> loggedIn = login(username, PASSWORD);
+
+        ResponseEntity<Map<String, Object>> response = post("/api/admin/auth/logout",
+                "{\"refreshToken\":\"" + refreshToken(loggedIn) + "\"}", bearer(accessToken(loggedIn)));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        assertThat(get("/api/admin/auth/me", cookie).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(refresh(refreshToken(loggedIn)).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         Integer logouts = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM audit_logs WHERE action = 'LOGOUT' AND actor_id = ? AND target_id = ?",
                 Integer.class, adminIdOf(username), adminIdOf(username).toString());
@@ -304,34 +384,37 @@ class AdminAuthRestIntegrationTest {
     }
 
     @Test
+    void 남의_refresh_토큰으로는_로그아웃해도_폐기되지_않는다() {
+        ResponseEntity<Map<String, Object>> mine = login(seedAdmin(true), PASSWORD);
+        ResponseEntity<Map<String, Object>> others = login(seedAdmin(true), PASSWORD);
+
+        post("/api/admin/auth/logout", "{\"refreshToken\":\"" + refreshToken(others) + "\"}",
+                bearer(accessToken(mine)));
+
+        assertThat(refresh(refreshToken(others)).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void 로그아웃은_로그인이_필요하다() {
+        ResponseEntity<Map<String, Object>> response = post("/api/admin/auth/logout", "", new HttpHeaders());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
     void 로그인_후_계정이_비활성화되면_me는_401이다() {
         String username = seedAdmin(true);
-        String cookie = sessionCookie(login(username, PASSWORD));
+        String accessToken = accessToken(login(username, PASSWORD));
         jdbcTemplate.update("UPDATE admin_users SET is_active = false WHERE username = ?", username);
 
-        ResponseEntity<Map<String, Object>> response = get("/api/admin/auth/me", cookie);
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/auth/me", accessToken);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
     }
 
     @Test
-    void 허용되지_않은_Origin의_쓰기_요청은_403이다() {
-        String username = seedAdmin(true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.ORIGIN, "https://evil.example.com");
-
-        ResponseEntity<Map<String, Object>> response = login(username, PASSWORD, headers);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(response.getBody())
-                .containsEntry("code", "FORBIDDEN")
-                .containsEntry("path", "/api/admin/auth/login");
-        assertThat(response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE)).isEmpty();
-    }
-
-    @Test
-    void 허용된_Origin의_쓰기_요청은_통과한다() {
+    void 허용된_Origin에는_CORS_헤더를_붙이고_쿠키_자격_증명은_허용하지_않는다() {
         String username = seedAdmin(true);
         HttpHeaders headers = new HttpHeaders();
         headers.add(HttpHeaders.ORIGIN, ALLOWED_ORIGIN);
@@ -340,19 +423,22 @@ class AdminAuthRestIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getAccessControlAllowOrigin()).isEqualTo(ALLOWED_ORIGIN);
-        assertThat(response.getHeaders().getAccessControlAllowCredentials()).isTrue();
+        assertThat(response.getHeaders().getAccessControlAllowCredentials()).isFalse();
     }
 
     @Test
-    void Origin_없이_세션_쿠키를_실은_쓰기_요청은_403이다() {
+    void 허용되지_않은_Origin의_요청은_CORS가_거부한다() {
         String username = seedAdmin(true);
-        String cookie = sessionCookie(login(username, PASSWORD));
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.ORIGIN, "https://evil.example.com");
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-        ResponseEntity<Map<String, Object>> response = post("/api/admin/auth/logout", "", withCookie(cookie));
+        // CORS 거부 응답은 ErrorResponse(JSON)가 아니라 CorsFilter가 바로 쓴 본문이라 문자열로 받는다.
+        ResponseEntity<String> response = restTemplate.exchange("/api/admin/auth/login", HttpMethod.POST,
+                new HttpEntity<>("{\"username\":\"" + username + "\",\"password\":\"" + PASSWORD + "\"}", headers),
+                String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(response.getBody().get("code")).isEqualTo("FORBIDDEN");
-        // 거부된 요청은 세션을 건드리지 않았어야 한다
-        assertThat(get("/api/admin/auth/me", cookie).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getAccessControlAllowOrigin()).isNull();
     }
 }

@@ -21,8 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @WebMvcTest(
         controllers = WebCorsConfigTest.ProbeController.class,
-        properties = "platform.cors.allowed-origins=https://console.example.com,http://localhost:5173")
-@Import({WebCorsConfigTest.ProbeController.class, SecurityConfig.class, WebCorsConfig.class})
+        properties = {
+                "platform.cors.allowed-origins=https://console.example.com,http://localhost:5173",
+                "platform.auth.jwt.secret=web-cors-config-test-secret-at-least-32-bytes"})
+@Import({WebCorsConfigTest.ProbeController.class, SecurityConfig.class, WebCorsConfig.class, JwtConfig.class})
 class WebCorsConfigTest {
 
     private static final String ALLOWED_ORIGIN = "https://console.example.com";
@@ -31,13 +33,13 @@ class WebCorsConfigTest {
     private MockMvc mockMvc;
 
     @Test
-    void 허용된_출처의_사전_요청에는_자격_증명_허용과_CORS_헤더를_붙인다() throws Exception {
+    void 허용된_출처의_사전_요청에는_CORS_헤더를_붙이고_쿠키_자격_증명은_허용하지_않는다() throws Exception {
         mockMvc.perform(options("/api/cors-probe")
                         .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
     }
 
     @Test
@@ -47,17 +49,17 @@ class WebCorsConfigTest {
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type"))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN));
     }
 
     @Test
-    void 쿠키_인증이라_Authorization_헤더는_허용하지_않는다() throws Exception {
+    void Bearer_인증이라_Authorization_헤더를_허용한다() throws Exception {
         mockMvc.perform(options("/api/cors-probe")
                         .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
-                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization"))
-                .andExpect(status().isForbidden());
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN));
     }
 
     @Test
@@ -74,8 +76,7 @@ class WebCorsConfigTest {
         mockMvc.perform(get("/api/cors-probe").header(HttpHeaders.ORIGIN, "http://localhost:5173"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"));
     }
 
     @Test

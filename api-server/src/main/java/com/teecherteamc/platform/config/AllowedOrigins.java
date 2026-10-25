@@ -3,7 +3,7 @@ package com.teecherteamc.platform.config;
 import java.util.Arrays;
 import java.util.List;
 
-/** platform.cors.allowed-origins(쉼표 구분)를 CORS와 Origin 검사가 같은 목록으로 쓰게 한다. */
+/** platform.cors.allowed-origins(쉼표 구분)를 CORS 허용 출처 목록으로 바꾼다. */
 final class AllowedOrigins {
 
     private AllowedOrigins() {

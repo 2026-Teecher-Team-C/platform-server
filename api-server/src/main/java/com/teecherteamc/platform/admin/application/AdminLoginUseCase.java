@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 아이디·비밀번호 확인. 세션을 만드는 일은 interfaces 계층이 한다.
+ * 아이디·비밀번호 확인. 토큰 발급은 AdminTokenIssuer가 한다.
  *
  * <p>실패해도 예외를 던지지 않고 빈 값을 돌려준다. 예외로 롤백하면 LOGIN_FAILED 감사 로그까지
  * 사라지기 때문이다. 실패 이유(없는 계정·틀린 비밀번호·비활성)는 감사 로그에만 남기고, 호출한 쪽에는
