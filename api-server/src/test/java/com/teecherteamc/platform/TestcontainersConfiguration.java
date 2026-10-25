@@ -3,6 +3,7 @@ package com.teecherteamc.platform;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -22,5 +23,11 @@ class TestcontainersConfiguration {
     @ServiceConnection("redis")
     GenericContainer<?> redisContainer() {
         return new GenericContainer<>(DockerImageName.parse("redis:8-alpine")).withExposedPorts(6379);
+    }
+
+    // 관리자 access 토큰(JWT) 서명 키. 운영은 JWT_SECRET 환경 변수로 넣고 기본값이 없어서, 통합 테스트는 여기서 채운다.
+    @Bean
+    DynamicPropertyRegistrar jwtSecretProperty() {
+        return registry -> registry.add("platform.auth.jwt.secret", () -> "integration-test-jwt-secret-at-least-32-bytes");
     }
 }

@@ -1,7 +1,7 @@
 # 인증 방침
 
-api-server의 로그인·권한 적용 방침이다. 지금은 문서만 있고, 실제 구현은 마무리 단계에서 한다.
-기능 개발과 테스트에 지장을 줄 수 있어서 최후순위로 미뤘다. (10/15 회의 결정)
+api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bearer 토큰)은 구현됐다(7장).
+역할별 권한과 에이전트 업로드 인증은 아직이다.
 
 ## 1. 적용 범위
 
@@ -23,23 +23,19 @@ api-server의 로그인·권한 적용 방침이다. 지금은 문서만 있고,
 의존성을 추가하면 아래가 동시에 바뀐다. 한 번에 처리해야 한다.
 
 - 모든 HTTP 엔드포인트가 기본으로 401이 된다. 헬스체크를 예외로 열어 줘야 한다.
-- POST 요청에 CSRF 토큰이 필요해진다. 쿠키 세션을 쓰면 프론트 요청 방식도 같이 확인한다.
+- POST 요청에 CSRF 토큰이 필요해진다. Bearer 토큰만 쓰고 세션을 만들지 않으면(STATELESS) 끈다.
 - `GlobalExceptionHandler`의 `Exception` 처리가 `AccessDeniedException`, `AuthenticationException`까지 잡으면 401/403이 500으로 바뀐다. 이 예외들은 다시 던지거나 따로 처리한다.
 - 401/403 응답은 Security의 진입점(`AuthenticationEntryPoint`)과 접근 거부 처리기(`AccessDeniedHandler`)에서 `ErrorResponse` 형식으로 맞춘다.
-- CORS 설정을 Security 필터 체인과 함께 정리한다. 
-쿠키를 쓰므로 허용 도메인을 정확히 지정하고 자격 증명을 허용해야 한다. 
-지금은 api-server에서 허용 도메인만 설정하고 있다.
+- CORS 설정을 Security 필터 체인과 함께 정리한다. 허용 도메인은 정확히 지정하고, `Authorization` 헤더를 허용한다.
+
 ## 4. 로그인 방식과 SSE 인증
 
-관리 콘솔 로그인은 세션 쿠키를 쓰고, SSE도 같은 쿠키를 쓴다. (현재 방향이고, 구현할 때 팀과 확정한다)
+관리 콘솔 로그인은 Bearer 토큰을 쓴다. (기능 API 명세 "로그인" 기준. 2026-10-18 세션 쿠키 결정을 2026-10-25 바꿨다)
 
-- `EventSource`는 `Authorization` 헤더를 못 보내지만 쿠키는 보낼 수 있어서, 로그인과 SSE를 한 방식으로 맞출 수 있다.
-- 콘솔(Vercel)과 api-server(EC2 도메인)가 서로 다른 사이트라서, 쿠키를 주고받으려면 아래 설정이 같이 필요하다.
-  - 쿠키는 `SameSite=None; Secure`로 내리고, HTTPS에서만 동작한다.
-  - CORS는 허용 도메인을 `*`가 아니라 정확한 주소로 지정하고, 자격 증명(`allowCredentials`)을 허용한다.
-  - 프론트는 요청에 쿠키를 싣는 옵션(`credentials: 'include'`, `EventSource`는 `withCredentials: true`)을 켠다.
-- 세션 쿠키를 쓰면 POST 요청에 CSRF 방어가 필요하다. CSRF 토큰을 쓸지, `SameSite` 설정으로 막을지 정한다.
-- 에이전트 요청에서 쿠키 적용이 어려우면 쿼리 토큰을 대안으로 쓴다.   
+- 로그인하면 access 토큰(JWT)과 refresh 토큰을 준다. 관리 API는 `Authorization: Bearer <access 토큰>`으로 부른다.
+- 쿠키를 쓰지 않으므로 브라우저가 자격 증명을 자동으로 싣지 않는다. 그래서 CSRF 방어가 필요 없고, 콘솔(Vercel)과 api-server가 다른 사이트여도 서드파티 쿠키 차단의 영향을 받지 않는다.
+- CORS는 허용 도메인을 정확한 주소로 지정하고 `Authorization` 헤더를 허용한다. 자격 증명(`allowCredentials`)은 허용하지 않는다.
+- SSE: `EventSource`는 `Authorization` 헤더를 못 싣는다. 쿼리 토큰 등 방식은 SSE를 구현할 때 정한다.
 
 ## 5. 에이전트 업로드 인증
 
@@ -51,3 +47,25 @@ api-server의 로그인·권한 적용 방침이다. 지금은 문서만 있고,
 ## 6. 미정
 
 - 에이전트 업로드 인증의 구체적인 방식과 토큰 발급·관리 방법
+- SSE 인증 방식 (4장)
+
+## 7. 구현 (관리 콘솔 로그인)
+
+| API | 설명 |
+|---|---|
+| `POST /api/admin/auth/login` | `{username, password}` → 200 `{accessToken, refreshToken, tokenType: "Bearer"}`. 없는 계정·틀린 비밀번호·비활성 계정은 모두 같은 401 |
+| `POST /api/admin/auth/refresh` | `{refreshToken}` → 200 새 토큰 한 쌍. 쓴 refresh 토큰은 폐기된다(한 번만 쓸 수 있다). 모르는·만료된·쓴 토큰이거나 비활성 계정이면 401 |
+| `POST /api/admin/auth/logout` | 로그인 필요. 본문 `{refreshToken}`(선택)을 폐기하고 204. 본인 토큰만 폐기한다 |
+| `GET /api/admin/auth/me` | 현재 관리자 `{adminId, username, role, isActive, lastLoginAt}`. access 토큰이 유효해도 그사이 비활성화됐으면 401 |
+
+- 로그인 없이 열린 곳: 로그인·refresh API, 시연용 `GET /api/admin/download-events`, actuator `health`·`prometheus`. 나머지는 로그인이 필요하다.
+- access 토큰: HS256 JWT. `sub`=admin_id, `username` 클레임. role·is_active는 넣지 않고 매번 DB에서 읽는다. 서버에 상태가 없어서 로그아웃해도 만료 전까지는 유효하다 — 그래서 짧게 둔다.
+- refresh 토큰: JWT가 아닌 랜덤 문자열. Redis에 SHA-256 해시로 저장한다(`admin:refresh:<해시>`). Redis가 죽으면 로그인·refresh가 실패한다.
+- 로그인·로그아웃·로그인 실패는 감사 로그(`LOGIN` / `LOGOUT` / `LOGIN_FAILED`)로 남는다. IP는 nginx가 덮어쓴 `X-Forwarded-For`의 첫 주소다.
+
+| 환경 변수 | 운영 기본값 | 설명 |
+|---|---|---|
+| `JWT_SECRET` | 없음(필수) | access 토큰 서명 키. 32바이트 이상. 없거나 짧으면 기동하지 않는다 |
+| `JWT_ACCESS_TOKEN_TTL` | `1h` | access 토큰 유효 기간 |
+| `JWT_REFRESH_TOKEN_TTL` | `7d` | refresh 토큰 유효 기간 |
+| `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD` | 없음 | 둘 다 있고 그 계정명이 없을 때만 기동 시 `ADMIN` 계정을 만든다. 이미 있으면 비밀번호를 바꾸지 않는다 |
