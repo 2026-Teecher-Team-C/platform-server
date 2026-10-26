@@ -96,6 +96,25 @@ public class BlacklistEntry {
         this.deactivatedAt = null;   // 해제 시각을 지워서 다시 활성 상태로 돌린다
     }
 
+        /**
+     * 사유만 바꾼다. 심각도·출처·등록자·등록 시각·활성 여부는 그대로 둔다.
+     *
+     * 해제된 항목(is_active = false)은 고칠 수 없다.
+     * 카드에 "활성 항목이 없으면 404"라고 되어 있어서, 유스케이스가 활성 항목만 찾아 넘기는 게 정상 경로다.
+     * 여기서 한 번 더 막는 건, 이 메서드를 다른 곳에서 잘못 불렀을 때 해제된 항목이 조용히 바뀌는 걸 막기 위해서다.
+     */
+    public void changeReason(String reason) {
+        if (!active) {
+            throw new IllegalStateException("해제된 항목의 사유는 바꿀 수 없습니다.");
+        }
+        // register(), reactivate()와 같은 규칙: 사유는 필수
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("등록 사유는 필수입니다.");
+        }
+        this.reason = reason;
+    }
+
+
     public HashKey getId() {
         return id;
     }
