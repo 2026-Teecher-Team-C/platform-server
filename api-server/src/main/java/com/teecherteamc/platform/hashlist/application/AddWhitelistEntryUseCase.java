@@ -61,7 +61,7 @@ public class AddWhitelistEntryUseCase {
         if (command.expiresAt() != null && !command.expiresAt().isAfter(now)) {
             throw new InvalidExpiryException();
         }
-        // 같은 해시의 블랙리스트 등록·중복 등록과 동시에 진행되지 않게 잠근다
+        // 같은 해시를 동시에 등록하면 PK 충돌로 500이 나므로 잠가서 뒤의 요청이 409를 받게 한다
         writeLock.lock(key);
 
         // 2. 활성 블랙리스트에 있으면 거절
