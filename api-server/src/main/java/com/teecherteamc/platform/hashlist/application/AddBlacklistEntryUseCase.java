@@ -7,6 +7,7 @@ import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntryRepository;
 import com.teecherteamc.platform.hashlist.domain.EntrySource;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
+import com.teecherteamc.platform.hashlist.domain.HashListWriteLock;
 import com.teecherteamc.platform.hashlist.domain.Severity;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
 import java.time.Clock;
@@ -27,15 +28,18 @@ public class AddBlacklistEntryUseCase {
 
     private final BlacklistEntryRepository blacklist;
     private final WhitelistEntryRepository whitelist;
+    private final HashListWriteLock writeLock;
     private final Clock clock;   // 현재 시각을 밖에서 받아야 테스트에서 고정할 수 있다
     private final AuditLogRecorder auditLogRecorder;   // 관리자 쓰기 API가 공통으로 쓰는 감사 로그 기록기(#42)
 
     public AddBlacklistEntryUseCase(BlacklistEntryRepository blacklist,
                                     WhitelistEntryRepository whitelist,
+                                    HashListWriteLock writeLock,
                                     Clock clock,
                                     AuditLogRecorder auditLogRecorder) {
         this.blacklist = blacklist;
         this.whitelist = whitelist;
+        this.writeLock = writeLock;
         this.clock = clock;
         this.auditLogRecorder = auditLogRecorder;
     }
@@ -53,6 +57,8 @@ public class AddBlacklistEntryUseCase {
         // 1. 형식 검증 + 정규화. 틀리면 InvalidHashException (컨트롤러가 400으로 바꾼다)
         HashKey key = HashKey.sha256(command.sha256());
         Instant now = clock.instant();
+        // 같은 해시의 화이트리스트 등록과 동시에 진행되면 둘 다 활성이 될 수 있어 잠근다
+        writeLock.lock(key);
 
         // 2. 화이트리스트에 있으면 거절.
         //    isEffectiveAt: 활성이면서 만료 전인 것만 충돌로 본다.
