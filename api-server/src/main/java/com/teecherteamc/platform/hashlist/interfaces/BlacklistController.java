@@ -6,8 +6,10 @@ import com.teecherteamc.platform.common.ClientIp;
 import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
 import com.teecherteamc.platform.hashlist.application.AddBlacklistEntryUseCase;
+import com.teecherteamc.platform.hashlist.application.BlacklistEntryNotFoundException;
 import com.teecherteamc.platform.hashlist.application.HashListConflictException;
 import com.teecherteamc.platform.hashlist.application.ListBlacklistUseCase;
+import com.teecherteamc.platform.hashlist.application.UpdateBlacklistReasonUseCase;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,6 +20,8 @@ import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -44,12 +48,16 @@ public class BlacklistController {
 
     private final AddBlacklistEntryUseCase addBlacklistEntryUseCase;
     private final ListBlacklistUseCase listBlacklistUseCase;
+    private final UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase;
 
-    public BlacklistController(AddBlacklistEntryUseCase addBlacklistEntryUseCase,
-                               ListBlacklistUseCase listBlacklistUseCase) {
+        public BlacklistController(AddBlacklistEntryUseCase addBlacklistEntryUseCase,
+                               ListBlacklistUseCase listBlacklistUseCase,
+                               UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase) {
         this.addBlacklistEntryUseCase = addBlacklistEntryUseCase;
         this.listBlacklistUseCase = listBlacklistUseCase;
+        this.updateBlacklistReasonUseCase = updateBlacklistReasonUseCase;
     }
+    
 
     /** 블랙리스트 목록. 생략한 필터는 걸지 않고, isActive를 생략하면 활성 항목만 준다. */
     @GetMapping("/api/admin/blacklist")
@@ -108,6 +116,37 @@ public class BlacklistController {
         }
     }
 
+        /**
+     * 사유 수정. 사유만 바꾸고, 바뀐 항목을 목록 조회와 같은 모양(BlacklistItem)으로 돌려준다.
+     * 성공은 200이다. (새로 만든 게 아니라 고친 것이라 등록처럼 201이 아니다)
+     */
+    @PatchMapping("/api/admin/blacklist/{sha256}")
+    public BlacklistItem updateReason(@PathVariable String sha256,
+                                      @Valid @RequestBody UpdateBlacklistReasonRequest request,   // @Valid: 빈 사유는 여기서 400
+                                      @AuthenticationPrincipal AdminPrincipal principal,
+                                      HttpServletRequest httpRequest) {
+        BlacklistEntry entry;
+        try {
+            entry = updateBlacklistReasonUseCase.update(new UpdateBlacklistReasonUseCase.Command(
+                    sha256,
+                    request.reason(),
+                    principal.adminId(),                  // ← 등록 메서드에서 쓰는 방식 그대로 맞추세요
+                    ClientIp.resolve(httpRequest)));
+        } catch (InvalidHashException e) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());     // 해시 형식이 틀리면 400
+        } catch (BlacklistEntryNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());         // 활성 항목이 없으면 404
+        }
+
+        // 응답용 항목은 수정이 끝나고 트랜잭션이 커밋된 뒤에 목록 조회로 다시 읽는다.
+        // 등록자 username은 admin_users에서 가져와야 해서, 목록과 같은 조회를 쓰면 모양이 똑같다.
+        // 이 메서드에는 @Transactional이 없어서, 위 update()가 끝나는 시점에 이미 커밋돼 있고 새 사유가 읽힌다.
+        return listBlacklistUseCase
+                .list(entry.getId().getHashValue(), null, null, true, 0, 1)
+                .getContent().stream().findFirst()
+                .map(BlacklistItem::fromRow)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "활성 상태의 블랙리스트 항목이 없습니다."));
+    }
     // 빈 문자열(?severity=)은 필터를 안 건 것으로 본다.
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
