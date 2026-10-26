@@ -199,11 +199,14 @@ class WhitelistListRestIntegrationTest {
     }
 
     @Test
-    void hashValue의_LIKE_특수문자는_글자_그대로_찾는다() {
-        seedWhitelist(randomSha256(), true, null, T1);
+    void 빈_문자열_필터는_걸지_않은_것과_같다() {
+        String sha256 = randomSha256();
+        seedWhitelist(sha256, true, null, T1);
 
-        assertThat(hashes(list("?hashValue=%25"))).isEmpty();
-        assertThat(hashes(list("?hashValue=_"))).isEmpty();
+        ResponseEntity<Map<String, Object>> response = list("?hashValue=&origin=");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(hashes(response)).containsExactly(sha256);
     }
 
     @Test
@@ -223,11 +226,23 @@ class WhitelistListRestIntegrationTest {
     }
 
     @Test
-    void 잘못된_page_size_origin은_400() {
-        assertThat(list("?page=-1").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(list("?size=0").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(list("?size=201").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(list("?origin=MANUAL").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    void 잘못된_파라미터는_400_INVALID_INPUT이다() {
+        List<String> badQueries = List.of(
+                "?hashValue=not-hex",
+                "?hashValue=%25",
+                "?hashValue=" + "a".repeat(65),
+                "?origin=MANUAL",
+                "?isActive=abc",
+                "?includeExpired=abc",
+                "?page=-1",
+                "?size=0",
+                "?size=201");
+
+        for (String query : badQueries) {
+            ResponseEntity<Map<String, Object>> response = list(query);
+            assertThat(response.getStatusCode()).as(query).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody().get("code")).as(query).isEqualTo("INVALID_INPUT");
+        }
     }
 
     @Test

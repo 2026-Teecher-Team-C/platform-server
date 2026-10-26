@@ -71,14 +71,10 @@ class ListWhitelistPortImpl implements ListWhitelistPort {
                     : " AND w.origin_quarantine_id IS NULL");
         }
         if (filter.hashPrefix() != null) {
-            // 사용자가 넣은 %, _, \는 문자 그대로 찾도록 이스케이프한다.
-            sql.append(" AND w.hash_value LIKE ? ESCAPE '\\'");
-            params.add(escapeLike(filter.hashPrefix()) + "%");
+            // 호출하는 쪽이 소문자 hex만 넘긴다. LIKE의 특수문자(%, _)가 섞이면 안 된다.
+            sql.append(" AND w.hash_value LIKE ?");
+            params.add(filter.hashPrefix() + "%");
         }
-    }
-
-    private static String escapeLike(String value) {
-        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private static WhitelistRow toRow(ResultSet rs) throws SQLException {
