@@ -886,7 +886,8 @@ a {
   color: #027a48;
 }
 
-.decision-bypassed {
+.decision-bypassed,
+.decision-pending {
   background: #f2f4f7;
   color: #475467;
 }
@@ -1166,7 +1167,8 @@ a {
   color: #027a48;
 }
 
-.events-badge--bypassed {
+.events-badge--bypassed,
+.events-badge--pending {
   background: #f2f4f7;
   color: #475467;
 }

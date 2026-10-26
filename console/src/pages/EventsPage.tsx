@@ -5,6 +5,7 @@ import { getDownloadEvents } from '../lib/api/events'
 import type { DownloadDecision, DownloadEventQuery } from '../lib/api/events'
 import type { PageResponse } from '../lib/api/types'
 import type { DownloadEventListItem } from '../lib/api/events'
+import { cacheHitLabel, decisionBadge } from '../lib/events/decision'
 
 const PAGE_SIZE = 20
 
@@ -167,9 +168,9 @@ export function EventsPage() {
                   <td>{new Date(item.createdAt).toLocaleString('ko-KR')}</td>
                   <td className="events-truncate" title={item.filename ?? undefined}>{item.filename || '파일명 없음'}</td>
                   <td className="events-truncate" title={item.hostname}>{item.hostname}</td>
-                  <td><span className={'events-badge events-badge--' + item.decision.toLowerCase()}>{item.decision}</span></td>
+                  <td><span className={'events-badge events-badge--' + decisionBadge(item.decision).tone}>{decisionBadge(item.decision).text}</span></td>
                   <td>{item.decisionSource ?? '—'}</td>
-                  <td>{item.cacheHit ? 'Hit' : 'Miss'}</td>
+                  <td>{cacheHitLabel(item.decision, item.cacheHit)}</td>
                   <td>{formatSize(item.fileSize)}</td>
                   <td>{item.holdDurationMs === null ? '—' : `${item.holdDurationMs.toLocaleString()} ms`}</td>
                   {/* ID를 경로에 안전하게 넣어 선택한 이벤트의 상세 화면으로 이동한다. */}

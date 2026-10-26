@@ -3,9 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../lib/api/client'
 import { getDownloadEvent } from '../lib/api/events'
 import type { DownloadEventDetail } from '../lib/api/events'
+import { cacheHitLabel, decisionBadge } from '../lib/events/decision'
 
 function displayDate(value: string | null | undefined) {
-  // FAIL_CLOSE처럼 일부 시각이 없는 이벤트도 화면이 깨지지 않도록 대체 문구를 쓴다.
+  // 판정 전 이벤트에는 결정 시각이 없으므로 날짜 대신 대시를 보여준다.
   return value ? new Date(value).toLocaleString('ko-KR') : '—'
 }
 
@@ -26,8 +27,9 @@ export function EventDetailPage() {
   const isLoading = result?.eventId !== eventId || result?.refreshKey !== refreshKey
   const event = isLoading ? null : result?.event
   const error = isLoading ? null : result?.error
+  const badge = event ? decisionBadge(event.decision) : null
 
-  // URL의 eventId로 기존 API client를 호출한다. 현재 서버에는 상세 API가 없어 mock 모드에서 동작한다.
+  // URL의 eventId로 실제/모의 API 공통 client를 호출한다. 미판정 행은 판정값이 null일 수 있다.
   useEffect(() => {
     if (!eventId) return
     let active = true
@@ -81,7 +83,7 @@ export function EventDetailPage() {
               <p className="eyebrow">판정 결과</p>
               <h2>{event.filename || '파일명 없음'}</h2>
             </div>
-            <span className={'events-badge events-badge--' + event.decision.toLowerCase()}>{event.decision}</span>
+            <span className={'events-badge events-badge--' + badge?.tone}>{badge?.text}</span>
           </div>
           {/* 현재 상세 타입에서 비어 있을 수 있는 필드는 '—'로 표시하고 임의의 분석 정보를 만들지 않는다. */}
           <dl className="event-detail-grid">
@@ -90,7 +92,7 @@ export function EventDetailPage() {
             <div><dt>Agent ID</dt><dd className="event-long-value">{event.agentId}</dd></div>
             <div><dt>PC / hostname</dt><dd>{event.hostname}</dd></div>
             <div><dt>판정 소스</dt><dd>{event.decisionSource ?? '—'}</dd></div>
-            <div><dt>Cache Hit</dt><dd>{event.cacheHit ? 'Hit' : 'Miss'}</dd></div>
+            <div><dt>Cache Hit</dt><dd>{cacheHitLabel(event.decision, event.cacheHit)}</dd></div>
             <div><dt>파일명</dt><dd className="event-long-value">{event.filename || '—'}</dd></div>
             <div><dt>MIME type</dt><dd className="event-long-value">{event.mimeType || '—'}</dd></div>
             <div><dt>파일 크기</dt><dd>{displayBytes(event.fileSize)}</dd></div>
