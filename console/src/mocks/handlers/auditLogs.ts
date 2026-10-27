@@ -3,14 +3,12 @@ import { API_BASE_URL } from '../../lib/api/client'
 import { authorizeMockRequest } from '../http'
 import { mockAuditLogs } from '../data/auditLogs'
 
+// 서버 AuditAction.isDangerous와 같은 4종 (기능 API 명세 "감사 로그 조회" 조회 로직 3번).
 const dangerousActions = new Set([
   'ADD_WHITELIST',
   'REMOVE_BLACKLIST',
   'RESTORE_QUARANTINE',
   'ADD_BYPASS_DOMAIN',
-  'UPDATE_FILE_TYPE_POLICY',
-  'SET_MANUAL_VERDICT',
-  'DISABLE_YARA_RULE',
 ])
 
 export const auditLogHandlers = [
@@ -37,8 +35,10 @@ export const auditLogHandlers = [
     const from = url.searchParams.get('from')
     const to = url.searchParams.get('to')
     const dangerousOnly = url.searchParams.get('dangerousOnly') === 'true'
+    const page = Number(url.searchParams.get('page') ?? 0)
+    const size = Number(url.searchParams.get('size') ?? 20)
 
-    const items = mockAuditLogs.filter((item) => {
+    const matched = mockAuditLogs.filter((item) => {
       if (actorId && item.actor?.adminId !== actorId) return false
       if (actions?.length && !actions.includes(item.action)) return false
       if (targetType && item.targetType !== targetType) return false
@@ -48,6 +48,13 @@ export const auditLogHandlers = [
       return true
     })
 
-    return HttpResponse.json({ items, nextCursor: null })
+    // 서버 PageResponse와 같은 모양으로 한 페이지만 잘라 준다.
+    return HttpResponse.json({
+      content: matched.slice(page * size, (page + 1) * size),
+      page,
+      size,
+      totalElements: matched.length,
+      totalPages: Math.ceil(matched.length / size),
+    })
   }),
 ]

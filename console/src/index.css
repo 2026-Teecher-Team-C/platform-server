@@ -1285,6 +1285,74 @@ a {
   line-height: 1.6;
 }
 
+/* 날짜·시각 입력은 폭이 좁으면 서로 겹쳐서 필터를 두 줄(4칸)로 나눈다. */
+.audit-filters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.audit-filters button[type="submit"] {
+  justify-self: start;
+  min-width: 96px;
+}
+
+.audit-page .page-heading .events-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.audit-table td {
+  vertical-align: top;
+}
+
+.audit-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.audit-code {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.audit-table .audit-actor,
+.audit-table .audit-target {
+  display: block;
+}
+
+.audit-muted {
+  color: var(--muted);
+}
+
+/* 위험 조작 행은 왼쪽에 빨간 선을 둬서 목록을 훑을 때 바로 보이게 한다. */
+.audit-row--dangerous td:first-child {
+  box-shadow: inset 3px 0 0 #b42318;
+}
+
+.audit-detail-row td {
+  padding-top: 0;
+  border-top: 0;
+  background: var(--surface-muted);
+}
+
+.audit-detail {
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1100px) {
   .events-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
