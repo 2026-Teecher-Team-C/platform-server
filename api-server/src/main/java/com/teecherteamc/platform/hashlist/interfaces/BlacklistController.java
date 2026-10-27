@@ -10,6 +10,7 @@ import com.teecherteamc.platform.hashlist.application.BlacklistEntryNotFoundExce
 import com.teecherteamc.platform.hashlist.application.HashListConflictException;
 import com.teecherteamc.platform.hashlist.application.ListBlacklistUseCase;
 import com.teecherteamc.platform.hashlist.application.UpdateBlacklistReasonUseCase;
+import com.teecherteamc.platform.hashlist.application.RemoveBlacklistEntryUseCase;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,6 +20,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,13 +51,16 @@ public class BlacklistController {
     private final AddBlacklistEntryUseCase addBlacklistEntryUseCase;
     private final ListBlacklistUseCase listBlacklistUseCase;
     private final UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase;
+    private final RemoveBlacklistEntryUseCase removeBlacklistEntryUseCase;
 
         public BlacklistController(AddBlacklistEntryUseCase addBlacklistEntryUseCase,
                                ListBlacklistUseCase listBlacklistUseCase,
-                               UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase) {
+                               UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase,
+                             RemoveBlacklistEntryUseCase removeBlacklistEntryUseCase) {
         this.addBlacklistEntryUseCase = addBlacklistEntryUseCase;
         this.listBlacklistUseCase = listBlacklistUseCase;
         this.updateBlacklistReasonUseCase = updateBlacklistReasonUseCase;
+        this.removeBlacklistEntryUseCase = removeBlacklistEntryUseCase;
     }
     
 
@@ -146,6 +151,24 @@ public class BlacklistController {
                 .getContent().stream().findFirst()
                 .map(BlacklistItem::fromRow)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "활성 상태의 블랙리스트 항목이 없습니다."));
+    }
+        /**
+     * 해제. 행을 지우지 않고 is_active=false로 바꾼다(soft delete).
+     * 성공하면 돌려줄 내용이 없어서 204(본문 없음)다.
+     */
+    @DeleteMapping("/api/admin/blacklist/{sha256}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)   // 성공 시 200이 아니라 204
+    public void remove(@PathVariable String sha256,
+                       @AuthenticationPrincipal AdminPrincipal principal,
+                       HttpServletRequest httpRequest) {
+        try {
+            removeBlacklistEntryUseCase.remove(new RemoveBlacklistEntryUseCase.Command(
+                    sha256, principal.adminId(), ClientIp.resolve(httpRequest)));
+        } catch (InvalidHashException e) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());     // 해시 형식이 틀리면 400
+        } catch (BlacklistEntryNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());         // 활성 항목이 없으면 404
+        }
     }
     // 빈 문자열(?severity=)은 필터를 안 건 것으로 본다.
     private static String blankToNull(String value) {
