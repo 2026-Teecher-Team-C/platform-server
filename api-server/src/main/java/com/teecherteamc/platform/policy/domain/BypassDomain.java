@@ -92,6 +92,17 @@ public class BypassDomain implements Persistable<UUID> {
         this.active = true;
     }
 
+    /**
+     * 바이패스를 해제한다. 행을 지우지 않고 비활성화해서, 해제한 host 의 category·reason·등록자를 남긴다.
+     * 이미 비활성인 host 를 해제하는 건 호출한 쪽의 실수다. 그런 요청은 유스케이스에서 먼저 걸러야 한다.
+     */
+    public void deactivate() {
+        if (!active) {
+            throw new IllegalStateException("이미 비활성 상태입니다.");
+        }
+        this.active = false;
+    }
+
     private static void requireReason(String reason) {
         if (reason == null || reason.isBlank()) {
             throw new InvalidBypassDomainException("reason은 필수입니다.");

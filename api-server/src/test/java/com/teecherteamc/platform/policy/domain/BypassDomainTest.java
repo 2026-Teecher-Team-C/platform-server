@@ -40,6 +40,41 @@ class BypassDomainTest {
     }
 
     @Test
+    void 해제하면_비활성이_되고_나머지_값은_그대로_남는다() {
+        UUID admin = UUID.randomUUID();
+        BypassDomain domain = BypassDomain.register(BypassHost.of("Update.Vendor.com"), BypassCategory.PINNED,
+                "피닝", admin, NOW);
+
+        domain.deactivate();
+
+        assertThat(domain.isActive()).isFalse();
+        assertThat(domain.getDomainPattern()).isEqualTo("update.vendor.com");
+        assertThat(domain.getCategory()).isEqualTo(BypassCategory.PINNED);
+        assertThat(domain.getReason()).isEqualTo("피닝");
+        assertThat(domain.getCreatedBy()).isEqualTo(admin);
+        assertThat(domain.getCreatedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void 이미_비활성인_상태에서_해제하면_예외가_난다() {
+        BypassDomain domain = newDomain();
+        domain.deactivate();
+
+        assertThatThrownBy(domain::deactivate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 해제한_뒤에는_다시_재활성화할_수_있다() {
+        BypassDomain domain = newDomain();
+        domain.deactivate();
+
+        domain.reactivate(BypassCategory.SECURITY_UPDATE, "새 사유", null);
+
+        assertThat(domain.isActive()).isTrue();
+        assertThat(domain.getCategory()).isEqualTo(BypassCategory.SECURITY_UPDATE);
+    }
+
+    @Test
     void 활성_상태에서_재활성화하면_예외가_난다() {
         BypassDomain domain = newDomain();
 
