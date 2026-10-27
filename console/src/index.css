@@ -89,6 +89,25 @@ a {
   gap: 2px;
 }
 
+.sidebar-logout {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #263449;
+  border-radius: 8px;
+  background: transparent;
+  color: #aebbc9;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sidebar-logout:hover {
+  border-color: #b42318;
+  background: #b42318;
+  color: #fff;
+}
+
 .brand span:last-child {
   color: #8fa0b7;
   font-size: 12px;
@@ -135,77 +154,6 @@ a {
 .app-main {
   flex: 1;
   min-width: 0;
-}
-
-.topbar {
-  height: 72px;
-  padding: 0 32px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.topbar > div:first-child {
-  display: grid;
-  gap: 2px;
-}
-
-.topbar strong {
-  font-size: 15px;
-}
-
-.topbar-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.topbar-user-info {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.topbar-user-info strong {
-  max-width: 160px;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-user-info small {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.topbar-logout {
-  margin-left: 4px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: #475467;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.topbar-logout:hover {
-  background: var(--surface-muted);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--success);
 }
 
 .page-content {
@@ -901,7 +849,6 @@ a {
     width: 196px;
   }
 
-  .topbar,
   .page-content {
     padding-left: 20px;
     padding-right: 20px;
