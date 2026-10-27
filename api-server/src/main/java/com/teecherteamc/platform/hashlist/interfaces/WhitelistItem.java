@@ -2,6 +2,7 @@ package com.teecherteamc.platform.hashlist.interfaces;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
+import com.teecherteamc.platform.hashlist.domain.WhitelistRow;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -28,6 +29,19 @@ public record WhitelistItem(
 
     static String origin(UUID originQuarantineId) {
         return originQuarantineId == null ? "PREREGISTERED" : "RESTORED";
+    }
+
+    public static WhitelistItem from(WhitelistRow row) {
+        return new WhitelistItem(
+                row.hashType(),
+                row.hashValue(),
+                row.reason(),
+                origin(row.originQuarantineId()),
+                row.originQuarantineId(),
+                new AdminSummary(row.addedById(), row.addedByUsername()),
+                row.active(),
+                row.expiresAt(),
+                row.createdAt());
     }
 
     /** 엔티티에는 username이 없어서 호출한 쪽이 넘긴다. */
