@@ -7,15 +7,20 @@ import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
 import com.teecherteamc.platform.policy.application.AddBypassDomainUseCase;
 import com.teecherteamc.platform.policy.application.BypassDomainConflictException;
+import com.teecherteamc.platform.policy.application.BypassDomainNotFoundException;
 import com.teecherteamc.platform.policy.application.ListBypassDomainsUseCase;
+import com.teecherteamc.platform.policy.application.RemoveBypassDomainUseCase;
 import com.teecherteamc.platform.policy.domain.BypassDomain;
 import com.teecherteamc.platform.policy.domain.InvalidBypassDomainException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,7 +28,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 바이패스 도메인 관리 REST 엔드포인트. 목록 조회와 등록이 있다.
+ * 바이패스 도메인 관리 REST 엔드포인트. 목록 조회, 등록, 해제가 있다.
  *
  * 로그인(access 토큰)이 필요하다. SecurityConfig가 막는다. (docs/auth-policy.md)
  */
@@ -36,11 +41,14 @@ public class BypassDomainController {
 
     private final ListBypassDomainsUseCase listBypassDomainsUseCase;
     private final AddBypassDomainUseCase addBypassDomainUseCase;
+    private final RemoveBypassDomainUseCase removeBypassDomainUseCase;
 
     public BypassDomainController(ListBypassDomainsUseCase listBypassDomainsUseCase,
-                                  AddBypassDomainUseCase addBypassDomainUseCase) {
+                                  AddBypassDomainUseCase addBypassDomainUseCase,
+                                  RemoveBypassDomainUseCase removeBypassDomainUseCase) {
         this.listBypassDomainsUseCase = listBypassDomainsUseCase;
         this.addBypassDomainUseCase = addBypassDomainUseCase;
+        this.removeBypassDomainUseCase = removeBypassDomainUseCase;
     }
 
     /**
@@ -90,6 +98,30 @@ public class BypassDomainController {
         } catch (BypassDomainConflictException e) {
             // 이미 활성으로 등록된 host → 409
             throw new ApiException(ErrorCode.CONFLICT, e.getMessage());
+        }
+    }
+
+    /**
+     * 바이패스 도메인을 해제(비활성화)한다. 행은 남는다. 없는 id와 이미 해제된 id는 모두 404다.
+     * 역할(ADMIN) 검사는 아직 하지 않는다. 로그인한 관리자면 누구나 해제할 수 있다.
+     */
+    @DeleteMapping("/api/admin/bypass-domains/{bypassId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void remove(@AuthenticationPrincipal AdminPrincipal principal, @PathVariable String bypassId,
+                       HttpServletRequest httpRequest) {
+        UUID parsedBypassId = parseUuid(bypassId, "bypassId");
+        try {
+            removeBypassDomainUseCase.remove(parsedBypassId, principal.adminId(), ClientIp.resolve(httpRequest));
+        } catch (BypassDomainNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());
+        }
+    }
+
+    private static UUID parseUuid(String value, String fieldName) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            throw invalid(fieldName + " must be a valid UUID");
         }
     }
 
