@@ -25,7 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * POST /api/admin/quarantine/{quarantineId}/restore. 로그인이 필요한 경로라서 AdminApiClient로
- * 로그인한 관리자로 요청한다. 7번 케이스는 복원이 실제로 CheckHash 조회 사슬을 통과시키는지까지
+ * 로그인한 관리자로 요청한다. 여러 케이스가 복원이 실제로 CheckHash 조회 사슬을 통과시키는지까지
  * 검증한다(PR #46으로 화이트리스트가 조회 사슬에 연결된 것을 전제한다).
  */
 @SuppressWarnings("unchecked")
@@ -211,6 +211,72 @@ class QuarantineRestoreRestIntegrationTest {
                 "SELECT reason, origin_quarantine_id FROM hash_whitelist WHERE hash_value = ?", sha256);
         assertThat(whitelistRow.get("reason")).isEqualTo("기존 등록");   // 안 건드렸다
         assertThat(whitelistRow.get("origin_quarantine_id")).isNull();
+    }
+
+    @Test
+    void 만료됐지만_활성으로_남은_화이트리스트는_재활성화되고_CheckHash가_통과시킨다() {
+        // is_active=true인데 expires_at이 과거인 행. isActive()가 아니라 isEffectiveAt(now)로
+        // 판단해야 "이미 유효하게 등록됨"과 "되살려야 함"을 제대로 구분할 수 있다.
+        UUID quarantineId = seedQuarantinedHash("DESKTOP-RESTORE-EXPIRED");
+        String sha256 = sha256Of(quarantineId);
+        jdbcTemplate.update(
+                """
+                INSERT INTO hash_whitelist (hash_value, reason, added_by, is_active, expires_at)
+                VALUES (?, '예전 등록', ?, true, ?)
+                """,
+                sha256, adminApi.adminId(), Timestamp.from(Instant.now().minusSeconds(3600)));
+
+        ResponseEntity<Map<String, Object>> response = adminApi.postForEntity(
+                restoreUrl(quarantineId), Map.of("reason", "오탐 재확인"), mapType());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> whitelistRow = jdbcTemplate.queryForMap(
+                "SELECT is_active, expires_at, origin_quarantine_id, reason FROM hash_whitelist WHERE hash_value = ?",
+                sha256);
+        assertThat(whitelistRow.get("is_active")).isEqualTo(true);
+        assertThat(whitelistRow.get("expires_at")).isNull();   // restoreFromQuarantine은 무기한으로 되살린다
+        assertThat(whitelistRow.get("origin_quarantine_id")).isEqualTo(quarantineId);
+        assertThat(whitelistRow.get("reason")).isEqualTo("오탐 재확인");
+
+        CheckHashResponse checkHashResponse = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+        assertThat(checkHashResponse.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(checkHashResponse.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    @Test
+    void 활성_블랙리스트가_있어도_복원이_이기고_블랙리스트는_명시적으로_해제된다() {
+        UUID quarantineId = seedQuarantinedHash("DESKTOP-RESTORE-BLACKLISTED");
+        String sha256 = sha256Of(quarantineId);
+        jdbcTemplate.update(
+                "INSERT INTO hash_blacklist (hash_type, hash_value, reason, severity, source, is_active) "
+                        + "VALUES ('SHA256', ?, '다른 경로로 등록된 악성 해시', 'HIGH', 'MANUAL', true)",
+                sha256);
+
+        ResponseEntity<Map<String, Object>> response = adminApi.postForEntity(
+                restoreUrl(quarantineId), Map.of("reason", "오탐 확인됨"), mapType());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        Map<String, Object> blacklistRow = jdbcTemplate.queryForMap(
+                "SELECT is_active, deactivated_at FROM hash_blacklist WHERE hash_value = ?", sha256);
+        assertThat(blacklistRow.get("is_active")).isEqualTo(false);
+        assertThat(blacklistRow.get("deactivated_at")).isNotNull();
+
+        Map<String, Object> removeBlacklistAudit = jdbcTemplate.queryForMap(
+                "SELECT actor_id FROM audit_logs WHERE action = 'REMOVE_BLACKLIST' AND target_id = ?",
+                "SHA256:" + sha256);
+        assertThat(removeBlacklistAudit.get("actor_id")).isEqualTo(adminApi.adminId());
+
+        Map<String, Object> addWhitelistAudit = jdbcTemplate.queryForMap(
+                "SELECT actor_id FROM audit_logs WHERE action = 'ADD_WHITELIST' AND target_id = ?",
+                "SHA256:" + sha256);
+        assertThat(addWhitelistAudit.get("actor_id")).isEqualTo(adminApi.adminId());
+
+        CheckHashResponse checkHashResponse = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+        assertThat(checkHashResponse.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(checkHashResponse.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
     }
 
     @Test
