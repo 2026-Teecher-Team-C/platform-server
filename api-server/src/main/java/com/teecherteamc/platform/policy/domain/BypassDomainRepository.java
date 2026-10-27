@@ -1,6 +1,7 @@
 package com.teecherteamc.platform.policy.domain;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * 바이패스 도메인 저장소가 할 수 있어야 하는 일의 약속. (쓰기용)
@@ -20,4 +21,7 @@ public interface BypassDomainRepository {
      * domain_pattern의 UNIQUE 제약이 is_active를 보지 않으므로, 등록 전에 이미 있는 행인지 확인하는 데 쓴다.
      */
     Optional<BypassDomain> findByHost(BypassHost host);
+
+    /** id로 찾는다. 비활성 항목도 나오므로 해제할 대상은 호출한 쪽이 isActive로 걸러야 한다. */
+    Optional<BypassDomain> findById(UUID bypassId);
 }
