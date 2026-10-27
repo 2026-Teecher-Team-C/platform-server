@@ -57,6 +57,17 @@ public class AdminApiClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         return restTemplate.exchange(url, HttpMethod.PATCH, new HttpEntity<>(body, headers), responseType);
     }
+
+    /** DELETE·PATCH처럼 메서드를 골라 보낸다. body가 있으면 JSON으로 보내고, 없으면 null을 넘긴다. */
+    public <T> ResponseEntity<T> exchange(String url, HttpMethod method, Object body, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        if (body != null) {
+            headers.setContentType(MediaType.APPLICATION_JSON);
+        }
+        return restTemplate.exchange(url, method, new HttpEntity<>(body, headers), responseType);
+    }
+
     /** 로그인에 쓴 테스트 관리자의 admin_id. 아직 로그인 전이면 먼저 로그인한다. */
     public UUID adminId() {
         accessToken();
