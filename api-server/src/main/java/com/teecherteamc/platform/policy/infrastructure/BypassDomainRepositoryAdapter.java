@@ -4,6 +4,7 @@ import com.teecherteamc.platform.policy.domain.BypassDomain;
 import com.teecherteamc.platform.policy.domain.BypassDomainRepository;
 import com.teecherteamc.platform.policy.domain.BypassHost;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -27,5 +28,10 @@ class BypassDomainRepositoryAdapter implements BypassDomainRepository {
     @Override
     public Optional<BypassDomain> findByHost(BypassHost host) {
         return jpaRepository.findByDomainPattern(host.value());
+    }
+
+    @Override
+    public Optional<BypassDomain> findById(UUID bypassId) {
+        return jpaRepository.findById(bypassId);
     }
 }
