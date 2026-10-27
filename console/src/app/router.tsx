@@ -12,6 +12,7 @@ import { LoginPage } from '../pages/LoginPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { PoliciesPage } from '../pages/PoliciesPage'
 import { QuarantinePage } from '../pages/QuarantinePage'
+import { QuarantineDetailPage } from '../pages/QuarantineDetailPage'
 import { RulesetsPage } from '../pages/RulesetsPage'
 import { WhitelistPage } from '../pages/WhitelistPage'
 
@@ -47,6 +48,10 @@ export const router = createBrowserRouter([
       {
         path: 'quarantine',
         element: <QuarantinePage />,
+      },
+      {
+        path: 'quarantine/:quarantineId',
+        element: <QuarantineDetailPage />,
       },
       {
         path: 'agents',

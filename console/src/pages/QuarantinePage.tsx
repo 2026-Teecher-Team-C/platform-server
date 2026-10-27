@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { getQuarantineFiles } from '../lib/api/quarantine'
 import type { QuarantineStatus, QuarantineQuery } from '../lib/api/quarantine'
 import type { PageResponse } from '../lib/api/types'
@@ -132,7 +133,7 @@ export function QuarantinePage() {
             <table className="events-table">
               <thead><tr>
                 <th scope="col">격리 시각</th><th scope="col">파일명</th><th scope="col">PC / hostname</th>
-                <th scope="col">상태</th><th scope="col">파일 크기</th><th scope="col">복원 시각</th>
+                <th scope="col">상태</th><th scope="col">파일 크기</th><th scope="col">복원 시각</th><th scope="col">상세</th>
               </tr></thead>
               <tbody>{page.content.map((item) => (
                 <tr key={item.quarantineId}>
@@ -144,6 +145,8 @@ export function QuarantinePage() {
                   <td><span className={'events-badge events-badge--' + item.status.toLowerCase()}>{item.status}</span></td>
                   <td>{formatSize(item.fileSize)}</td>
                   <td>{item.restoredAt ? new Date(item.restoredAt).toLocaleString('ko-KR') : '—'}</td>
+                  {/* 행의 격리 ID로 상세 API를 조회하도록 상세 라우트에 전달한다. */}
+                  <td><Link className="events-detail-link" to={'/quarantine/' + encodeURIComponent(item.quarantineId)}>상세 보기</Link></td>
                 </tr>
               ))}</tbody>
             </table>
