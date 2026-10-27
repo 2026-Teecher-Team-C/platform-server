@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { CursorPage } from './types'
+import type { PageResponse } from './types'
 import { toQueryString } from './types'
 
 export type BypassDomainItem = {
@@ -16,12 +16,13 @@ export type BypassDomainQuery = {
   category?: string
   isActive?: boolean
   host?: string
-  cursor?: string
-  limit?: number
+  page?: number
+  size?: number
 }
 
 export function getBypassDomains(query: BypassDomainQuery = {}) {
-  return apiRequest<CursorPage<BypassDomainItem>>(
+  // 화면의 '검색어'는 host 쿼리로 전달한다. 서버 검색 범위는 도메인 패턴의 부분 일치다.
+  return apiRequest<PageResponse<BypassDomainItem>>(
     '/api/admin/bypass-domains' + toQueryString(query),
   )
 }

@@ -1114,6 +1114,13 @@ a {
   align-items: center;
 }
 
+/* 진행 문구가 나타나도 목록 제목 영역의 높이는 유지한다. */
+.policies-request-status {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .events-table-scroll {
   overflow-x: auto;
 }
