@@ -18,17 +18,18 @@ export const hashlistHandlers = [
     if (auth.error) return auth.error
 
     const url = new URL(request.url)
-    const hashValue = url.searchParams.get('hashValue')
-    const hashType = url.searchParams.get('hashType')
+    const hashValue = url.searchParams.get('hashValue')?.toLowerCase()
     const origin = url.searchParams.get('origin')
     const isActive = parseBoolean(url.searchParams.get('isActive'), true)
     const includeExpired = parseBoolean(url.searchParams.get('includeExpired'), false)
+    const page = Number(url.searchParams.get('page') ?? 0)
+    const size = Number(url.searchParams.get('size') ?? 20)
     const now = Date.now()
 
-    const items = mockWhitelist.filter((item) => {
+    // 서버와 같이 hashValue는 앞부분 일치로 찾는다.
+    const matched = mockWhitelist.filter((item) => {
       if (item.isActive !== isActive) return false
-      if (hashValue && item.hashValue !== hashValue) return false
-      if (hashType && item.hashType !== hashType) return false
+      if (hashValue && !item.hashValue.startsWith(hashValue)) return false
       if (origin && item.origin !== origin) return false
       if (!includeExpired && item.expiresAt && new Date(item.expiresAt).getTime() <= now) {
         return false
@@ -36,7 +37,14 @@ export const hashlistHandlers = [
       return true
     })
 
-    return HttpResponse.json({ items, nextCursor: null })
+    // 서버 PageResponse와 같은 모양으로 한 페이지만 잘라 준다.
+    return HttpResponse.json({
+      content: matched.slice(page * size, (page + 1) * size),
+      page,
+      size,
+      totalElements: matched.length,
+      totalPages: Math.ceil(matched.length / size),
+    })
   }),
 
   http.post(API_BASE_URL + '/api/admin/whitelist', async ({ request }) => {

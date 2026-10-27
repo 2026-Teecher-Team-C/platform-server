@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { CursorPage } from './types'
+import type { CursorPage, PageResponse } from './types'
 import { toQueryString } from './types'
 
 export type AdminSummary = {
@@ -22,14 +22,14 @@ export type WhitelistItem = {
   updatedAt?: string
 }
 
+// 서버 WhitelistController.list와 1:1. hashValue는 앞부분 일치, page는 0부터, size 상한은 200.
 export type WhitelistQuery = {
   hashValue?: string
-  hashType?: 'SHA256' | 'TLSH'
   origin?: WhitelistOrigin
   isActive?: boolean
   includeExpired?: boolean
-  cursor?: string
-  limit?: number
+  page?: number
+  size?: number
 }
 
 export type CreateWhitelistRequest = {
@@ -39,7 +39,7 @@ export type CreateWhitelistRequest = {
 }
 
 export function getWhitelist(query: WhitelistQuery = {}) {
-  return apiRequest<CursorPage<WhitelistItem>>(
+  return apiRequest<PageResponse<WhitelistItem>>(
     '/api/admin/whitelist' + toQueryString(query),
   )
 }
