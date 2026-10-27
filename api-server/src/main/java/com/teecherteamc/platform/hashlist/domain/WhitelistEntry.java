@@ -71,6 +71,28 @@ public class WhitelistEntry {
         this.active = false;
     }
 
+    /**
+     * 해제했던 항목을 직접 등록으로 되살린다. PK가 (hash_type, hash_value)라 새로 INSERT할 수 없어서다.
+     * 직접 등록이므로 복원 출처(origin_quarantine_id)는 비운다. created_at은 처음 값을 유지한다(블랙리스트와 같다).
+     */
+    public void reactivate(String reason, UUID addedBy, Instant expiresAt) {
+        // 이미 활성인 항목을 되살리는 건 호출한 쪽의 실수다. 중복 등록은 유스케이스에서 먼저 걸러야 한다.
+        if (active) {
+            throw new IllegalStateException("이미 활성 상태입니다.");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("등록 사유는 필수입니다.");
+        }
+        if (addedBy == null) {
+            throw new IllegalArgumentException("화이트리스트는 등록자가 필수입니다.");
+        }
+        this.reason = reason;
+        this.addedBy = addedBy;
+        this.expiresAt = expiresAt;
+        this.originQuarantineId = null;
+        this.active = true;
+    }
+
         /**
      * now 시점에 이 예외가 유효한가? 활성이면서 만료 전이어야 한다.
      * 만료 시각 정각은 유효하지 않다. (expiresAt이 now보다 뒤일 때만 유효)
@@ -78,6 +100,14 @@ public class WhitelistEntry {
      */
     public boolean isEffectiveAt(Instant now) {
         return active && (expiresAt == null || expiresAt.isAfter(now));
+    }
+
+    /** 등록 사유만 바꾼다. 활성 여부 확인은 유스케이스가 한다. */
+    public void changeReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("등록 사유는 필수입니다.");
+        }
+        this.reason = reason;
     }
 
     public HashKey getId() {

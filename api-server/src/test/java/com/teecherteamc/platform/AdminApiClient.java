@@ -26,6 +26,8 @@ public class AdminApiClient {
     private final PasswordEncoder passwordEncoder;
 
     private String accessToken;
+    private UUID adminId;      // 로그인에 쓴 테스트 관리자의 admin_id
+    private String username;   // 그 관리자의 username
 
     public AdminApiClient(TestRestTemplate restTemplate, JdbcTemplate jdbcTemplate,
                           PasswordEncoder passwordEncoder) {
@@ -40,6 +42,44 @@ public class AdminApiClient {
         return restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), responseType);
     }
 
+    /** JSON 본문을 담아 POST로 보낸다. body에는 Map이나 요청 DTO를 그대로 넘기면 된다. */
+    public <T> ResponseEntity<T> postForEntity(String url, Object body, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), responseType);
+    }
+
+    /** JSON 본문을 담아 PATCH로 보낸다. postForEntity와 같고 HTTP 메서드만 다르다. */
+    public <T> ResponseEntity<T> patchForEntity(String url, Object body, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange(url, HttpMethod.PATCH, new HttpEntity<>(body, headers), responseType);
+    }
+
+    /** DELETE·PATCH처럼 메서드를 골라 보낸다. body가 있으면 JSON으로 보내고, 없으면 null을 넘긴다. */
+    public <T> ResponseEntity<T> exchange(String url, HttpMethod method, Object body, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        if (body != null) {
+            headers.setContentType(MediaType.APPLICATION_JSON);
+        }
+        return restTemplate.exchange(url, method, new HttpEntity<>(body, headers), responseType);
+    }
+
+    /** 로그인에 쓴 테스트 관리자의 admin_id. 아직 로그인 전이면 먼저 로그인한다. */
+    public UUID adminId() {
+        accessToken();
+        return adminId;
+    }
+
+    /** 로그인에 쓴 테스트 관리자의 username. 아직 로그인 전이면 먼저 로그인한다. */
+    public String username() {
+        accessToken();
+        return username;
+    }
+
     private String accessToken() {
         if (accessToken == null) {
             accessToken = login();
@@ -49,17 +89,18 @@ public class AdminApiClient {
 
     @SuppressWarnings("unchecked")
     private String login() {
-        String username = "test-admin-" + UUID.randomUUID();
+        String loginName = "test-admin-" + UUID.randomUUID();
+        UUID newAdminId = UUID.randomUUID();
         jdbcTemplate.update(
                 """
                 INSERT INTO admin_users (admin_id, username, password_hash, role, is_active)
                 VALUES (?, ?, ?, 'ADMIN', true)
                 """,
-                UUID.randomUUID(), username, passwordEncoder.encode(PASSWORD));
+                newAdminId, loginName, passwordEncoder.encode(PASSWORD));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        String body = "{\"username\":\"" + username + "\",\"password\":\"" + PASSWORD + "\"}";
+        String body = "{\"username\":\"" + loginName + "\",\"password\":\"" + PASSWORD + "\"}";
         ResponseEntity<Map> response = restTemplate.exchange(
                 "/api/admin/auth/login", HttpMethod.POST, new HttpEntity<>(body, headers), Map.class);
 
@@ -67,6 +108,8 @@ public class AdminApiClient {
         if (!(token instanceof String value)) {
             throw new AssertionError("로그인 실패: " + response.getStatusCode() + " " + response.getBody());
         }
+        this.adminId = newAdminId;
+        this.username = loginName;
         return value;
     }
 }

@@ -2,6 +2,7 @@ package com.teecherteamc.platform.hashlist.interfaces;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
+import com.teecherteamc.platform.hashlist.domain.BlacklistListRow;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -29,25 +30,43 @@ public record BlacklistItem(
     public record AdminSummary(UUID adminId, String username) {
     }
 
+    /** username을 모르는 곳에서 쓴다. addedBy가 있으면 username은 null로 나간다. */
     public static BlacklistItem from(BlacklistEntry entry) {
+        return from(entry, null);
+    }
+
+    /**
+     * 등록자의 username을 아는 곳(방금 로그인한 관리자가 등록한 응답 등)에서 쓴다.
+     * addedBy가 null이면(일괄 등록 등) username을 줘도 addedBy는 null이다.
+     */
+    public static BlacklistItem from(BlacklistEntry entry, String addedByUsername) {
         return new BlacklistItem(
                 entry.getId().getHashType().name(),
                 entry.getId().getHashValue(),
                 entry.getReason(),
                 entry.getSeverity().name(),
                 entry.getSource().name(),
-                toAdminSummary(entry.getAddedBy()),
+                toAdminSummary(entry.getAddedBy(), addedByUsername),
                 entry.isActive(),
                 entry.getCreatedAt(),
                 entry.getDeactivatedAt());
     }
 
-    /**
-     * 지금은 로그인이 없어서 addedBy가 항상 null이다. (hash_blacklist.added_by가 nullable)
-     * 인증을 붙인 뒤에는 admin_users에서 username을 조회해 채워야 한다.
-     * 그 전까지 값이 있는 행이 생기면 username은 null로 나간다. (콘솔 타입은 문자열을 기대한다)
-     */
-    private static AdminSummary toAdminSummary(UUID addedBy) {
-        return addedBy == null ? null : new AdminSummary(addedBy, null);
+    /** 목록 조회용. admin_users와 조인해서 읽은 행을 응답으로 바꾼다. */
+    public static BlacklistItem fromRow(BlacklistListRow row) {
+        return new BlacklistItem(
+                row.hashType(),
+                row.hashValue(),
+                row.reason(),
+                row.severity(),
+                row.source(),
+                toAdminSummary(row.addedBy(), row.addedByUsername()),
+                row.active(),
+                row.createdAt(),
+                row.deactivatedAt());
+    }
+
+    private static AdminSummary toAdminSummary(UUID addedBy, String username) {
+        return addedBy == null ? null : new AdminSummary(addedBy, username);
     }
 }
