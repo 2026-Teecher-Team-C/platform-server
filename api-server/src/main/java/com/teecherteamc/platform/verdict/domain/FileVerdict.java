@@ -109,6 +109,11 @@ public class FileVerdict implements Persistable<String> {
         this.lastVerdictAt = now;
     }
 
+    /** 이 판정을 더 이상 캐시로 쓰지 않게 한다. 다음 조회 때 재검사되고 recordAnalysis()가 stale을 해제한다. */
+    public void markStale() {
+        this.stale = true;
+    }
+
     @Override
     public String getId() {
         return sha256;

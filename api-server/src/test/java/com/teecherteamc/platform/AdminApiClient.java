@@ -50,6 +50,14 @@ public class AdminApiClient {
         return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), responseType);
     }
 
+    /** JSON 본문을 담아 PATCH로 보낸다. postForEntity와 같고 HTTP 메서드만 다르다. */
+    public <T> ResponseEntity<T> patchForEntity(String url, Object body, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange(url, HttpMethod.PATCH, new HttpEntity<>(body, headers), responseType);
+    }
+
     /** DELETE·PATCH처럼 메서드를 골라 보낸다. body가 있으면 JSON으로 보내고, 없으면 null을 넘긴다. */
     public <T> ResponseEntity<T> exchange(String url, HttpMethod method, Object body, Class<T> responseType) {
         HttpHeaders headers = new HttpHeaders();

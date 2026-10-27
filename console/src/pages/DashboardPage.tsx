@@ -2,6 +2,7 @@ import { getDownloadEvents } from '../lib/api/events'
 import type { DownloadDecision, DownloadDecisionSource } from '../lib/api/events'
 import { startOfLocalDay, summarizeEvents } from '../lib/dashboard/summarize'
 import type { EventSummary } from '../lib/dashboard/summarize'
+import { decisionBadge } from '../lib/events/decision'
 import { usePolling } from '../lib/hooks/usePolling'
 
 const POLL_INTERVAL_MS = 5000
@@ -149,8 +150,8 @@ export function DashboardPage() {
                     </td>
                     <td>{formatBytes(event.fileSize)}</td>
                     <td>
-                      <span className={'decision-badge decision-' + event.decision.toLowerCase()}>
-                        {DECISION_LABELS[event.decision] ?? event.decision}
+                      <span className={'decision-badge decision-' + decisionBadge(event.decision).tone}>
+                        {event.decision ? DECISION_LABELS[event.decision] : decisionBadge(event.decision).text}
                       </span>
                     </td>
                     <td>{event.decisionSource ? SOURCE_LABELS[event.decisionSource] ?? event.decisionSource : '—'}</td>
