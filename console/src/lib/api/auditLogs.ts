@@ -1,6 +1,6 @@
 import { apiRequest } from './client'
 import type { AdminRole } from './auth'
-import type { CursorPage } from './types'
+import type { PageResponse } from './types'
 import { toQueryString } from './types'
 
 export type AuditActor = {
@@ -21,6 +21,7 @@ export type AuditLogItem = {
   createdAt: string
 }
 
+// 서버 AuditLogController.list와 1:1. from은 포함, to는 제외.
 export type AuditLogQuery = {
   actorId?: string
   action?: string
@@ -28,12 +29,13 @@ export type AuditLogQuery = {
   from?: string
   to?: string
   dangerousOnly?: boolean
-  cursor?: string
-  limit?: number
+  // page는 0부터. size 상한은 서버 기준 200.
+  page?: number
+  size?: number
 }
 
 export function getAuditLogs(query: AuditLogQuery = {}) {
-  return apiRequest<CursorPage<AuditLogItem>>(
+  return apiRequest<PageResponse<AuditLogItem>>(
     '/api/admin/audit-logs' + toQueryString(query),
   )
 }
