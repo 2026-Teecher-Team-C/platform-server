@@ -1,6 +1,7 @@
 package com.teecherteamc.platform.policy.interfaces;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.teecherteamc.platform.policy.domain.BypassDomain;
 import com.teecherteamc.platform.policy.domain.BypassDomainRow;
 import java.time.Instant;
 import java.util.UUID;
@@ -22,5 +23,12 @@ public record BypassDomainItem(
     static BypassDomainItem from(BypassDomainRow row) {
         return new BypassDomainItem(
                 row.bypassId(), row.host(), row.category(), row.reason(), row.active(), row.createdAt());
+    }
+
+    /** 등록 응답용. 방금 저장한 엔티티에서 만든다. */
+    static BypassDomainItem from(BypassDomain domain) {
+        return new BypassDomainItem(
+                domain.getId(), domain.getDomainPattern(), domain.getCategory().name(), domain.getReason(),
+                domain.isActive(), domain.getCreatedAt());
     }
 }
