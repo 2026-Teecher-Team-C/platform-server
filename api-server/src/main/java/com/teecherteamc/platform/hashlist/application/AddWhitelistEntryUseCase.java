@@ -7,8 +7,8 @@ import com.teecherteamc.platform.hashlist.domain.BlacklistEntryRepository;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
 import com.teecherteamc.platform.hashlist.domain.HashListWriteLock;
-import com.teecherteamc.platform.hashlist.domain.VerdictInvalidationPort;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
+import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRegistered;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,20 +31,20 @@ public class AddWhitelistEntryUseCase {
 
     private final WhitelistEntryRepository whitelist;
     private final BlacklistEntryRepository blacklist;
-    private final VerdictInvalidationPort verdictInvalidation;
+    private final ApplicationEventPublisher eventPublisher;
     private final HashListWriteLock writeLock;
     private final AuditLogRecorder auditLogRecorder;
     private final Clock clock;
 
     public AddWhitelistEntryUseCase(WhitelistEntryRepository whitelist,
                                     BlacklistEntryRepository blacklist,
-                                    VerdictInvalidationPort verdictInvalidation,
+                                    ApplicationEventPublisher eventPublisher,
                                     HashListWriteLock writeLock,
                                     AuditLogRecorder auditLogRecorder,
                                     Clock clock) {
         this.whitelist = whitelist;
         this.blacklist = blacklist;
-        this.verdictInvalidation = verdictInvalidation;
+        this.eventPublisher = eventPublisher;
         this.writeLock = writeLock;
         this.auditLogRecorder = auditLogRecorder;
         this.clock = clock;
@@ -90,8 +91,8 @@ public class AddWhitelistEntryUseCase {
         }
         whitelist.save(entry);
 
-        // 6. 이전 차단 판정을 쓰지 않게 한다
-        verdictInvalidation.markStale(key.getHashValue());
+        // 6. 이전 차단 판정을 쓰지 않게 한다. file_verdicts는 verdict 컨텍스트 소유라 이벤트로 알린다
+        eventPublisher.publishEvent(new WhitelistEntryRegistered(key.getHashValue()));
 
         // 7. 감사 로그
         Map<String, Object> detail = new HashMap<>();

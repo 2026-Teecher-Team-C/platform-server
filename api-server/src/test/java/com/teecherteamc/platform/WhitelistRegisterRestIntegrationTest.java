@@ -2,6 +2,7 @@ package com.teecherteamc.platform;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -23,6 +24,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 // 로그인이 필요한 API라 AdminApiClient로 로그인한 access 토큰으로 요청한다. ANALYST 권한 게이트는 범위 밖.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -41,6 +43,12 @@ class WhitelistRegisterRestIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private AddWhitelistEntryUseCase addWhitelistEntryUseCase;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private static String randomSha256() {
         byte[] bytes = new byte[32];
@@ -168,6 +176,27 @@ class WhitelistRegisterRestIntegrationTest {
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT is_stale FROM file_verdicts WHERE sha256 = ?", Boolean.class, sha256)).isTrue();
+    }
+
+    // stale 처리는 verdict 컨텍스트가 이벤트로 받아서 한다. 등록과 같은 트랜잭션이라 등록이 취소되면 함께 취소된다.
+    @Test
+    void 등록이_롤백되면_stale_처리도_롤백된다() {
+        String sha256 = randomSha256();
+        jdbcTemplate.update(
+                "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'MALICIOUS', 'ENGINE')",
+                sha256);
+        UUID adminId = seedAdmin();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            addWhitelistEntryUseCase.add(
+                    new AddWhitelistEntryUseCase.Command(sha256, "오탐", null, adminId, "127.0.0.1"));
+            status.setRollbackOnly();
+        });
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT is_stale FROM file_verdicts WHERE sha256 = ?", Boolean.class, sha256)).isFalse();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM hash_whitelist WHERE hash_value = ?", Integer.class, sha256)).isZero();
     }
 
     @Test
