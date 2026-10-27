@@ -1,5 +1,7 @@
 package com.teecherteamc.platform.hashlist.interfaces;
 
+import com.teecherteamc.platform.admin.domain.AdminUser;
+import com.teecherteamc.platform.admin.domain.AdminUserRepository;
 import com.teecherteamc.platform.admin.interfaces.AdminPrincipal;
 import com.teecherteamc.platform.common.ApiException;
 import com.teecherteamc.platform.common.ClientIp;
@@ -10,6 +12,7 @@ import com.teecherteamc.platform.hashlist.application.HashListConflictException;
 import com.teecherteamc.platform.hashlist.application.InvalidExpiryException;
 import com.teecherteamc.platform.hashlist.application.ListWhitelistUseCase;
 import com.teecherteamc.platform.hashlist.application.RemoveWhitelistEntryUseCase;
+import com.teecherteamc.platform.hashlist.application.UpdateWhitelistReasonUseCase;
 import com.teecherteamc.platform.hashlist.application.WhitelistNotFoundException;
 import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
@@ -22,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -47,13 +51,19 @@ public class WhitelistController {
     private final AddWhitelistEntryUseCase addWhitelistEntryUseCase;
     private final ListWhitelistUseCase listWhitelistUseCase;
     private final RemoveWhitelistEntryUseCase removeWhitelistEntryUseCase;
+    private final UpdateWhitelistReasonUseCase updateWhitelistReasonUseCase;
+    private final AdminUserRepository adminUserRepository;
 
     public WhitelistController(AddWhitelistEntryUseCase addWhitelistEntryUseCase,
                                ListWhitelistUseCase listWhitelistUseCase,
-                               RemoveWhitelistEntryUseCase removeWhitelistEntryUseCase) {
+                               RemoveWhitelistEntryUseCase removeWhitelistEntryUseCase,
+                               UpdateWhitelistReasonUseCase updateWhitelistReasonUseCase,
+                               AdminUserRepository adminUserRepository) {
         this.addWhitelistEntryUseCase = addWhitelistEntryUseCase;
         this.listWhitelistUseCase = listWhitelistUseCase;
         this.removeWhitelistEntryUseCase = removeWhitelistEntryUseCase;
+        this.updateWhitelistReasonUseCase = updateWhitelistReasonUseCase;
+        this.adminUserRepository = adminUserRepository;
     }
 
     /**
@@ -124,6 +134,28 @@ public class WhitelistController {
         } catch (WhitelistNotFoundException e) {
             throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());
         }
+    }
+
+    /** 등록 사유만 고친다. 다른 필드는 그대로다. */
+    @PatchMapping("/api/admin/whitelist/{sha256}")
+    public WhitelistItem updateReason(@AuthenticationPrincipal AdminPrincipal principal,
+                                      @PathVariable String sha256,
+                                      @Valid @RequestBody UpdateWhitelistReasonRequest request,
+                                      HttpServletRequest httpRequest) {
+        WhitelistEntry entry;
+        try {
+            entry = updateWhitelistReasonUseCase.update(sha256, request.reason(), principal.adminId(),
+                    ClientIp.resolve(httpRequest));
+        } catch (InvalidHashException e) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());
+        } catch (WhitelistNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());
+        }
+        // 등록자가 수정한 사람과 다를 수 있어서 username은 등록자 id로 다시 읽는다.
+        String addedByUsername = adminUserRepository.findById(entry.getAddedBy())
+                .map(AdminUser::getUsername)
+                .orElse(null);
+        return WhitelistItem.from(entry, addedByUsername);
     }
 
     // 빈 문자열(?origin=)은 필터를 안 건 것으로 본다.

@@ -49,4 +49,26 @@ class WhitelistEntryTest {
         assertThatThrownBy(() -> entry.reactivate(" ", UUID.randomUUID(), null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void 사유를_바꾸면_다른_필드는_그대로다() {
+        WhitelistEntry entry = restoredEntry();
+        UUID addedBy = entry.getAddedBy();
+        UUID origin = entry.getOriginQuarantineId();
+
+        entry.changeReason("사내 배포 도구 v2");
+
+        assertThat(entry.getReason()).isEqualTo("사내 배포 도구 v2");
+        assertThat(entry.getAddedBy()).isEqualTo(addedBy);
+        assertThat(entry.getOriginQuarantineId()).isEqualTo(origin);
+        assertThat(entry.isActive()).isTrue();
+    }
+
+    @Test
+    void 빈_사유로_바꾸면_IllegalArgumentException() {
+        WhitelistEntry entry = restoredEntry();
+
+        assertThatThrownBy(() -> entry.changeReason(""))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

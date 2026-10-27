@@ -102,6 +102,14 @@ public class WhitelistEntry {
         return active && (expiresAt == null || expiresAt.isAfter(now));
     }
 
+    /** 등록 사유만 바꾼다. 활성 여부 확인은 유스케이스가 한다. */
+    public void changeReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("등록 사유는 필수입니다.");
+        }
+        this.reason = reason;
+    }
+
     public HashKey getId() {
         return id;
     }
