@@ -50,6 +50,13 @@ public class AdminApiClient {
         return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), responseType);
     }
 
+    /** JSON 본문을 담아 PATCH로 보낸다. postForEntity와 같고 HTTP 메서드만 다르다. */
+    public <T> ResponseEntity<T> patchForEntity(String url, Object body, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange(url, HttpMethod.PATCH, new HttpEntity<>(body, headers), responseType);
+    }
     /** 로그인에 쓴 테스트 관리자의 admin_id. 아직 로그인 전이면 먼저 로그인한다. */
     public UUID adminId() {
         accessToken();
