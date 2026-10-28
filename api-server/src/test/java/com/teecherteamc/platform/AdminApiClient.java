@@ -58,6 +58,13 @@ public class AdminApiClient {
         return restTemplate.exchange(url, HttpMethod.PATCH, new HttpEntity<>(body, headers), responseType);
     }
 
+    /** 본문 없이 DELETE로 보낸다. 로그인한 관리자의 Bearer 토큰을 붙인다. */
+    public <T> ResponseEntity<T> deleteForEntity(String url, Class<T> responseType) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken());
+        return restTemplate.exchange(url, HttpMethod.DELETE, new HttpEntity<>(headers), responseType);
+    }
+
     /** DELETE·PATCH처럼 메서드를 골라 보낸다. body가 있으면 JSON으로 보내고, 없으면 null을 넘긴다. */
     public <T> ResponseEntity<T> exchange(String url, HttpMethod method, Object body, Class<T> responseType) {
         HttpHeaders headers = new HttpHeaders();
