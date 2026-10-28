@@ -48,7 +48,7 @@ export const rulesetHandlers = [
   }),
 
   http.post(API_BASE_URL + '/api/admin/rulesets', async ({ request }) => {
-    const auth = authorizeMockRequest(request, 'ADMIN')
+    const auth = authorizeMockRequest(request)
     if (auth.error) return auth.error
 
     const form = await request.formData()
@@ -73,7 +73,7 @@ export const rulesetHandlers = [
   }),
 
   http.post(API_BASE_URL + '/api/admin/rulesets/:version/activate', ({ request, params }) => {
-    const auth = authorizeMockRequest(request, 'ADMIN')
+    const auth = authorizeMockRequest(request)
     if (auth.error) return auth.error
 
     const target = mockRulesets.find((ruleset) => ruleset.version === Number(params.version))
@@ -87,7 +87,7 @@ export const rulesetHandlers = [
   }),
 
   http.patch(API_BASE_URL + '/api/admin/rulesets/:version/rules/:ruleId', async ({ request, params }) => {
-    const auth = authorizeMockRequest(request, 'ADMIN')
+    const auth = authorizeMockRequest(request)
     if (auth.error) return auth.error
 
     const version = Number(params.version)
