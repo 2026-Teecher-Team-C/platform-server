@@ -7,7 +7,7 @@ import org.springframework.grpc.client.ImportGrpcClients;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@ImportGrpcClients(target = "detection-engine", types = DetectionEngineGrpc.DetectionEngineStub.class)
+@ImportGrpcClients(target = "detection-engine", types = {DetectionEngineGrpc.DetectionEngineStub.class, DetectionEngineGrpc.DetectionEngineBlockingStub.class})
 // 블룸 필터 주기 재구축(BloomFilterRebuildService)에 필요 — 이 레포 최초의 스케줄링 사용.
 @EnableScheduling
 public class ApiServerApplication {
