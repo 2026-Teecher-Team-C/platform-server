@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../app/useAuth'
 
 const navigation = [
@@ -15,8 +15,14 @@ const navigation = [
 ]
 
 export function Sidebar() {
-  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { user, signOut } = useAuth()
   const visibleNavigation = navigation.filter((item) => !item.adminOnly || user?.role === 'ADMIN')
+
+  function handleLogout() {
+    signOut()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <aside className="sidebar">
@@ -26,6 +32,15 @@ export function Sidebar() {
           <strong>Teecher</strong>
           <span>Admin Console</span>
         </div>
+        <button
+          className="sidebar-logout"
+          type="button"
+          onClick={handleLogout}
+          aria-label="로그아웃"
+          title={'로그아웃' + (user ? ' (' + user.username + ')' : '')}
+        >
+          ⏻
+        </button>
       </div>
 
       <nav className="sidebar-nav" aria-label="관리 콘솔 메뉴">
