@@ -56,8 +56,7 @@ class AuthDisabledRestIntegrationTest {
 
     @Test
     void 로그인하지_않아도_보호된_경로에_들어간다() {
-        ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity("/api/admin/agents", mapType());
-
+                 ResponseEntity<Map<String, Object>> response = restTemplate.getForEntity("/api/admin/no-such-path", mapType());
         // 인증을 켜면 401. 꺼져 있으면 인증을 통과해 없는 경로라 404다.
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }

@@ -292,7 +292,7 @@ class AdminAuthRestIntegrationTest {
     void 로그인하면_없는_관리자_경로는_404다() {
         String accessToken = accessToken(login(seedAdmin(true), PASSWORD));
 
-        ResponseEntity<Map<String, Object>> response = get("/api/admin/agents", accessToken);
+                ResponseEntity<Map<String, Object>> response = get("/api/admin/no-such-path", accessToken);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody().get("code")).isEqualTo("NOT_FOUND");
