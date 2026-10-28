@@ -176,3 +176,12 @@ def test_상한_초과_응답도_적재된_룰셋의_버전과_키를_준다(stu
     assert response.status == engine_pb2.ANALYSIS_STATUS_UNSUPPORTED
     assert response.rulesets_version == 6
     assert response.ruleset_key == "6:k"
+
+
+def test_이미_적재된_키면_다시_컴파일하지_않고_OK(stub):
+    load(stub, 8, "8:k", 'rule Only { strings: $a = "ONLY-MARK" condition: $a }')
+
+    # 같은 키로 컴파일되지 않는 원문을 보내도 다시 컴파일하지 않으므로 오류가 나지 않고, 기존 룰이 그대로다.
+    load(stub, 8, "8:k", "rule { }")
+
+    assert stub.Analyze(stream(b"ONLY-MARK", ruleset_key="8:k")).verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS

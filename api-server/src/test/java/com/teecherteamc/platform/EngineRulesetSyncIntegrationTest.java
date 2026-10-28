@@ -142,6 +142,54 @@ class EngineRulesetSyncIntegrationTest {
         assertThat(isStale(sha256)).isTrue();
     }
 
+    @Test
+    void 재전송은_다시_읽은_활성_스냅샷을_적재해서_보낸다() throws Exception {
+        String keyBefore = activeRulesetService.activeSnapshot().key();
+        // 첫 시도(키 불일치)가 처리되는 사이에 활성 구성이 바뀐다 — 첫 시도 전에 읽은 스냅샷을 다시 적재하면 안 된다.
+        FakeDetectionEngineService.beforeNextAnalyzeVerdict(() -> jdbcTemplate.update(
+                "UPDATE yara_rules SET enabled = false WHERE rulesets_version = 1 AND rule_name = 'EICAR_Test_File'"));
+        byte[] content = ("새 스냅샷" + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        SubmitFileResponse response = submitFile(sha256, content);
+
+        String keyAfter = activeRulesetService.activeSnapshot().key();
+        assertThat(keyAfter).isNotEqualTo(keyBefore);
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(FakeDetectionEngineService.loadedKey()).isEqualTo(keyAfter);
+        assertThat(FakeDetectionEngineService.analyzeCount()).isEqualTo(2);
+        assertThat(isStale(sha256)).isFalse();
+    }
+
+    @Test
+    void 적재_후에도_FAILED_PRECONDITION이면_더_보내지_않고_실패한다() throws Exception {
+        FakeDetectionEngineService.ignoreLoads();
+        byte[] content = ("계속 불일치" + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        assertThatThrownBy(() -> submitFile(sha256, content))
+                .extracting(this::unwrapStatus)
+                .isEqualTo(Status.Code.UNAVAILABLE);
+
+        assertThat(FakeDetectionEngineService.loadCount()).isEqualTo(1);
+        assertThat(FakeDetectionEngineService.analyzeCount()).isEqualTo(2);
+        assertThat(verdictOf(sha256)).isEqualTo("ERROR");
+    }
+
+    @Test
+    void 룰셋_적재가_실패하면_다시_보내지_않고_실패한다() throws Exception {
+        FakeDetectionEngineService.failNextLoad();
+        byte[] content = ("적재 실패" + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        assertThatThrownBy(() -> submitFile(sha256, content))
+                .extracting(this::unwrapStatus)
+                .isEqualTo(Status.Code.UNAVAILABLE);
+
+        assertThat(FakeDetectionEngineService.analyzeCount()).isEqualTo(1);
+        assertThat(verdictOf(sha256)).isEqualTo("ERROR");
+    }
+
     private boolean isStale(String sha256) {
         return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
                 "SELECT is_stale FROM file_verdicts WHERE sha256 = ?", Boolean.class, sha256));

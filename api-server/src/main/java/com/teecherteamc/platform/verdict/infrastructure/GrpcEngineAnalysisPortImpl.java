@@ -58,17 +58,16 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
         // 호출자(SubmitFileUseCase)가 이 타입 하나만 잡아서 감사 기록(file_verdicts ERROR/analyses
         // TIMEOUT)을 남기므로, 다른 타입으로 새면 그 기록이 조용히 빠진다.
         try {
-            RulesetSnapshot snapshot = activeRulesetService.activeSnapshot();
             AnalyzeResponse response;
             try {
-                response = send(spoolFile, fileSize, snapshot.key());
+                response = send(spoolFile, fileSize, activeRulesetService.activeSnapshot().key());
             } catch (ExecutionException e) {
                 if (!isFailedPrecondition(e.getCause())) {
                     throw new EngineUnavailableException("엔진 호출 실패", e.getCause());
                 }
                 // 엔진이 다른 룰셋을 들고 있다 — fail-close 예외 규칙의 재시도가 아니라, 룰셋을 맞춘 뒤
                 // 딱 한 번만 다시 보낸다. 이 재전송은 FAILED_PRECONDITION에만 허용된다.
-                response = resendAfterLoad(spoolFile, fileSize, snapshot);
+                response = resendAfterLoad(spoolFile, fileSize);
             }
             return toOutcome(response);
         } catch (EngineUnavailableException e) {
@@ -78,8 +77,15 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
         }
     }
 
-    private AnalyzeResponse resendAfterLoad(Path spoolFile, long fileSize, RulesetSnapshot snapshot) {
+    /**
+     * 활성 스냅샷을 지금 다시 읽어 적재하고 그 키로 한 번 보낸다. 첫 시도 전에 읽은 스냅샷을 쓰면, 그 사이 활성화가
+     * 커밋됐을 때 옛 룰셋을 엔진에 되돌려 넣어 다른 요청까지 FAILED_PRECONDITION으로 막힌다.
+     * 다시 FAILED_PRECONDITION이면 더 보내지 않고 실패한다(fail-close).
+     */
+    private AnalyzeResponse resendAfterLoad(Path spoolFile, long fileSize) {
+        RulesetSnapshot snapshot;
         try {
+            snapshot = activeRulesetService.activeSnapshot();
             engineRulesetPort.load(snapshot);
         } catch (RuntimeException e) {
             throw new EngineUnavailableException("엔진 룰셋 적재 실패", e);

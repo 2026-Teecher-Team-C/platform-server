@@ -84,7 +84,12 @@ class Analyzer:
         return [(rule.identifier, _severity(rule.meta)) for rule in Analyzer._compile(source)]
 
     def load(self, version: int, key: str, source: str, disabled: Iterable[str]) -> None:
-        """컴파일에 성공해야만 교체한다. 실패하면 기존 룰셋이 그대로 남는다."""
+        """컴파일에 성공해야만 교체한다. 실패하면 기존 룰셋이 그대로 남는다.
+
+        이미 같은 키가 적재돼 있으면 다시 컴파일하지 않는다(키는 버전과 꺼진 룰 집합을 함께 나타낸다).
+        """
+        if key and key == self._state.key:
+            return
         self._state = _RuleState(self._compile(source), frozenset(disabled), version, key)
 
     def analyze_file(self, path: Path) -> Analysis:
