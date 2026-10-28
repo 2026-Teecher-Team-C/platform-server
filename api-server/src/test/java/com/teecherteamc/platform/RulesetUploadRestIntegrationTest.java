@@ -188,6 +188,38 @@ class RulesetUploadRestIntegrationTest {
     }
 
     @Test
+    void file_파트가_없는_multipart_요청은_400() {
+        int before = rulesetCount();
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("other", "x");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(adminClient.accessToken());
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        ResponseEntity<Map> response = restTemplate.exchange(URL, HttpMethod.POST, new HttpEntity<>(body, headers),
+                Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("code")).isEqualTo("INVALID_INPUT");
+        assertThat(rulesetCount()).isEqualTo(before);
+    }
+
+    @Test
+    void multipart가_아닌_요청은_400() {
+        int before = rulesetCount();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(adminClient.accessToken());
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<Map> response = restTemplate.exchange(URL, HttpMethod.POST,
+                new HttpEntity<>("{\"file\":\"x\"}", headers), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("code")).isEqualTo("INVALID_INPUT");
+        assertThat(rulesetCount()).isEqualTo(before);
+    }
+
+    @Test
     void 엔진에_닿지_않으면_503() {
         int before = rulesetCount();
         FakeDetectionEngineService.failNextCall();
