@@ -92,8 +92,10 @@ class YaraRuleToggleRestIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().get("enabled")).isEqualTo(false);
         assertThat(stale(sha)).isTrue();
+        // 방금 커밋된 토글이 푸시된 스냅샷에 반영돼야 한다(꺼진 룰 1개)
         assertThat(FakeDetectionEngineService.loadedKey()).isNotEqualTo(before)
                 .isEqualTo(activeRulesetService.activeSnapshot().key());
+        assertThat(activeRulesetService.activeSnapshot().disabledRuleNames()).hasSize(1);
         Map<String, Object> audit = jdbcTemplate.queryForMap(
                 "SELECT target_type, target_id, detail::text AS detail FROM audit_logs "
                         + "WHERE action = 'DISABLE_YARA_RULE'");

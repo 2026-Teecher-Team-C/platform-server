@@ -93,8 +93,8 @@ class RulesetActivateRestIntegrationTest {
         assertThat(activeVersions()).containsExactly(version);
         assertThat(stale(engineSha)).isTrue();
         assertThat(stale(manualSha)).isFalse();
-        assertThat(jdbcTemplate.queryForObject("SELECT detail::text FROM audit_logs WHERE action = 'ACTIVATE_RULESET'",
-                String.class)).contains("previousVersion");
+        assertThat(jdbcTemplate.queryForObject("SELECT (detail::jsonb)->>'previousVersion' FROM audit_logs "
+                + "WHERE action = 'ACTIVATE_RULESET'", String.class)).isEqualTo("1");
         assertThat(auditCount()).isEqualTo(1);
         assertThat(FakeDetectionEngineService.loadedKey()).isEqualTo(activeRulesetService.activeSnapshot().key());
         assertThat(FakeDetectionEngineService.loadedVersion()).isEqualTo(version);
@@ -134,12 +134,15 @@ class RulesetActivateRestIntegrationTest {
 
     @Test
     void 엔진_적재가_실패해도_활성화는_200() {
+        String engineSha = seedVerdict("ac", "ENGINE");
         int version = uploadPending();
         FakeDetectionEngineService.failNextCall();
 
         ResponseEntity<Map> response = activate(version);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(stale(engineSha)).isTrue();
+        assertThat(auditCount()).isEqualTo(1);
         assertThat(activeVersions()).containsExactly(version);
         assertThat(FakeDetectionEngineService.loadCount()).isZero();
     }
