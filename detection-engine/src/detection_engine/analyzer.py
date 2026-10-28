@@ -35,8 +35,15 @@ class _RuleState:
     key: str
 
 
+SEVERITIES = frozenset({"LOW", "MEDIUM", "HIGH", "CRITICAL"})
+
+
 def _severity(meta: dict) -> str:
-    return str(meta.get("severity", "MEDIUM")).upper()
+    """meta severity를 대문자로 바꿔 허용 값이면 그대로, 아니면(숫자·오타·없음) MEDIUM."""
+    value = meta.get("severity")
+    if isinstance(value, str) and value.upper() in SEVERITIES:
+        return value.upper()
+    return "MEDIUM"
 
 
 class Analyzer:

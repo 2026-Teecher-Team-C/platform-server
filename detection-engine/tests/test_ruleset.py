@@ -116,3 +116,19 @@ def test_키가_비어_있으면_검사하지_않는다(stub):
     response = stub.Analyze(stream(b"ONLY-MARK", ruleset_key=""))
 
     assert response.verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS
+
+
+@pytest.mark.parametrize(
+    ("meta", "expected"),
+    [('"banana"', "MEDIUM"), ("3", "MEDIUM"), ('"high"', "HIGH")],
+    ids=["허용_목록_밖", "정수", "소문자"],
+)
+def test_심각도는_허용_값만_쓰고_아니면_MEDIUM이다(stub, meta, expected):
+    source = f'rule S {{ meta: severity = {meta} strings: $a = "SEV-MARK" condition: $a }}'
+
+    compiled = stub.CompileRules(engine_pb2.CompileRulesRequest(source=source))
+    load(stub, 1, "1:k", source)
+    analyzed = stub.Analyze(stream(b"SEV-MARK", ruleset_key="1:k"))
+
+    assert [rule.severity for rule in compiled.rules] == [expected]
+    assert [match.severity for match in analyzed.matches] == [expected]
