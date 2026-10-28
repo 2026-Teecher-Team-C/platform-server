@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -30,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * 파일 검사와 엔진 컴파일을 먼저 하고, DB 트랜잭션은 저장 직전에야 연다. 엔진을 기다리는 동안
  * DB 커넥션을 잡고 있지 않기 위해서다. 버전 번호는 트랜잭션 안에서 최대값+1로 정하고, 동시에 올려
- * 같은 번호가 겹치면 PK 충돌(DataIntegrityViolationException)로 드러난다. 409 변환은 컨트롤러가 한다.
+ * 같은 번호가 겹치면 PK 충돌로 드러나며 RulesetVersionConflictException으로 바꿔 올린다(컨트롤러가 409).
  * 엔진에 닿지 못하면 EngineRulesetUnavailableException이 그대로 올라간다.
  */
 @Service
@@ -86,7 +87,12 @@ public class UploadRulesetUseCase {
             throw new InvalidRulesetException(InvalidRulesetException.Kind.UNPROCESSABLE, "룰이 하나도 없습니다.");
         }
 
-        return transactionTemplate.execute(status -> save(command, filename, source, compiled));
+        try {
+            return transactionTemplate.execute(status -> save(command, filename, source, compiled));
+        } catch (DataIntegrityViolationException e) {
+            // 동시 업로드가 같은 버전을 먼저 커밋했다. 커밋 시점에 PK 충돌로 드러난다.
+            throw new RulesetVersionConflictException("다른 업로드와 겹쳤습니다. 다시 시도해 주세요.", e);
+        }
     }
 
     private Ruleset save(Command command, String filename, String source, List<CompiledRule> compiled) {

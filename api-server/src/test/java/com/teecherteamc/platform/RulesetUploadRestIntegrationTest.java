@@ -1,8 +1,12 @@
 package com.teecherteamc.platform;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
+import com.teecherteamc.platform.ruleset.domain.Ruleset;
+import com.teecherteamc.platform.ruleset.domain.RulesetRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -15,6 +19,7 @@ import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRe
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -22,6 +27,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -46,6 +53,12 @@ class RulesetUploadRestIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private RulesetRepository rulesetRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     @AfterEach
@@ -111,6 +124,24 @@ class RulesetUploadRestIntegrationTest {
         assertThat(audits.get(0).get("target_type")).isEqualTo("RULESET");
         assertThat(audits.get(0).get("target_id")).isEqualTo(String.valueOf(before + 1));
         assertThat((String) audits.get(0).get("detail")).contains("my.yar").contains("2");
+    }
+
+    // 동시 업로드 경합을 흉내낸다: 같은 버전 행이 이미 커밋된 뒤 같은 번호로 저장하면 덮어쓰지 않고 실패해야 한다.
+    @Test
+    void 이미_있는_버전으로_저장하면_덮어쓰지_않고_실패한다() {
+        int version = maxVersion() + 1;
+        jdbcTemplate.update("INSERT INTO yara_rulesets (rulesets_version, rule_count, is_active, source) "
+                + "VALUES (?, 1, false, 'rule original {}')", version);
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> rulesetRepository.save(
+                Ruleset.upload(version, "rule overwritten {}", 5, null, Instant.now()))))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT source, rule_count FROM yara_rulesets WHERE rulesets_version = ?", version);
+        assertThat(row.get("source")).isEqualTo("rule original {}");
+        assertThat(row.get("rule_count")).isEqualTo(1);
     }
 
     @Test

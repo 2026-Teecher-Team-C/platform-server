@@ -3,9 +3,13 @@ package com.teecherteamc.platform.ruleset.domain;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.data.domain.Persistable;
 
 /**
  * yara_rulesets 애그리거트 루트. 룰셋 한 버전이며, 활성 버전은 항상 1개다.
@@ -13,7 +17,7 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "yara_rulesets")
-public class Ruleset {
+public class Ruleset implements Persistable<Integer> {
 
     @Id
     @Column(name = "rulesets_version")
@@ -41,6 +45,13 @@ public class Ruleset {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /**
+     * 막 만든 인스턴스인지. true면 save()가 SELECT 없이 INSERT(persist)만 하므로, 같은 버전이 이미 있으면
+     * 덮어쓰지 않고 PK 충돌로 실패한다. DB에서 읽었거나 저장한 뒤에는 false다.
+     */
+    @Transient
+    private boolean isNew;
+
     /** JPA 전용. 우리 코드는 upload()로만 만든다. */
     protected Ruleset() {
     }
@@ -54,6 +65,7 @@ public class Ruleset {
         ruleset.uploadedBy = uploadedBy;
         ruleset.active = false;
         ruleset.createdAt = now;
+        ruleset.isNew = true;
         return ruleset;
     }
 
@@ -66,6 +78,22 @@ public class Ruleset {
     /** 비활성으로 돌린다. 활성화 이력(activatedAt/By)은 마지막 값을 남긴다. */
     public void deactivate() {
         this.active = false;
+    }
+
+    @Override
+    public Integer getId() {
+        return version;
+    }
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.isNew = false;
     }
 
     public int getVersion() {

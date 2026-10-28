@@ -9,6 +9,7 @@ import com.teecherteamc.platform.ruleset.application.InvalidRulesetException;
 import com.teecherteamc.platform.ruleset.application.ListRulesetsUseCase;
 import com.teecherteamc.platform.ruleset.application.ListYaraRulesUseCase;
 import com.teecherteamc.platform.ruleset.application.RulesetNotFoundException;
+import com.teecherteamc.platform.ruleset.application.RulesetVersionConflictException;
 import com.teecherteamc.platform.ruleset.application.UploadRulesetUseCase;
 import com.teecherteamc.platform.ruleset.domain.EngineRulesetUnavailableException;
 import com.teecherteamc.platform.ruleset.domain.Ruleset;
@@ -17,7 +18,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -71,9 +71,8 @@ public class RulesetController {
             throw new ApiException(code, e.getMessage());
         } catch (EngineRulesetUnavailableException e) {
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "탐지 엔진에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
-        } catch (DataIntegrityViolationException e) {
-            // 동시에 올려 같은 버전 번호가 겹친 경우(PK 충돌). 커밋 시점에 드러난다.
-            throw new ApiException(ErrorCode.CONFLICT, "다른 업로드와 겹쳤습니다. 다시 시도해 주세요.");
+        } catch (RulesetVersionConflictException e) {
+            throw new ApiException(ErrorCode.CONFLICT, e.getMessage());
         }
     }
 
