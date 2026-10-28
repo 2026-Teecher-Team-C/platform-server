@@ -1,3 +1,4 @@
+import itertools
 import logging
 import os
 import tempfile
@@ -5,6 +6,7 @@ from concurrent import futures
 from pathlib import Path
 
 import grpc
+import yara
 
 from detection_engine.analyzer import ENGINE_VERSION, Analyzer
 from teecher.engine.v1 import engine_pb2, engine_pb2_grpc
@@ -20,7 +22,34 @@ class DetectionEngineServicer(engine_pb2_grpc.DetectionEngineServicer):
         self._analyzer = analyzer
         self._spool_dir = spool_dir
 
+    def CompileRules(self, request, context):
+        try:
+            rules = Analyzer.compile_source(request.source)
+        except (yara.Error, ValueError) as error:
+            return engine_pb2.CompileRulesResponse(ok=False, error_message=str(error))
+        return engine_pb2.CompileRulesResponse(
+            ok=True, rules=[engine_pb2.CompiledRule(name=name, severity=severity) for name, severity in rules]
+        )
+
+    def LoadRuleset(self, request, context):
+        try:
+            self._analyzer.load(
+                request.rulesets_version, request.ruleset_key, request.source, request.disabled_rule_names
+            )
+        except (yara.Error, ValueError) as error:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(error))
+        return engine_pb2.LoadRulesetResponse()
+
     def Analyze(self, request_iterator, context):
+        # 청크를 읽기 전에 첫 메시지(metadata)의 룰셋 키부터 맞춰 본다. 비어 있으면 검사하지 않는다.
+        first = next(request_iterator, None)
+        if first is not None:
+            if first.WhichOneof("payload") == "metadata":
+                expected = first.metadata.ruleset_key
+                if expected and expected != self._analyzer.key:
+                    context.abort(grpc.StatusCode.FAILED_PRECONDITION, "ruleset mismatch")
+            request_iterator = itertools.chain([first], request_iterator)
+
         # 청크를 메모리에 모으지 않고 임시 파일에 쓴다. mkstemp는 확장자 없는 무작위 이름에 0600 권한으로
         # 만들므로 실행 비트가 없고, 분석이 끝나면(성공·실패·상한 초과 모두) finally에서 지운다.
         fd, name = tempfile.mkstemp(prefix="analyze-", dir=self._spool_dir)
@@ -37,6 +66,7 @@ class DetectionEngineServicer(engine_pb2_grpc.DetectionEngineServicer):
                             status=engine_pb2.ANALYSIS_STATUS_UNSUPPORTED,
                             verdict=engine_pb2.ENGINE_VERDICT_UNKNOWN,
                             engine_version=ENGINE_VERSION,
+                            rulesets_version=self._analyzer.version,
                             error_message=f"file exceeds {MAX_FILE_BYTES} bytes",
                         )
                     spool.write(request.chunk)
@@ -46,6 +76,7 @@ class DetectionEngineServicer(engine_pb2_grpc.DetectionEngineServicer):
                 status=engine_pb2.ANALYSIS_STATUS_SUCCESS,
                 verdict=engine_pb2.ENGINE_VERDICT_MALICIOUS if result.malicious else engine_pb2.ENGINE_VERDICT_CLEAN,
                 engine_version=ENGINE_VERSION,
+                rulesets_version=self._analyzer.version,
                 matches=[
                     engine_pb2.RuleMatch(
                         rule_name=hit.rule_name, severity=hit.severity, matched_strings=hit.matched_strings

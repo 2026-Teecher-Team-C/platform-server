@@ -10,6 +10,10 @@ option java_package = "com.teecherteamc.platform.proto.engine.v1";
 service DetectionEngine {
   // 첫 메시지는 metadata, 이후는 chunk.
   rpc Analyze(stream AnalyzeRequest) returns (AnalyzeResponse);
+  // 업로드한 룰 원문이 컴파일되는지 확인하고 룰 이름·심각도를 돌려준다. 적재하지 않는다.
+  rpc CompileRules(CompileRulesRequest) returns (CompileRulesResponse);
+  // 활성 룰셋을 교체한다. 컴파일 실패·원문 1 MiB 초과는 INVALID_ARGUMENT.
+  rpc LoadRuleset(LoadRulesetRequest) returns (LoadRulesetResponse);
 }
 
 message AnalyzeRequest {
@@ -22,7 +26,33 @@ message AnalyzeRequest {
 message AnalyzeMetadata {
   string sha256 = 1;
   int64 file_size = 2;
+  // 요청자가 기대하는 활성 룰셋 키. 비어 있으면 검사하지 않고, 엔진의 키와 다르면 FAILED_PRECONDITION.
+  string ruleset_key = 3;
 }
+
+message CompileRulesRequest {
+  string source = 1;
+}
+
+message CompiledRule {
+  string name = 1;
+  string severity = 2;
+}
+
+message CompileRulesResponse {
+  bool ok = 1;
+  string error_message = 2;
+  repeated CompiledRule rules = 3;
+}
+
+message LoadRulesetRequest {
+  int32 rulesets_version = 1;
+  string ruleset_key = 2;
+  string source = 3;
+  repeated string disabled_rule_names = 4;
+}
+
+message LoadRulesetResponse {}
 
 // analyses.status와 같은 값. 크래시·타임아웃도 판정의 일부로 돌려준다.
 enum AnalysisStatus {
