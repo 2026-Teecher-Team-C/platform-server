@@ -7,7 +7,9 @@ import java.util.List;
  * {@code quarantine.domain.ListQuarantineFilesPort}와 같은 이유.
  *
  * <p>active가 true인 행이 에이전트 GetPolicy에 내려가는 바이패스 목록과 같은 집합이다.
- * GetPolicy를 구현할 때는 이 포트의 active=true 조건을 재사용해 두 곳의 "활성" 기준이 갈라지지 않게 한다.
+ * GetPolicy는 페이징이 필요 없어 별도 포트 {@link ListActiveBypassHostsPort}로 읽는다. 그래서 "활성"
+ * 기준(is_active = TRUE)이 두 SQL에 따로 있으므로, 한쪽을 바꾸면 다른 쪽도 같이 바꾸고
+ * GetPolicyGrpcIntegrationTest의 "같은 집합" 테스트가 깨지는지 확인한다.
  */
 public interface ListBypassDomainsPort {
 
