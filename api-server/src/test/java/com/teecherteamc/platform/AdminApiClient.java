@@ -87,7 +87,8 @@ public class AdminApiClient {
         return username;
     }
 
-    private String accessToken() {
+    /** 로그인한 관리자의 access 토큰. multipart처럼 직접 요청을 만들어야 할 때 쓴다. */
+    public String accessToken() {
         if (accessToken == null) {
             accessToken = login();
         }

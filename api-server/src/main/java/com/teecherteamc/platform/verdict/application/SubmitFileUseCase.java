@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.verdict.application;
 
+import com.teecherteamc.platform.verdict.domain.ActiveRulesetKeyPort;
 import com.teecherteamc.platform.verdict.domain.Analysis;
 import com.teecherteamc.platform.verdict.domain.AnalysisOutcome;
 import com.teecherteamc.platform.verdict.domain.AnalysisRepository;
@@ -38,6 +39,7 @@ public class SubmitFileUseCase {
     private final EngineAnalysisPort engineAnalysisPort;
     private final QuarantineUploadPort quarantineUploadPort;
     private final PendingQuarantineUploadPort pendingQuarantineUploadPort;
+    private final ActiveRulesetKeyPort activeRulesetKeyPort;
     private final TransactionTemplate transactionTemplate;
 
     public SubmitFileUseCase(
@@ -46,12 +48,14 @@ public class SubmitFileUseCase {
             EngineAnalysisPort engineAnalysisPort,
             QuarantineUploadPort quarantineUploadPort,
             PendingQuarantineUploadPort pendingQuarantineUploadPort,
+            ActiveRulesetKeyPort activeRulesetKeyPort,
             PlatformTransactionManager transactionManager) {
         this.fileVerdictRepository = fileVerdictRepository;
         this.analysisRepository = analysisRepository;
         this.engineAnalysisPort = engineAnalysisPort;
         this.quarantineUploadPort = quarantineUploadPort;
         this.pendingQuarantineUploadPort = pendingQuarantineUploadPort;
+        this.activeRulesetKeyPort = activeRulesetKeyPort;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -119,6 +123,14 @@ public class SubmitFileUseCase {
             QuarantineUploadResult quarantineUpload) {
         try {
             return transactionTemplate.execute(status -> {
+                // 활성 룰셋에 공유 잠금을 건 채로 지금 활성 키를 읽는다(file_verdicts를 쓰기 전에 — 잠금 순서를
+                // 활성화·룰 토글과 같게 둔다). 엔진이 판정에 쓴 키와 다르면, 분석 도중 활성화·토글이 커밋돼
+                // 그쪽 stale UPDATE가 아직 없던 이 행을 놓친 것이다 — 옛 룰 판정이므로 stale로 저장해 다음 요청
+                // 때 재검사되게 한다. 잠금 덕에 이 트랜잭션이 커밋되기 전에는 새 활성화·토글이 커밋되지 못하고,
+                // 커밋된 뒤의 활성화·토글은 이 행을 보고 stale로 만든다.
+                boolean staleRules = !activeRulesetKeyPort.lockActiveKey()
+                        .map(activeKey -> activeKey.equals(outcome.rulesetKey()))
+                        .orElse(false);
                 // status가 SUCCESS가 아니면(TIMEOUT/CRASH/OOM/UNSUPPORTED) toResult()는 무조건 BLOCK을
                 // 돌려주는데, 캐시에는 outcome.verdict()를 그대로 저장하면 안 된다 — status/verdict는
                 // proto상 독립된 필드라 "실패했는데 verdict=CLEAN" 같은 조합이 이론상 가능하고, 그러면
@@ -139,6 +151,9 @@ public class SubmitFileUseCase {
                                 SOURCE_ENGINE,
                                 outcome.rulesetsVersion(),
                                 Instant.now()));
+                if (staleRules) {
+                    fileVerdict.markStale();
+                }
                 fileVerdictRepository.save(fileVerdict);
                 if (quarantineUpload != null) {
                     // file_verdicts가 방금 저장된 뒤라야 FK가 만족된다 — 순서 중요.

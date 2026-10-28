@@ -39,6 +39,8 @@ api-server의 REST API(`8080`)가 따르는 공통 형식이다.
 | `NOT_FOUND` | 404 | 대상이 없음, 없는 경로 |
 | `METHOD_NOT_ALLOWED` | 405 | 허용되지 않는 요청 방식 |
 | `CONFLICT` | 409 | 이미 존재하거나 충돌하는 요청 |
+| `UNPROCESSABLE` | 422 | 형식은 맞지만 처리할 수 없는 요청 |
+| `SERVICE_UNAVAILABLE` | 503 | 의존 서비스(탐지 엔진 등) 일시 불가 |
 | `INTERNAL_ERROR` | 500 | 서버 오류 |
 
 코드를 추가해야 하면 `ErrorCode`에 항목을 넣고 이 표도 같이 고친다.

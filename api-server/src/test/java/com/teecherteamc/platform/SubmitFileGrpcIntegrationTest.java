@@ -60,7 +60,8 @@ class SubmitFileGrpcIntegrationTest {
                 jdbcTemplate.queryForMap("SELECT * FROM file_verdicts WHERE sha256 = ?", sha256);
         assertThat(verdictRow.get("verdict")).isEqualTo("CLEAN");
         assertThat(verdictRow.get("verdict_source")).isEqualTo("ENGINE");
-        assertThat(verdictRow.get("rulesets_version")).isEqualTo(0);
+        // 엔진이 활성 룰셋(v1 시드)을 적재한 뒤 검사하므로 엔진이 보고하는 버전은 1이다.
+        assertThat(verdictRow.get("rulesets_version")).isEqualTo(1);
 
         Map<String, Object> analysisRow =
                 jdbcTemplate.queryForMap("SELECT * FROM analyses WHERE sha256 = ?", sha256);

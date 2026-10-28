@@ -7,10 +7,15 @@ import com.teecherteamc.platform.proto.engine.v1.AnalyzeRequest;
 import com.teecherteamc.platform.proto.engine.v1.AnalyzeResponse;
 import com.teecherteamc.platform.proto.engine.v1.DetectionEngineGrpc;
 import com.teecherteamc.platform.proto.engine.v1.EngineVerdict;
+import com.teecherteamc.platform.ruleset.application.ActiveRulesetService;
+import com.teecherteamc.platform.ruleset.domain.EngineRulesetPort;
+import com.teecherteamc.platform.ruleset.domain.RulesetSnapshot;
 import com.teecherteamc.platform.verdict.domain.AnalysisOutcome;
 import com.teecherteamc.platform.verdict.domain.EngineAnalysisPort;
 import com.teecherteamc.platform.verdict.domain.EngineMatch;
 import com.teecherteamc.platform.verdict.domain.EngineUnavailableException;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,7 +31,8 @@ import org.springframework.stereotype.Component;
 /**
  * 탐지 엔진의 Analyze(클라이언트 스트리밍)를 호출한다. 스풀 파일을 청크로 읽어서 그대로 흘려보낸다
  * (메모리에 전체를 올리지 않는다). 응답은 스트림 종료 후 1개뿐이라, 콜백 기반 비동기 스텁을
- * CompletableFuture로 감싸서 동기 호출처럼 기다린다.
+ * CompletableFuture로 감싸서 동기 호출처럼 기다린다. 엔진이 다른 룰셋을 들고 있어
+ * FAILED_PRECONDITION으로 거부하면 활성 룰셋을 적재하고 한 번만 다시 보낸다.
  */
 @Component
 class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
@@ -35,9 +41,14 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
     private static final long ANALYZE_TIMEOUT_SECONDS = 60;
 
     private final DetectionEngineGrpc.DetectionEngineStub stub;
+    private final ActiveRulesetService activeRulesetService;
+    private final EngineRulesetPort engineRulesetPort;
 
-    GrpcEngineAnalysisPortImpl(DetectionEngineGrpc.DetectionEngineStub stub) {
+    GrpcEngineAnalysisPortImpl(DetectionEngineGrpc.DetectionEngineStub stub,
+            ActiveRulesetService activeRulesetService, EngineRulesetPort engineRulesetPort) {
         this.stub = stub;
+        this.activeRulesetService = activeRulesetService;
+        this.engineRulesetPort = engineRulesetPort;
     }
 
     @Override
@@ -47,38 +58,16 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
         // 호출자(SubmitFileUseCase)가 이 타입 하나만 잡아서 감사 기록(file_verdicts ERROR/analyses
         // TIMEOUT)을 남기므로, 다른 타입으로 새면 그 기록이 조용히 빠진다.
         try {
-            CompletableFuture<AnalyzeResponse> future = new CompletableFuture<>();
-            StreamObserver<AnalyzeRequest> requestObserver = stub.withDeadlineAfter(
-                            ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .analyze(new StreamObserver<>() {
-                        @Override
-                        public void onNext(AnalyzeResponse value) {
-                            future.complete(value);
-                        }
-
-                        @Override
-                        public void onError(Throwable t) {
-                            future.completeExceptionally(t);
-                        }
-
-                        @Override
-                        public void onCompleted() {
-                            // 응답은 onNext로 이미 받는다 — 단일 응답 스트림이라 여기선 할 일이 없다.
-                        }
-                    });
-
-            streamSpoolFile(spoolFile, fileSize, requestObserver);
-
             AnalyzeResponse response;
             try {
-                response = future.get(ANALYZE_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS);
-            } catch (TimeoutException e) {
-                throw new EngineUnavailableException("엔진 응답 시간 초과", e);
+                response = send(spoolFile, fileSize, activeRulesetService.activeSnapshot().key());
             } catch (ExecutionException e) {
-                throw new EngineUnavailableException("엔진 호출 실패", e.getCause());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new EngineUnavailableException("엔진 호출이 인터럽트됐다", e);
+                if (!isFailedPrecondition(e.getCause())) {
+                    throw new EngineUnavailableException("엔진 호출 실패", e.getCause());
+                }
+                // 엔진이 다른 룰셋을 들고 있다 — fail-close 예외 규칙의 재시도가 아니라, 룰셋을 맞춘 뒤
+                // 딱 한 번만 다시 보낸다. 이 재전송은 FAILED_PRECONDITION에만 허용된다.
+                response = resendAfterLoad(spoolFile, fileSize);
             }
             return toOutcome(response);
         } catch (EngineUnavailableException e) {
@@ -88,10 +77,80 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
         }
     }
 
-    private void streamSpoolFile(Path spoolFile, long fileSize, StreamObserver<AnalyzeRequest> requestObserver) {
+    /**
+     * 활성 스냅샷을 지금 다시 읽어 적재하고 그 키로 한 번 보낸다. 첫 시도 전에 읽은 스냅샷을 쓰면, 그 사이 활성화가
+     * 커밋됐을 때 옛 룰셋을 엔진에 되돌려 넣어 다른 요청까지 FAILED_PRECONDITION으로 막힌다.
+     * 다시 FAILED_PRECONDITION이면 더 보내지 않고 실패한다(fail-close).
+     */
+    private AnalyzeResponse resendAfterLoad(Path spoolFile, long fileSize) {
+        RulesetSnapshot snapshot;
+        try {
+            snapshot = activeRulesetService.activeSnapshot();
+            engineRulesetPort.load(snapshot);
+        } catch (RuntimeException e) {
+            throw new EngineUnavailableException("엔진 룰셋 적재 실패", e);
+        }
+        try {
+            return send(spoolFile, fileSize, snapshot.key());
+        } catch (ExecutionException e) {
+            throw new EngineUnavailableException("룰셋 적재 후 엔진 호출 실패", e.getCause());
+        }
+    }
+
+    private static boolean isFailedPrecondition(Throwable cause) {
+        return cause instanceof StatusRuntimeException statusException
+                && statusException.getStatus().getCode() == Status.Code.FAILED_PRECONDITION;
+    }
+
+    /** 새 스트림을 열어 스풀 파일을 처음부터 보내고 응답을 기다린다. 엔진이 오류로 끝내면 ExecutionException. */
+    private AnalyzeResponse send(Path spoolFile, long fileSize, String rulesetKey) throws ExecutionException {
+        CompletableFuture<AnalyzeResponse> future = new CompletableFuture<>();
+        StreamObserver<AnalyzeRequest> requestObserver = stub.withDeadlineAfter(
+                        ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .analyze(new StreamObserver<>() {
+                    @Override
+                    public void onNext(AnalyzeResponse value) {
+                        future.complete(value);
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        future.completeExceptionally(t);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        // 응답은 onNext로 이미 받는다 — 단일 응답 스트림이라 여기선 할 일이 없다.
+                    }
+                });
+
+        try {
+            streamSpoolFile(spoolFile, fileSize, rulesetKey, requestObserver);
+        } catch (RuntimeException e) {
+            // 엔진이 먼저 abort하면 전송 쪽도 같이 깨질 수 있다 — 엔진이 준 오류가 있으면 그쪽이 원인이다.
+            if (!future.isCompletedExceptionally()) {
+                throw e;
+            }
+        }
+
+        try {
+            return future.get(ANALYZE_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            throw new EngineUnavailableException("엔진 응답 시간 초과", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new EngineUnavailableException("엔진 호출이 인터럽트됐다", e);
+        }
+    }
+
+    private void streamSpoolFile(Path spoolFile, long fileSize, String rulesetKey,
+            StreamObserver<AnalyzeRequest> requestObserver) {
         try {
             requestObserver.onNext(AnalyzeRequest.newBuilder()
-                    .setMetadata(AnalyzeMetadata.newBuilder().setFileSize(fileSize).build())
+                    .setMetadata(AnalyzeMetadata.newBuilder()
+                            .setFileSize(fileSize)
+                            .setRulesetKey(rulesetKey)
+                            .build())
                     .build());
             try (InputStream in = Files.newInputStream(spoolFile)) {
                 byte[] buffer = new byte[CHUNK_SIZE];
@@ -118,6 +177,7 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
                 toVerdict(response.getVerdict()),
                 response.getEngineVersion(),
                 response.getRulesetsVersion(),
+                response.getRulesetKey(),
                 response.getDetectedFileType().isBlank() ? null : response.getDetectedFileType(),
                 response.getPeParsed(),
                 response.hasMaxSectionEntropy() ? response.getMaxSectionEntropy() : null,

@@ -10,9 +10,13 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -59,6 +63,31 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex,
                                                           HttpServletRequest req) {
         return build(ErrorCode.INVALID_INPUT, "요청 본문을 읽을 수 없습니다.", req);
+    }
+
+    /** multipart 파일이 spring.servlet.multipart 크기 제한을 넘음. */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleUploadTooLarge(MaxUploadSizeExceededException ex,
+                                                              HttpServletRequest req) {
+        return build(ErrorCode.INVALID_INPUT, "파일은 1MiB 이하여야 합니다.", req);
+    }
+
+    /**
+     * multipart 요청에 필요한 파트·파라미터가 없음(예: file 파트 누락). 따로 잡지 않으면 아래 catch-all 때문에
+     * 클라이언트 실수가 500이 된다.
+     */
+    @ExceptionHandler({MissingServletRequestPartException.class, MissingServletRequestParameterException.class})
+    public ResponseEntity<ErrorResponse> handleMissingPart(Exception ex, HttpServletRequest req) {
+        return build(ErrorCode.INVALID_INPUT, "필요한 요청 항목이 없습니다.", req);
+    }
+
+    /**
+     * multipart가 아니거나 깨진 multipart 요청. 크기 초과(MaxUploadSizeExceededException)는 위에서 따로 잡는다
+     * (더 구체적인 예외 타입의 핸들러가 먼저 고른다).
+     */
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponse> handleMultipart(MultipartException ex, HttpServletRequest req) {
+        return build(ErrorCode.INVALID_INPUT, "multipart/form-data 요청이어야 합니다.", req);
     }
 
     /** 쿼리 파라미터 타입이 맞지 않음 (예: page=abc). 따로 잡지 않으면 아래 catch-all 때문에 500이 된다. */
