@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.event.application;
 
+import com.teecherteamc.platform.event.domain.DownloadBlockedEvent;
 import com.teecherteamc.platform.event.domain.DownloadEvent;
 import com.teecherteamc.platform.event.domain.DownloadEventRepository;
 import com.teecherteamc.platform.event.domain.FileVerdictExistsPort;
@@ -8,8 +9,10 @@ import com.teecherteamc.platform.event.domain.PendingQuarantineUploadLookupPort;
 import com.teecherteamc.platform.event.domain.QuarantineRecorderPort;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,21 +21,26 @@ public class ReportEventUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ReportEventUseCase.class);
     private static final String DECISION_BLOCKED = "BLOCKED";
+    // 콘솔이 "차단"으로 세는 결정(BLOCKED=탐지, FAIL_CLOSE=검사 불가 차단). SSE로 알릴 대상이다.
+    private static final Set<String> BLOCKING_DECISIONS = Set.of(DECISION_BLOCKED, "FAIL_CLOSE");
 
     private final DownloadEventRepository downloadEventRepository;
     private final FileVerdictExistsPort fileVerdictExistsPort;
     private final PendingQuarantineUploadLookupPort pendingQuarantineUploadLookupPort;
     private final QuarantineRecorderPort quarantineRecorderPort;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ReportEventUseCase(
             DownloadEventRepository downloadEventRepository,
             FileVerdictExistsPort fileVerdictExistsPort,
             PendingQuarantineUploadLookupPort pendingQuarantineUploadLookupPort,
-            QuarantineRecorderPort quarantineRecorderPort) {
+            QuarantineRecorderPort quarantineRecorderPort,
+            ApplicationEventPublisher eventPublisher) {
         this.downloadEventRepository = downloadEventRepository;
         this.fileVerdictExistsPort = fileVerdictExistsPort;
         this.pendingQuarantineUploadLookupPort = pendingQuarantineUploadLookupPort;
         this.quarantineRecorderPort = quarantineRecorderPort;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -58,6 +66,11 @@ public class ReportEventUseCase {
 
         if (DECISION_BLOCKED.equals(command.decision())) {
             recordQuarantineIfPending(event, command);
+        }
+
+        // 트랜잭션 안에서 던지지만, 받는 쪽이 AFTER_COMMIT 리스너라 커밋이 끝난 뒤에야 실행된다(롤백되면 안 나간다).
+        if (BLOCKING_DECISIONS.contains(command.decision())) {
+            eventPublisher.publishEvent(DownloadBlockedEvent.from(event, Instant.now()));
         }
     }
 
