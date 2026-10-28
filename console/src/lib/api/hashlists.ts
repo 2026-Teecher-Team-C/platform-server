@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { CursorPage, PageResponse } from './types'
+import type { PageResponse } from './types'
 import { toQueryString } from './types'
 
 export type AdminSummary = {
@@ -73,7 +73,7 @@ export type BlacklistItem = {
   reason: string
   severity: BlacklistSeverity
   source: BlacklistSource
-  addedBy: AdminSummary | null
+  addedBy: { adminId: string; username: string | null } | null
   isActive: boolean
   createdAt: string
   deactivatedAt: string | null
@@ -82,12 +82,11 @@ export type BlacklistItem = {
 
 export type BlacklistQuery = {
   hashValue?: string
-  hashType?: 'SHA256' | 'TLSH'
-  severity?: string
+  severity?: BlacklistSeverity
   source?: BlacklistSource
   isActive?: boolean
-  cursor?: string
-  limit?: number
+  page?: number
+  size?: number
 }
 
 export type CreateBlacklistRequest = {
@@ -96,7 +95,8 @@ export type CreateBlacklistRequest = {
 }
 
 export function getBlacklist(query: BlacklistQuery = {}) {
-  return apiRequest<CursorPage<BlacklistItem>>(
+  // 검색은 해시 앞부분 일치, page는 0부터 시작한다. mock/real 모두 같은 계약을 사용한다.
+  return apiRequest<PageResponse<BlacklistItem>>(
     '/api/admin/blacklist' + toQueryString(query),
   )
 }
