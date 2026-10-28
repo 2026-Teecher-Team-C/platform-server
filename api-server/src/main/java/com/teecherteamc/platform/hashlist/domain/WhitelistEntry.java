@@ -93,6 +93,28 @@ public class WhitelistEntry {
         this.active = true;
     }
 
+    /**
+     * 격리 파일 복원으로 되살린다. reactivate()와 달리 origin_quarantine_id를 유지한다 —
+     * 복원 출처를 남겨야 목록에서 "복원됨"으로 구분할 수 있다(PR#51). 복원은 만료 기한을
+     * 안 받는다(무기한) — 오탐으로 확인됐는데 나중에 다시 막히게 둘 이유가 없다.
+     */
+    public void restoreFromQuarantine(String reason, UUID addedBy, UUID originQuarantineId) {
+        if (active) {
+            throw new IllegalStateException("이미 활성 상태입니다.");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("등록 사유는 필수입니다.");
+        }
+        if (addedBy == null) {
+            throw new IllegalArgumentException("화이트리스트는 등록자가 필수입니다.");
+        }
+        this.reason = reason;
+        this.addedBy = addedBy;
+        this.expiresAt = null;
+        this.originQuarantineId = originQuarantineId;
+        this.active = true;
+    }
+
         /**
      * now 시점에 이 예외가 유효한가? 활성이면서 만료 전이어야 한다.
      * 만료 시각 정각은 유효하지 않다. (expiresAt이 now보다 뒤일 때만 유효)
