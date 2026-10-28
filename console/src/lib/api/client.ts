@@ -27,7 +27,8 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     ...requestInit,
     headers: {
       Accept: 'application/json',
-      ...(requestInit.body ? { 'Content-Type': 'application/json' } : {}),
+      // FormData는 브라우저가 multipart 경계를 붙여 보내야 하므로 문자열 본문일 때만 JSON으로 지정한다.
+      ...(typeof requestInit.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
       ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}),
       ...headers,
     },
