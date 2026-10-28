@@ -3,6 +3,7 @@ from pathlib import Path
 import grpc
 import pytest
 
+from detection_engine import server as engine_server
 from detection_engine.analyzer import Analyzer
 from detection_engine.server import create_server
 from teecher.engine.v1 import engine_pb2, engine_pb2_grpc
@@ -132,3 +133,46 @@ def test_심각도는_허용_값만_쓰고_아니면_MEDIUM이다(stub, meta, ex
 
     assert [rule.severity for rule in compiled.rules] == [expected]
     assert [match.severity for match in analyzed.matches] == [expected]
+
+
+def test_응답은_판정에_쓴_룰셋의_버전과_키를_준다(stub):
+    load(stub, 4, "4:k", 'rule Only { strings: $a = "ONLY-MARK" condition: $a }')
+
+    response = stub.Analyze(stream(b"ONLY-MARK", ruleset_key="4:k"))
+
+    assert response.rulesets_version == 4
+    assert response.ruleset_key == "4:k"
+
+
+def test_분석_중_룰셋이_바뀌어도_응답은_분석에_쓴_스냅샷의_버전과_키를_준다(tmp_path):
+    # 분석이 끝난 직후(응답을 만들기 전에) 새 룰셋이 적재되는 경합을 흉내낸다.
+    class SwappingAnalyzer(Analyzer):
+        def analyze_file(self, path):
+            result = super().analyze_file(path)
+            self.load(9, "9:new", "rule Late { condition: false }", ())
+            return result
+
+    analyzer = SwappingAnalyzer(RULES_DIR)
+    analyzer.load(5, "5:old", 'rule Old { strings: $a = "OLD-MARK" condition: $a }', ())
+    server, port = create_server(analyzer, "127.0.0.1:0", tmp_path)
+    server.start()
+    try:
+        with grpc.insecure_channel(f"127.0.0.1:{port}") as channel:
+            response = engine_pb2_grpc.DetectionEngineStub(channel).Analyze(stream(b"OLD-MARK", "5:old"))
+    finally:
+        server.stop(grace=None)
+
+    assert response.verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS
+    assert response.rulesets_version == 5
+    assert response.ruleset_key == "5:old"
+
+
+def test_상한_초과_응답도_적재된_룰셋의_버전과_키를_준다(stub, monkeypatch):
+    monkeypatch.setattr(engine_server, "MAX_FILE_BYTES", 4)
+    load(stub, 6, "6:k", "rule A { condition: false }")
+
+    response = stub.Analyze(stream(b"x" * 100, ruleset_key="6:k"))
+
+    assert response.status == engine_pb2.ANALYSIS_STATUS_UNSUPPORTED
+    assert response.rulesets_version == 6
+    assert response.ruleset_key == "6:k"

@@ -91,4 +91,7 @@ message AnalyzeResponse {
   repeated RuleMatch matches = 8;
   int32 duration_ms = 9;
   string error_message = 10;
+  // 이 판정에 실제로 쓴 룰셋 키. rulesets_version과 같은 룰셋 스냅샷에서 채운다.
+  // API 서버는 저장 시점의 활성 키와 다르면 이 판정을 stale로 저장한다.
+  string ruleset_key = 11;
 }

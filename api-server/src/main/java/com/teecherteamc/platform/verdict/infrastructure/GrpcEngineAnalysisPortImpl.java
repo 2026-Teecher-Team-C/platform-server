@@ -171,6 +171,7 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
                 toVerdict(response.getVerdict()),
                 response.getEngineVersion(),
                 response.getRulesetsVersion(),
+                response.getRulesetKey(),
                 response.getDetectedFileType().isBlank() ? null : response.getDetectedFileType(),
                 response.getPeParsed(),
                 response.hasMaxSectionEntropy() ? response.getMaxSectionEntropy() : null,

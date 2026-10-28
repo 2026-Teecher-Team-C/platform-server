@@ -28,6 +28,16 @@ class RulesetRepositoryImpl implements RulesetRepository {
     }
 
     @Override
+    public Optional<Ruleset> findByVersionForUpdate(int version) {
+        return jpaRepository.findByVersionForUpdate(version);
+    }
+
+    @Override
+    public Optional<Integer> lockActiveVersionForShare() {
+        return jpaRepository.lockActiveVersionForShare().stream().findFirst();
+    }
+
+    @Override
     public int findMaxVersion() {
         return jpaRepository.findMaxVersion();
     }

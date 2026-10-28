@@ -98,6 +98,59 @@ class EngineRulesetSyncIntegrationTest {
         assertThat(verdict).isEqualTo("ERROR");
     }
 
+    @Test
+    void 엔진이_판정에_쓴_키가_활성_키와_같으면_stale이_아니다() throws Exception {
+        byte[] content = ("같은 키" + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        submitFile(sha256, content);
+
+        assertThat(isStale(sha256)).isFalse();
+    }
+
+    @Test
+    void 엔진이_보고한_키가_저장_시점의_활성_키와_다르면_판정을_stale로_저장한다() throws Exception {
+        activeRulesetService.pushActive();
+        FakeDetectionEngineService.reportKey("1:0000000000000000");
+        byte[] content = ("옛 키 보고" + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        SubmitFileResponse response = submitFile(sha256, content);
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(isStale(sha256)).isTrue();
+        // stale은 캐시 미스다 — 같은 파일이 다시 오면 엔진을 다시 부른다.
+        int analyzesBefore = FakeDetectionEngineService.analyzeCount();
+        submitFile(sha256, content);
+        assertThat(FakeDetectionEngineService.analyzeCount()).isEqualTo(analyzesBefore + 1);
+    }
+
+    @Test
+    void 분석_도중_룰_구성이_바뀌어_커밋되면_옛_룰로_낸_판정은_stale로_저장된다() throws Exception {
+        activeRulesetService.pushActive();
+        // 엔진이 옛 룰로 판정하는 동안 다른 관리자가 활성 버전의 룰을 끈 것을 흉내낸다. 이벤트·stale UPDATE는
+        // 이 행이 아직 없을 때 이미 지나갔다고 보고, 저장 시점의 키 비교만으로 잡히는지 본다.
+        FakeDetectionEngineService.beforeNextAnalyzeVerdict(() -> jdbcTemplate.update(
+                "UPDATE yara_rules SET enabled = false WHERE rulesets_version = 1 AND rule_name = 'EICAR_Test_File'"));
+        byte[] content = ("경합" + FakeDetectionEngineService.MALICIOUS_MARKER + UUID.randomUUID())
+                .getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+
+        SubmitFileResponse response = submitFile(sha256, content);
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(isStale(sha256)).isTrue();
+    }
+
+    private boolean isStale(String sha256) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "SELECT is_stale FROM file_verdicts WHERE sha256 = ?", Boolean.class, sha256));
+    }
+
+    private String verdictOf(String sha256) {
+        return jdbcTemplate.queryForObject("SELECT verdict FROM file_verdicts WHERE sha256 = ?", String.class, sha256);
+    }
+
     private SubmitFileResponse submitFile(String sha256, byte[] content) throws Exception {
         CompletableFuture<SubmitFileResponse> future = new CompletableFuture<>();
         StreamObserver<SubmitFileRequest> requestObserver = verdictStub.submitFile(new StreamObserver<>() {

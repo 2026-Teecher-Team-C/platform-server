@@ -5,9 +5,12 @@ import com.teecherteamc.platform.ruleset.domain.Ruleset;
 import com.teecherteamc.platform.ruleset.domain.RulesetRepository;
 import com.teecherteamc.platform.ruleset.domain.RulesetSnapshot;
 import com.teecherteamc.platform.ruleset.domain.YaraRuleRepository;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -42,6 +45,17 @@ public class ActiveRulesetService {
                 .orElseThrow(() -> new IllegalStateException("활성 룰셋이 없습니다."));
         return new RulesetSnapshot(active.getVersion(), active.getSource(),
                 yaraRuleRepository.findDisabledNames(active.getVersion()));
+    }
+
+    /**
+     * 호출자 트랜잭션 안에서 활성 룰셋 행에 공유 잠금을 걸고 지금 활성 키(RulesetSnapshot.key()와 같은 값)를 준다.
+     * 잠금은 호출자 트랜잭션이 끝날 때까지 유지되어, 그 사이 활성화·활성 버전 룰 토글이 커밋되지 못한다.
+     * 활성화가 막 커밋돼 활성 행을 못 찾으면 비어 있다 — 호출자는 키가 바뀐 것으로 다뤄야 한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<String> lockActiveKey() {
+        return rulesetRepository.lockActiveVersionForShare()
+                .map(version -> RulesetSnapshot.keyOf(version, yaraRuleRepository.findDisabledNames(version)));
     }
 
     /** 활성 스냅샷을 새 트랜잭션에서 읽고, 트랜잭션 밖에서 엔진에 적재한다(gRPC 동안 DB 커넥션을 잡지 않는다). */

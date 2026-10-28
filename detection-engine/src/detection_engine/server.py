@@ -62,21 +62,26 @@ class DetectionEngineServicer(engine_pb2_grpc.DetectionEngineServicer):
                         continue
                     written += len(request.chunk)
                     if written > MAX_FILE_BYTES:
+                        version, key = self._analyzer.loaded()
                         return engine_pb2.AnalyzeResponse(
                             status=engine_pb2.ANALYSIS_STATUS_UNSUPPORTED,
                             verdict=engine_pb2.ENGINE_VERDICT_UNKNOWN,
                             engine_version=ENGINE_VERSION,
-                            rulesets_version=self._analyzer.version,
+                            rulesets_version=version,
+                            ruleset_key=key,
                             error_message=f"file exceeds {MAX_FILE_BYTES} bytes",
                         )
                     spool.write(request.chunk)
 
             result = self._analyzer.analyze_file(path)
+            # 버전과 키는 판정에 쓴 스냅샷에서 가져온다. 분석 뒤에 analyzer를 다시 읽으면 그 사이 적재된
+            # 새 룰셋의 값이 섞여, API 서버가 옛 룰로 낸 판정을 새 룰셋 판정으로 저장할 수 있다.
             return engine_pb2.AnalyzeResponse(
                 status=engine_pb2.ANALYSIS_STATUS_SUCCESS,
                 verdict=engine_pb2.ENGINE_VERDICT_MALICIOUS if result.malicious else engine_pb2.ENGINE_VERDICT_CLEAN,
                 engine_version=ENGINE_VERSION,
-                rulesets_version=self._analyzer.version,
+                rulesets_version=result.rulesets_version,
+                ruleset_key=result.ruleset_key,
                 matches=[
                     engine_pb2.RuleMatch(
                         rule_name=hit.rule_name, severity=hit.severity, matched_strings=hit.matched_strings

@@ -37,7 +37,9 @@ public class ChangeYaraRuleEnabledUseCase {
 
     @Transactional
     public YaraRule change(int version, UUID ruleId, boolean enabled, UUID adminId, String ip) {
-        Ruleset ruleset = version <= 0 ? null : rulesetRepository.findByVersion(version).orElse(null);
+        // 룰셋 행에 쓰기 잠금을 건다. 판정 저장(활성 행 FOR SHARE)과 서로 기다리게 해서, 토글 커밋 전에 시작한
+        // 판정 저장은 이 토글의 stale 처리보다 먼저 커밋되고, 뒤에 시작한 저장은 바뀐 활성 키를 본다.
+        Ruleset ruleset = version <= 0 ? null : rulesetRepository.findByVersionForUpdate(version).orElse(null);
         if (ruleset == null) {
             throw RulesetNotFoundException.ofVersion(version);
         }

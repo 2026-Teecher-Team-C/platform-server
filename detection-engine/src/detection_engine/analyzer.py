@@ -23,6 +23,9 @@ class Analysis:
     malicious: bool
     matches: list[RuleHit]
     duration_ms: int
+    # 이 분석에 쓴 룰셋 스냅샷. 판정과 같은 스냅샷에서 한 번에 읽은 값이다.
+    rulesets_version: int
+    ruleset_key: str
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,11 @@ class Analyzer:
     def key(self) -> str:
         return self._state.key
 
+    def loaded(self) -> tuple[int, str]:
+        """지금 적재된 룰셋의 (버전, 키). 상태를 한 번만 읽으므로 둘이 서로 다른 스냅샷에서 나오지 않는다."""
+        state = self._state
+        return state.version, state.key
+
     @staticmethod
     def _compile(source: str) -> yara.Rules:
         if len(source.encode()) > MAX_SOURCE_BYTES:
@@ -93,4 +101,10 @@ class Analyzer:
             if match.rule not in state.disabled
         ]
         duration_ms = int((time.monotonic() - started) * 1000)
-        return Analysis(malicious=bool(hits), matches=hits, duration_ms=duration_ms)
+        return Analysis(
+            malicious=bool(hits),
+            matches=hits,
+            duration_ms=duration_ms,
+            rulesets_version=state.version,
+            ruleset_key=state.key,
+        )

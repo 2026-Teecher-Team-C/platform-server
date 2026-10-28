@@ -40,8 +40,17 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
     static volatile String loadedKey = "";
     static volatile int loadedVersion = 0;
     static final AtomicInteger loadCount = new AtomicInteger();
+    static final AtomicInteger analyzeCount = new AtomicInteger();
     // true면 다음 RPC 한 번(종류 무관)이 UNAVAILABLE로 실패하고 플래그가 꺼진다.
     static volatile boolean failNextCall = false;
+    // true면 다음 LoadRuleset 한 번만 UNAVAILABLE로 실패하고 플래그가 꺼진다.
+    static volatile boolean failNextLoad = false;
+    // true면 LoadRuleset이 OK를 주지만 키를 바꾸지 않는다(적재 뒤에도 FAILED_PRECONDITION이 나는 상황).
+    static volatile boolean ignoreLoads = false;
+    // null이 아니면 Analyze 응답의 ruleset_key를 적재된 키 대신 이 값으로 보고한다.
+    static volatile String reportedKeyOverride = null;
+    // 다음 Analyze 한 번이 키를 비교하기 전에 실행할 동작(분석 도중 룰 구성이 바뀌는 경합을 흉내낸다).
+    static volatile Runnable beforeNextAnalyzeVerdict = null;
 
     private static final Pattern RULE = Pattern.compile("rule\\s+(\\w+)");
 
@@ -49,7 +58,32 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
         loadedKey = "";
         loadedVersion = 0;
         loadCount.set(0);
+        analyzeCount.set(0);
         failNextCall = false;
+        failNextLoad = false;
+        ignoreLoads = false;
+        reportedKeyOverride = null;
+        beforeNextAnalyzeVerdict = null;
+    }
+
+    public static int analyzeCount() {
+        return analyzeCount.get();
+    }
+
+    public static void failNextLoad() {
+        failNextLoad = true;
+    }
+
+    public static void ignoreLoads() {
+        ignoreLoads = true;
+    }
+
+    public static void reportKey(String key) {
+        reportedKeyOverride = key;
+    }
+
+    public static void beforeNextAnalyzeVerdict(Runnable action) {
+        beforeNextAnalyzeVerdict = action;
     }
 
     public static String loadedKey() {
@@ -66,6 +100,20 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
 
     public static void failNextCall() {
         failNextCall = true;
+    }
+
+    private static synchronized boolean consumeLoadFailure() {
+        if (failNextLoad) {
+            failNextLoad = false;
+            return true;
+        }
+        return false;
+    }
+
+    private static synchronized Runnable consumeBeforeVerdict() {
+        Runnable action = beforeNextAnalyzeVerdict;
+        beforeNextAnalyzeVerdict = null;
+        return action;
     }
 
     /** failNextCall이 켜져 있으면 끄고 true. */
@@ -107,19 +155,22 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
 
     @Override
     public void loadRuleset(LoadRulesetRequest request, StreamObserver<LoadRulesetResponse> responseObserver) {
-        if (consumeFailure()) {
+        if (consumeFailure() || consumeLoadFailure()) {
             responseObserver.onError(Status.UNAVAILABLE.withDescription("fake engine down").asRuntimeException());
             return;
         }
-        loadedKey = request.getRulesetKey();
-        loadedVersion = request.getRulesetsVersion();
         loadCount.incrementAndGet();
+        if (!ignoreLoads) {
+            loadedKey = request.getRulesetKey();
+            loadedVersion = request.getRulesetsVersion();
+        }
         responseObserver.onNext(LoadRulesetResponse.getDefaultInstance());
         responseObserver.onCompleted();
     }
 
     @Override
     public StreamObserver<AnalyzeRequest> analyze(StreamObserver<AnalyzeResponse> responseObserver) {
+        analyzeCount.incrementAndGet();
         if (consumeFailure()) {
             responseObserver.onError(Status.UNAVAILABLE.withDescription("fake engine down").asRuntimeException());
             return new StreamObserver<>() {
@@ -130,15 +181,12 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
         }
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         return new StreamObserver<>() {
-            private boolean keyMismatch;
+            private String requestedKey = "";
 
             @Override
             public void onNext(AnalyzeRequest request) {
                 if (request.getPayloadCase() == AnalyzeRequest.PayloadCase.METADATA) {
-                    String key = request.getMetadata().getRulesetKey();
-                    if (!key.isEmpty() && !key.equals(loadedKey)) {
-                        keyMismatch = true;
-                    }
+                    requestedKey = request.getMetadata().getRulesetKey();
                 }
                 if (request.getPayloadCase() == AnalyzeRequest.PayloadCase.CHUNK) {
                     try {
@@ -156,7 +204,14 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
 
             @Override
             public void onCompleted() {
-                if (keyMismatch) {
+                Runnable before = consumeBeforeVerdict();
+                // 판정에 쓸 룰셋(키·버전)은 훅보다 먼저 읽는다. 훅이 DB 룰 구성을 바꿔도 이 분석은 적재된 룰로 한다.
+                String usedKey = loadedKey;
+                int usedVersion = loadedVersion;
+                if (before != null) {
+                    before.run();
+                }
+                if (!requestedKey.isEmpty() && !requestedKey.equals(usedKey)) {
                     responseObserver.onError(Status.FAILED_PRECONDITION
                             .withDescription("ruleset key mismatch").asRuntimeException());
                     return;
@@ -182,7 +237,8 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
                         .setStatus(AnalysisStatus.ANALYSIS_STATUS_SUCCESS)
                         .setVerdict(malicious ? EngineVerdict.ENGINE_VERDICT_MALICIOUS : EngineVerdict.ENGINE_VERDICT_CLEAN)
                         .setEngineVersion("fake-1.0")
-                        .setRulesetsVersion(loadedVersion)
+                        .setRulesetsVersion(usedVersion)
+                        .setRulesetKey(reportedKeyOverride != null ? reportedKeyOverride : usedKey)
                         .setDurationMs(1);
                 if (malicious) {
                     response.addMatches(RuleMatch.newBuilder()
