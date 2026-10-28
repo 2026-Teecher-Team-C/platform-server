@@ -11,7 +11,11 @@ import com.teecherteamc.platform.fleet.domain.AgentRevokedException;
 import com.teecherteamc.platform.fleet.domain.EnrollmentTokenAlreadyRedeemedException;
 import com.teecherteamc.platform.fleet.domain.EnrollmentTokenExpiredException;
 import com.teecherteamc.platform.fleet.domain.InvalidEnrollmentTokenException;
+import com.teecherteamc.platform.policy.application.GetPolicyUseCase;
+import com.teecherteamc.platform.policy.domain.ActiveBypassHost;
+import com.teecherteamc.platform.policy.domain.BypassCategory;
 import com.teecherteamc.platform.proto.agent.v1.AgentServiceGrpc;
+import com.teecherteamc.platform.proto.agent.v1.BypassHost;
 import com.teecherteamc.platform.proto.agent.v1.GetPolicyRequest;
 import com.teecherteamc.platform.proto.agent.v1.GetPolicyResponse;
 import com.teecherteamc.platform.proto.agent.v1.HeartbeatRequest;
@@ -30,7 +34,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
 
 /**
- * AgentService의 gRPC 어댑터. RegisterAgent/Heartbeat만 실제 구현한다 — RefreshAgentToken/GetPolicy는
+ * AgentService의 gRPC 어댑터. RegisterAgent/Heartbeat/GetPolicy를 실제 구현한다 — RefreshAgentToken은
  * proto가 요구하는 메서드지만 이번 스프린트 범위 밖(S4에 팀과 재협의)이라 명시적으로 UNIMPLEMENTED를
  * 돌려준다. AgentAuthServerInterceptor를 이 서비스에만 스코프를 걸어서, Bearer 토큰이 필요 없는
  * RegisterAgent와 VerdictService의 기존 RPC들이 영향받지 않게 한다.
@@ -47,10 +51,15 @@ public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
 
     private final RegisterAgentUseCase registerAgentUseCase;
     private final HeartbeatUseCase heartbeatUseCase;
+    private final GetPolicyUseCase getPolicyUseCase;
 
-    public AgentGrpcService(RegisterAgentUseCase registerAgentUseCase, HeartbeatUseCase heartbeatUseCase) {
+    public AgentGrpcService(
+            RegisterAgentUseCase registerAgentUseCase,
+            HeartbeatUseCase heartbeatUseCase,
+            GetPolicyUseCase getPolicyUseCase) {
         this.registerAgentUseCase = registerAgentUseCase;
         this.heartbeatUseCase = heartbeatUseCase;
+        this.getPolicyUseCase = getPolicyUseCase;
     }
 
     @Override
@@ -125,8 +134,22 @@ public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
 
     @Override
     public void getPolicy(GetPolicyRequest request, StreamObserver<GetPolicyResponse> responseObserver) {
-        responseObserver.onError(
-                Status.UNIMPLEMENTED.withDescription("S4로 연기됨").asRuntimeException());
+        try {
+            GetPolicyResponse.Builder response = GetPolicyResponse.newBuilder();
+            // file_type_policies는 후속 PR에서 채운다. 지금은 빈 목록이다.
+            for (ActiveBypassHost host : getPolicyUseCase.bypassHosts()) {
+                response.addBypassHosts(BypassHost.newBuilder()
+                        .setHost(host.host())
+                        .setCategory(toProtoCategory(host.category()))
+                        .build());
+            }
+            responseObserver.onNext(response.build());
+            responseObserver.onCompleted();
+        } catch (RuntimeException e) {
+            // 알 수 없는 bypass category처럼 서버 데이터 이상도 여기로 온다 — 틀린 정책을 내려주지 않고 실패시킨다.
+            log.error("GetPolicy 실패 agent_id={}", AgentAuthContext.AGENT_ID.get(), e);
+            responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());
+        }
     }
 
     private static String validationError(RegisterAgentRequest request) {
@@ -164,6 +187,16 @@ public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {
             case OS_PLATFORM_LINUX -> "LINUX";
             case OS_PLATFORM_UNSPECIFIED, UNRECOGNIZED ->
                 throw new IllegalArgumentException("unspecified os_platform reached mapping");
+        };
+    }
+
+    // default를 두지 않는다 — BypassCategory에 값이 추가되면 여기서 컴파일 오류가 나서 변환 누락을 막는다.
+    // 이름이 같은 proto enum은 도메인 enum과 구분하려고 전체 이름으로 쓴다.
+    private static com.teecherteamc.platform.proto.agent.v1.BypassCategory toProtoCategory(BypassCategory category) {
+        return switch (category) {
+            case PINNED -> com.teecherteamc.platform.proto.agent.v1.BypassCategory.BYPASS_CATEGORY_PINNED;
+            case SECURITY_UPDATE ->
+                com.teecherteamc.platform.proto.agent.v1.BypassCategory.BYPASS_CATEGORY_SECURITY_UPDATE;
         };
     }
 
