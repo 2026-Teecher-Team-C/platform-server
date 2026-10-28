@@ -1,7 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
 import { getDownloadEvents } from '../lib/api/events'
 import type { DownloadDecision, DownloadDecisionSource } from '../lib/api/events'
-import { startOfLocalDay, summarizeEvents } from '../lib/dashboard/summarize'
-import type { EventSummary } from '../lib/dashboard/summarize'
+import { findNewEventIds, startOfLocalDay, summarizeEvents } from '../lib/dashboard/summarize'
 import { decisionBadge } from '../lib/events/decision'
 import { usePolling } from '../lib/hooks/usePolling'
 
@@ -26,12 +26,12 @@ const SOURCE_LABELS: Record<DownloadDecisionSource, string> = {
   POLICY: '정책',
 }
 
-const SUMMARY_CARDS: { key: keyof EventSummary; label: string; tone: string }[] = [
-  { key: 'blocked', label: DECISION_LABELS.BLOCKED, tone: 'danger' },
-  { key: 'failClose', label: DECISION_LABELS.FAIL_CLOSE, tone: 'warning' },
-  { key: 'released', label: DECISION_LABELS.RELEASED, tone: 'success' },
-  { key: 'bypassed', label: DECISION_LABELS.BYPASSED, tone: 'neutral' },
-  { key: 'cacheHit', label: '캐시 히트', tone: 'accent' },
+// 비율 막대와 범례에 쓰는 순서. 차단 계열을 앞에 둔다.
+const BREAKDOWN: { key: 'blocked' | 'failClose' | 'released' | 'bypassed'; decision: DownloadDecision }[] = [
+  { key: 'blocked', decision: 'BLOCKED' },
+  { key: 'failClose', decision: 'FAIL_CLOSE' },
+  { key: 'released', decision: 'RELEASED' },
+  { key: 'bypassed', decision: 'BYPASSED' },
 ]
 
 function loadTodayEvents(signal: AbortSignal) {
@@ -61,6 +61,10 @@ function formatBytes(bytes: number | null) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
+function formatCount(value: number, loaded: boolean) {
+  return loaded ? value.toLocaleString('ko-KR') : '—'
+}
+
 export function DashboardPage() {
   const { data, error, lastUpdatedAt } = usePolling(
     loadTodayEvents,
@@ -68,27 +72,39 @@ export function DashboardPage() {
     REQUEST_TIMEOUT_MS,
   )
   const failedBeforeFirstLoad = data === null && error !== null
+  const loaded = data !== null
   const events = data?.content ?? []
   const totalToday = data?.totalElements ?? 0
   const summary = summarizeEvents(events)
   const recent = events.slice(0, RECENT_ROWS)
+  const stopped = summary.blocked + summary.failClose
+
+  // 폴링으로 새로 들어온 행만 잠깐 강조한다.
+  const seenIdsRef = useRef<Set<string> | null>(null)
+  const [newIds, setNewIds] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    if (data === null) {
+      return
+    }
+    setNewIds(findNewEventIds(seenIdsRef.current, data.content))
+    seenIdsRef.current = new Set(data.content.map((event) => event.eventId))
+  }, [data])
+
+  const statusText = lastUpdatedAt
+    ? (error !== null ? '갱신 실패 · 마지막 ' : '5초마다 갱신 · ') + formatTime(lastUpdatedAt)
+    : failedBeforeFirstLoad
+      ? '연결 실패'
+      : '불러오는 중'
 
   return (
-    <section className="page">
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">Today</p>
-          <h1>대시보드</h1>
-          <p>오늘 00:00 이후 다운로드 판정 결과입니다. 5초마다 갱신합니다.</p>
-        </div>
-        <span className="phase-badge">
-          {lastUpdatedAt
-            ? '마지막 갱신 ' + formatTime(lastUpdatedAt)
-            : failedBeforeFirstLoad
-              ? '연결 실패'
-              : '불러오는 중'}
-        </span>
-      </div>
+    <section className="page dashboard">
+      <header className="dashboard-header">
+        <h1>대시보드</h1>
+        <p className={'live-status' + (error !== null ? ' is-stale' : '')} role="status">
+          <span className="live-dot" aria-hidden="true" />
+          {statusText}
+        </p>
+      </header>
 
       {error !== null && (
         <p className="dashboard-alert" role="alert">
@@ -97,25 +113,56 @@ export function DashboardPage() {
         </p>
       )}
 
-      <div className="stat-grid">
-        {SUMMARY_CARDS.map((card) => (
-          <div key={card.key} className={'stat-card stat-card-' + card.tone}>
-            <span>{card.label}</span>
-            <strong>{data ? summary[card.key].toLocaleString('ko-KR') : '—'}</strong>
-          </div>
-        ))}
-      </div>
-
       {totalToday > events.length && (
         <p className="dashboard-note">
           오늘 이벤트 {totalToday.toLocaleString('ko-KR')}건 중 최근 {events.length}건으로만 집계했습니다.
         </p>
       )}
 
-      <div className="dashboard-panel">
-        <div className="dashboard-panel-heading">
-          <h2>최근 이벤트</h2>
-          <span>오늘 {summary.total.toLocaleString('ko-KR')}건 중 최근 {recent.length}건</span>
+      <section className="verdict-summary" aria-labelledby="verdict-heading">
+        <div className="verdict-headline">
+          <h2 id="verdict-heading">오늘 차단</h2>
+          <strong className={stopped === 0 ? 'is-zero' : undefined}>{formatCount(stopped, loaded)}</strong>
+          <p>
+            악성 {formatCount(summary.blocked, loaded)} · 검사 불가 {formatCount(summary.failClose, loaded)}
+          </p>
+        </div>
+
+        <div className="verdict-breakdown">
+          <p className="verdict-total">
+            00:00부터 다운로드 <strong>{formatCount(summary.total, loaded)}</strong>건
+          </p>
+          <div className="verdict-bar" aria-hidden="true">
+            {BREAKDOWN.map(({ key, decision }) => (
+              <span
+                key={key}
+                className={'verdict-segment tone-' + decisionBadge(decision).tone}
+                style={{ flexGrow: summary[key] }}
+              />
+            ))}
+          </div>
+          <dl className="verdict-legend">
+            {BREAKDOWN.map(({ key, decision }) => (
+              <div key={key}>
+                <dt>
+                  <span className={'verdict-dot tone-' + decisionBadge(decision).tone} aria-hidden="true" />
+                  {DECISION_LABELS[decision]}
+                </dt>
+                <dd>{formatCount(summary[key], loaded)}</dd>
+              </div>
+            ))}
+            <div className="verdict-legend-cache">
+              <dt>캐시 적중</dt>
+              <dd>{formatCount(summary.cacheHit, loaded)}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section className="recent-events" aria-labelledby="recent-heading">
+        <div className="recent-events-heading">
+          <h2 id="recent-heading">최근 이벤트</h2>
+          <span>최근 {recent.length}건</span>
         </div>
 
         {recent.length === 0 ? (
@@ -128,41 +175,49 @@ export function DashboardPage() {
           </p>
         ) : (
           <div className="table-scroll">
-            <table className="event-table">
+            <table className="event-table dashboard-table">
               <thead>
                 <tr>
                   <th>시간</th>
                   <th>PC</th>
                   <th>파일명</th>
-                  <th>크기</th>
+                  <th className="numeric">크기</th>
                   <th>판정</th>
                   <th>판정 출처</th>
                   <th>캐시</th>
                 </tr>
               </thead>
               <tbody>
-                {recent.map((event) => (
-                  <tr key={event.eventId}>
-                    <td>{formatTime(event.createdAt)}</td>
-                    <td>{event.hostname}</td>
-                    <td className="event-filename" title={event.filename ?? event.sha256 ?? ''}>
-                      {event.filename ?? (event.sha256 ? event.sha256.slice(0, 12) + '…' : '—')}
-                    </td>
-                    <td>{formatBytes(event.fileSize)}</td>
-                    <td>
-                      <span className={'decision-badge decision-' + decisionBadge(event.decision).tone}>
-                        {event.decision ? DECISION_LABELS[event.decision] : decisionBadge(event.decision).text}
-                      </span>
-                    </td>
-                    <td>{event.decisionSource ? SOURCE_LABELS[event.decisionSource] ?? event.decisionSource : '—'}</td>
-                    <td>{event.cacheHit ? '히트' : '—'}</td>
-                  </tr>
-                ))}
+                {recent.map((event) => {
+                  const badge = decisionBadge(event.decision)
+                  const stoppedRow = event.decision === 'BLOCKED' || event.decision === 'FAIL_CLOSE'
+                  return (
+                    <tr
+                      key={event.eventId}
+                      className={(stoppedRow ? 'is-stopped' : '') + (newIds.has(event.eventId) ? ' is-new' : '')}
+                    >
+                      <td className="event-time">{formatTime(event.createdAt)}</td>
+                      <td>{event.hostname}</td>
+                      <td className="event-filename" title={event.filename ?? event.sha256 ?? ''}>
+                        {event.filename ?? (event.sha256 ? event.sha256.slice(0, 12) + '…' : '—')}
+                      </td>
+                      <td className="numeric">{formatBytes(event.fileSize)}</td>
+                      <td>
+                        <span className={'verdict-label tone-' + badge.tone}>
+                          <span className={'verdict-dot tone-' + badge.tone} aria-hidden="true" />
+                          {event.decision ? DECISION_LABELS[event.decision] : badge.text}
+                        </span>
+                      </td>
+                      <td>{event.decisionSource ? SOURCE_LABELS[event.decisionSource] ?? event.decisionSource : '—'}</td>
+                      <td>{event.cacheHit ? '히트' : '—'}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </section>
     </section>
   )
 }
