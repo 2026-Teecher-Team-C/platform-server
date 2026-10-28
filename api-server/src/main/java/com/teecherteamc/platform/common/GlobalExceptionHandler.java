@@ -13,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -59,6 +60,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex,
                                                           HttpServletRequest req) {
         return build(ErrorCode.INVALID_INPUT, "요청 본문을 읽을 수 없습니다.", req);
+    }
+
+    /** multipart 파일이 spring.servlet.multipart 크기 제한을 넘음. */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleUploadTooLarge(MaxUploadSizeExceededException ex,
+                                                              HttpServletRequest req) {
+        return build(ErrorCode.INVALID_INPUT, "파일은 1MiB 이하여야 합니다.", req);
     }
 
     /** 쿼리 파라미터 타입이 맞지 않음 (예: page=abc). 따로 잡지 않으면 아래 catch-all 때문에 500이 된다. */

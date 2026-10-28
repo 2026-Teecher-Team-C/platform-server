@@ -3,11 +3,26 @@ package com.teecherteamc.platform.ruleset.interfaces;
 import com.teecherteamc.platform.common.ApiException;
 import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
+import com.teecherteamc.platform.admin.interfaces.AdminPrincipal;
+import com.teecherteamc.platform.common.ClientIp;
+import com.teecherteamc.platform.ruleset.application.InvalidRulesetException;
 import com.teecherteamc.platform.ruleset.application.ListRulesetsUseCase;
 import com.teecherteamc.platform.ruleset.application.ListYaraRulesUseCase;
 import com.teecherteamc.platform.ruleset.application.RulesetNotFoundException;
+import com.teecherteamc.platform.ruleset.application.UploadRulesetUseCase;
+import com.teecherteamc.platform.ruleset.domain.EngineRulesetUnavailableException;
+import com.teecherteamc.platform.ruleset.domain.Ruleset;
 import com.teecherteamc.platform.ruleset.domain.YaraRule;
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,10 +41,40 @@ public class RulesetController {
 
     private final ListRulesetsUseCase listRulesetsUseCase;
     private final ListYaraRulesUseCase listYaraRulesUseCase;
+    private final UploadRulesetUseCase uploadRulesetUseCase;
 
-    public RulesetController(ListRulesetsUseCase listRulesetsUseCase, ListYaraRulesUseCase listYaraRulesUseCase) {
+    public RulesetController(ListRulesetsUseCase listRulesetsUseCase, ListYaraRulesUseCase listYaraRulesUseCase,
+                             UploadRulesetUseCase uploadRulesetUseCase) {
         this.listRulesetsUseCase = listRulesetsUseCase;
         this.listYaraRulesUseCase = listYaraRulesUseCase;
+        this.uploadRulesetUseCase = uploadRulesetUseCase;
+    }
+
+    /** .yar 파일을 올려 새 대기 버전을 만든다. 활성화는 따로 한다. */
+    @PostMapping("/api/admin/rulesets")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RulesetItem upload(@AuthenticationPrincipal AdminPrincipal principal,
+                              @RequestParam("file") MultipartFile file, HttpServletRequest httpRequest) {
+        byte[] content;
+        try {
+            content = file.getBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        try {
+            Ruleset ruleset = uploadRulesetUseCase.upload(new UploadRulesetUseCase.Command(
+                    file.getOriginalFilename(), content, principal.adminId(), ClientIp.resolve(httpRequest)));
+            return RulesetItem.from(ruleset, 0);
+        } catch (InvalidRulesetException e) {
+            ErrorCode code = e.getKind() == InvalidRulesetException.Kind.BAD_INPUT
+                    ? ErrorCode.INVALID_INPUT : ErrorCode.UNPROCESSABLE;
+            throw new ApiException(code, e.getMessage());
+        } catch (EngineRulesetUnavailableException e) {
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "탐지 엔진에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        } catch (DataIntegrityViolationException e) {
+            // 동시에 올려 같은 버전 번호가 겹친 경우(PK 충돌). 커밋 시점에 드러난다.
+            throw new ApiException(ErrorCode.CONFLICT, "다른 업로드와 겹쳤습니다. 다시 시도해 주세요.");
+        }
     }
 
     /** 룰셋 버전 목록. v0은 빼고 최신 버전부터 준다. */

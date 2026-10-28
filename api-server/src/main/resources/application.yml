@@ -21,6 +21,11 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      # 룰셋(.yar) 업로드 상한. 파일 1MiB, 요청 전체 2MiB.
+      max-file-size: 1MB
+      max-request-size: 2MB
   grpc:
     client:
       channel:

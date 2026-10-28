@@ -27,6 +27,7 @@ public enum AuditAction {
     RESTORE_QUARANTINE,
     DELETE_QUARANTINE,
     // 룰셋 / 룰
+    UPLOAD_RULESET,
     ACTIVATE_RULESET,
     ENABLE_YARA_RULE,
     DISABLE_YARA_RULE,
