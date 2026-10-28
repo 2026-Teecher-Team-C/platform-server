@@ -1103,6 +1103,101 @@ a {
   text-overflow: ellipsis;
 }
 
+.events-filters.blacklist-create {
+  grid-template-columns: minmax(260px, 1.4fr) minmax(200px, 1fr) auto;
+}
+
+.blacklist-hash-field { position: relative; display: block; min-width: 0; }
+.blacklist-hash-field input { padding-right: 36px; }
+.blacklist-hash-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+.blacklist-hash-clear:disabled { opacity: 0.35; cursor: default; }
+.blacklist-hash-clear:focus-visible { outline: 2px solid var(--border); }
+
+.blacklist-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.blacklist-danger { color: #b42318; }
+.blacklist-notice {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: calc(100vw - 48px);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--success);
+  border-radius: 10px;
+  background: var(--surface);
+  color: #027a48;
+  box-shadow: 0 8px 24px rgb(24 33 47 / 14%);
+  font-size: 14px;
+}
+.blacklist-notice-close {
+  flex: 0 0 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+.blacklist-notice-close:focus-visible { outline: 2px solid var(--accent); }
+.blacklist-request-status { min-height: 20px; color: var(--muted); font-size: 12px; }
+
+.events-table .blacklist-management {
+  position: sticky;
+  right: 0;
+  min-width: 180px;
+  background: var(--surface);
+}
+
+.blacklist-action-panel {
+  margin-bottom: 20px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.blacklist-action-panel h2 { margin: 0 0 12px; font-size: 17px; }
+.blacklist-action-panel:focus { outline: 2px solid var(--border); outline-offset: 2px; }
+.blacklist-selected-hash { display: block; overflow-wrap: anywhere; margin-bottom: 12px; }
+.blacklist-action-panel label { display: grid; gap: 8px; margin-bottom: 12px; }
+.blacklist-action-panel input { padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+
+@media (max-width: 760px) {
+  .events-filters.blacklist-create { grid-template-columns: 1fr; }
+}
+
+/* 전체 해시를 선택/복사할 수 있도록 생략하지 않고 줄바꿈한다. */
+.events-table .blacklist-hash {
+  min-width: 260px;
+  max-width: 340px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .events-badge {
   display: inline-block;
   padding: 5px 9px;
