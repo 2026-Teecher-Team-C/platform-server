@@ -28,4 +28,9 @@ class FileVerdictRepositoryImpl implements FileVerdictRepository {
         // 돼서 FK 위반이 난다.
         return jpaRepository.saveAndFlush(fileVerdict);
     }
+
+    @Override
+    public int markEngineVerdictsStale() {
+        return jpaRepository.markEngineVerdictsStale();
+    }
 }

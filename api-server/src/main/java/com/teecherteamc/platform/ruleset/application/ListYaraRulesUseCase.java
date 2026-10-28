@@ -26,4 +26,10 @@ public class ListYaraRulesUseCase {
         }
         return yaraRuleRepository.findByVersion(version);
     }
+
+    /** 한 버전에서 꺼진 룰 수. */
+    @Transactional(readOnly = true)
+    public long countDisabled(int version) {
+        return yaraRuleRepository.countDisabledByVersions(List.of(version)).getOrDefault(version, 0L);
+    }
 }
