@@ -1,4 +1,5 @@
 import { apiRequest } from './client'
+import type { PageResponse } from './types'
 
 export type CreateEnrollmentTokenRequest = {
   expiresInMinutes?: number
@@ -28,10 +29,8 @@ export type AgentListItem = {
   lastHeartbeatAt: string | null
 }
 
-export type AgentListResponse = {
-  items: AgentListItem[]
-  nextCursor: string | null
-}
+// 서버 목록 계약을 그대로 사용한다. page는 0부터 시작하며 하트비트는 null일 수 있다.
+export type AgentListResponse = PageResponse<AgentListItem>
 
 export type AgentDetail = {
   agentId: string
@@ -52,11 +51,12 @@ export type AgentQuery = {
   status?: AgentStatus
   hostname?: string
   osPlatform?: OsPlatform
-  cursor?: string
-  limit?: number
+  page?: number
+  size?: number
 }
 
 export function getAgents(query: AgentQuery = {}) {
+  // 비어 있는 필터만 생략하고 숫자 0은 보존해 첫 페이지도 명시적으로 요청한다.
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== '') {
