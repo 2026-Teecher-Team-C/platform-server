@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DownloadEventListItem } from '../api/events'
-import { startOfLocalDay, summarizeEvents } from './summarize'
+import { findNewEventIds, startOfLocalDay, summarizeEvents } from './summarize'
 
 function event(overrides: Partial<DownloadEventListItem>): DownloadEventListItem {
   return {
@@ -64,5 +64,18 @@ describe('startOfLocalDay', () => {
     startOfLocalDay(now)
 
     expect(now).toEqual(new Date(2026, 9, 15, 14, 30))
+  })
+})
+
+describe('findNewEventIds', () => {
+  it('첫 응답은 새 이벤트로 표시하지 않는다', () => {
+    expect(findNewEventIds(null, [event({ eventId: 'a' })])).toEqual(new Set())
+  })
+
+  it('이전 응답에 없던 eventId만 고른다', () => {
+    const previous = new Set(['a', 'b'])
+    const events = [event({ eventId: 'c' }), event({ eventId: 'a' }), event({ eventId: 'b' })]
+
+    expect(findNewEventIds(previous, events)).toEqual(new Set(['c']))
   })
 })
