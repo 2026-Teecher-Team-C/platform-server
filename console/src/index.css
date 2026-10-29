@@ -1379,6 +1379,14 @@ a {
 .blacklist-request-status { min-height: 20px; color: var(--muted); font-size: 12px; }
 .agents-request-status { min-height: 20px; color: var(--muted); font-size: 12px; }
 
+.quarantine-restore-panel { margin-top: 20px; padding: 20px; }
+.quarantine-restore-panel h2 { margin-top: 0; font-size: 17px; }
+.quarantine-restore-panel form:focus { outline: 2px solid var(--border); outline-offset: 6px; }
+.quarantine-restore-panel label { display: grid; gap: 8px; margin: 16px 0; }
+.quarantine-restore-panel textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.quarantine-restore-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.quarantine-restore-success { color: #027a48; }
+
 .events-table .blacklist-management {
   position: sticky;
   right: 0;

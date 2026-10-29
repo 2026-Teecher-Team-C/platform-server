@@ -3,7 +3,7 @@ import { API_BASE_URL } from '../../lib/api/client'
 import { authorizeMockRequest } from '../http'
 import { appendMockAuditLog } from '../data/auditLogs'
 import { mockDownloadEvents } from '../data/events'
-import { mockWhitelist } from '../data/hashlists'
+import { mockBlacklist, mockWhitelist } from '../data/hashlists'
 import { mockQuarantine } from '../data/quarantine'
 
 export const quarantineHandlers = [
@@ -73,10 +73,23 @@ export const quarantineHandlers = [
 
   http.post(
     API_BASE_URL + '/api/admin/quarantine/:quarantineId/restore',
-    ({ request, params }) => {
-      const auth = authorizeMockRequest(request, 'ANALYST')
+    async ({ request, params }) => {
+      const auth = authorizeMockRequest(request)
       if (auth.error) return auth.error
       const account = auth.account!
+
+      // 본문은 선택이다. 빈 사유는 서버 기본값을 쓰고 잘못된 JSON은 변경 전에 거절한다.
+      let body: { reason?: unknown } | null
+      try {
+        const text = await request.text()
+        body = text.trim() ? JSON.parse(text) : null
+      } catch {
+        return HttpResponse.json({ code: 'INVALID_INPUT', message: '복원 사유를 확인해 주세요.' }, { status: 400 })
+      }
+      if (body !== null && (typeof body !== 'object' || Array.isArray(body) || (body.reason != null && typeof body.reason !== 'string'))) {
+        return HttpResponse.json({ code: 'INVALID_INPUT', message: '복원 사유를 확인해 주세요.' }, { status: 400 })
+      }
+      const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason : '오탐 복원'
 
       const item = mockQuarantine.find(
         (entry) => entry.quarantineId === params.quarantineId,
@@ -84,14 +97,14 @@ export const quarantineHandlers = [
 
       if (!item) {
         return HttpResponse.json(
-          { code: 'QUARANTINE_NOT_FOUND', message: '해당 quarantineId를 찾을 수 없습니다.' },
+          { code: 'NOT_FOUND', message: '해당 quarantineId를 찾을 수 없습니다.' },
           { status: 404 },
         )
       }
 
-      if (item.status === 'RESTORED') {
+      if (item.status !== 'QUARANTINED') {
         return HttpResponse.json(
-          { code: 'ALREADY_RESTORED', message: '이미 복원된 격리 파일입니다.' },
+          { code: 'CONFLICT', message: '복원할 수 없는 상태의 격리 파일입니다.' },
           { status: 409 },
         )
       }
@@ -101,13 +114,14 @@ export const quarantineHandlers = [
       item.restoredAt = restoredAt
 
       const existing = mockWhitelist.find(
-        (entry) => entry.hashValue === item.sha256 && entry.isActive,
+        (entry) => entry.hashValue === item.sha256,
       )
-      if (!existing) {
-        mockWhitelist.unshift({
+      const effective = existing?.isActive && (!existing.expiresAt || Date.parse(existing.expiresAt) > Date.now())
+      if (!effective) {
+        const whitelistItem = {
           hashType: 'SHA256',
           hashValue: item.sha256,
-          reason: '오탐 복원으로 자동 등록',
+          reason,
           origin: 'RESTORED',
           originQuarantineId: item.quarantineId,
           addedBy: {
@@ -116,8 +130,20 @@ export const quarantineHandlers = [
           },
           isActive: true,
           expiresAt: null,
-          createdAt: restoredAt,
-        })
+          createdAt: existing?.createdAt ?? restoredAt,
+        } as const
+        // 만료/비활성 행은 PK와 최초 등록 시각을 유지한다. 이미 유효한 행은 변경하지 않는다.
+        if (existing) Object.assign(existing, whitelistItem)
+        else mockWhitelist.unshift(whitelistItem)
+        appendMockAuditLog({ action: 'ADD_WHITELIST', dangerous: false, actor: { adminId: account.adminId, username: account.username, role: account.role }, targetType: 'WHITELIST', targetId: 'SHA256:' + item.sha256, detail: { reason, source: 'QUARANTINE_RESTORE', quarantineId: item.quarantineId }, ipAddress: '127.0.0.1' })
+      }
+
+      // 같은 해시의 활성 차단만 해제한다. 다른 항목은 건드리지 않는다.
+      const blocked = mockBlacklist.find((entry) => entry.hashValue === item.sha256 && entry.isActive)
+      if (blocked) {
+        blocked.isActive = false
+        blocked.deactivatedAt = restoredAt
+        appendMockAuditLog({ action: 'REMOVE_BLACKLIST', dangerous: true, actor: { adminId: account.adminId, username: account.username, role: account.role }, targetType: 'BLACKLIST', targetId: 'SHA256:' + item.sha256, detail: { reason: '격리 파일 오탐 복원으로 자동 해제', quarantineId: item.quarantineId }, ipAddress: '127.0.0.1' })
       }
 
       appendMockAuditLog({
@@ -130,7 +156,7 @@ export const quarantineHandlers = [
         },
         targetType: 'QUARANTINE',
         targetId: item.quarantineId,
-        detail: { after: { status: 'RESTORED', sha256: item.sha256 } },
+        detail: { sha256: item.sha256 },
         ipAddress: '127.0.0.1',
       })
 
