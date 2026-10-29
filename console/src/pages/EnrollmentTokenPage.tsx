@@ -87,7 +87,6 @@ export function EnrollmentTokenPage() {
         <div>
           <p className="eyebrow">Agent Enrollment</p>
           <h1>등록 토큰 발급</h1>
-          <p>새 PC에 Agent를 등록할 때 사용할 1회용 토큰을 발급합니다.</p>
         </div>
         <span className="phase-badge">ADMIN</span>
       </div>

@@ -187,7 +187,7 @@ export function BlacklistPage() {
 
   return <section className="page events-page">
     <div className="page-heading"><div><p className="eyebrow">Blacklist</p><h1>블랙리스트</h1>
-      <p>차단 대상 SHA-256을 등록하고 관리합니다.</p></div>
+    </div>
       <button className="events-button" type="button" disabled={busy || isLoading} onClick={refresh}>새로고침</button></div>
     <BlacklistCreateForm busy={busy} error={createError} onCreate={submitCreate} onClearError={() => setCreateError('')} />
 

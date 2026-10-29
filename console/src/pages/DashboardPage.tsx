@@ -99,7 +99,10 @@ export function DashboardPage() {
   return (
     <section className="page dashboard">
       <header className="dashboard-header">
-        <h1>대시보드</h1>
+        <div>
+          <p className="eyebrow">Dashboard</p>
+          <h1>대시보드</h1>
+        </div>
         <p className={'live-status' + (error !== null ? ' is-stale' : '')} role="status">
           <span className="live-dot" aria-hidden="true" />
           {statusText}

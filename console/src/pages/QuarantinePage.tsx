@@ -78,11 +78,10 @@ export function QuarantinePage() {
 
   return (
     <section className="page events-page">
-      <div className="page-heading">
+      <div className="page-heading quarantine-page-heading">
         <div>
           <p className="eyebrow">Quarantine</p>
           <h1>격리 파일</h1>
-          <p>S3에 격리된 파일의 메타데이터와 상태를 확인합니다. 원본 저장 위치는 노출되지 않습니다.</p>
         </div>
         <button className="events-button" type="button" onClick={refresh} disabled={isLoading}>새로고침</button>
       </div>

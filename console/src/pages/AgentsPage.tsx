@@ -69,7 +69,6 @@ export function AgentsPage() {
     <section className="page events-page">
       <div className="page-heading"><div>
         <p className="eyebrow">PC agents</p><h1>PC 현황</h1>
-        <p>등록된 에이전트의 상태, 버전, 마지막 하트비트를 확인합니다.</p>
       </div><button className="events-button" type="button" onClick={refresh} disabled={isLoading}>새로고침</button></div>
       <form className="events-filters" onSubmit={applyFilters}>
         <label>호스트 이름<input value={hostname} onChange={(event) => setHostname(event.target.value)} placeholder="호스트 이름 일부" /></label>

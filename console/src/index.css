@@ -15,6 +15,7 @@
   --accent: #2563eb;
   --accent-soft: #eff6ff;
   --success: #12b76a;
+  --page-title-size: clamp(36px, 3.5vw, 44px);
 }
 
 * {
@@ -188,6 +189,16 @@ a {
   color: var(--muted);
   line-height: 1.6;
 }
+
+/* 관리 화면 상단 제목만 통일한다. 카드 안의 소제목과 로그인 화면은 기존 크기를 유지한다. */
+.page-heading .eyebrow,
+.dashboard-header .eyebrow,
+.page.not-found > .eyebrow { font-size: 16px; }
+.page-heading h1,
+.page.not-found h1 { font-size: var(--page-title-size); line-height: 1.2; }
+
+/* 제목이 커져도 새로고침, 목록 이동 버튼의 글자가 두 줄로 쪼개지지 않도록 한다. */
+.page-heading .events-button { flex-shrink: 0; white-space: nowrap; }
 
 .eyebrow {
   margin: 0;
@@ -706,9 +717,9 @@ a {
 }
 
 .dashboard-header h1 {
-  margin: 0;
+  margin: 4px 0 8px;
   color: var(--text);
-  font-size: 40px;
+  font-size: var(--page-title-size);
   line-height: 1.2;
   letter-spacing: -0.03em;
 }
@@ -1550,10 +1561,10 @@ a {
 }
 
 .page-heading .whitelist-title {
-  /* 위 영문 라벨과 아래 설명을 뺀 자리를 제목이 채운다. 다른 화면의 제목 블록 높이와 맞춘다. */
-  margin: 0;
-  font-size: 56px;
-  line-height: 86px;
+  /* 화이트리스트와 YARA도 영문 라벨 아래 제목의 크기와 간격을 다른 화면에 맞춘다. */
+  margin: 4px 0 8px;
+  font-size: var(--page-title-size);
+  line-height: 1.2;
 }
 
 /* 좁은 화면에서는 글자를 끊지 않고 페이지 크기 선택을 다음 줄로 내린다. */
@@ -1707,7 +1718,7 @@ a {
 
 @media (max-width: 680px) {
   .page-heading .whitelist-title {
-    font-size: 36px;
+    font-size: var(--page-title-size);
     line-height: 1.2;
   }
 
@@ -1924,7 +1935,7 @@ a {
 
 @media (max-width: 680px) {
   .ruleset-heading .whitelist-title {
-    font-size: 36px;
+    font-size: var(--page-title-size);
     line-height: 1.2;
   }
 }

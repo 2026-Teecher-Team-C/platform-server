@@ -29,7 +29,7 @@ export function Sidebar() {
       <div className="brand">
         <span className="brand-mark">T</span>
         <div>
-          <strong>Teecher</strong>
+          <strong>Team-c</strong>
           <span>Admin Console</span>
         </div>
         <button

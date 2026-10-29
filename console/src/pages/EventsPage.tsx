@@ -102,7 +102,6 @@ export function EventsPage() {
         <div>
           <p className="eyebrow">Download events</p>
           <h1>다운로드 이벤트</h1>
-          <p>다운로드 이벤트의 판정 결과를 필터링해 확인합니다.</p>
         </div>
         <button className="events-button" type="button" onClick={refresh} disabled={isLoading}>새로고침</button>
       </div>

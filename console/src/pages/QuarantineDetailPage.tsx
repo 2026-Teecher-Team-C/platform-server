@@ -145,7 +145,7 @@ function QuarantineDetailScreen({ quarantineId }: { quarantineId: string | undef
 
   return <section className="page event-detail-page">
     <div className="page-heading">
-      <div><p className="eyebrow">Quarantine file</p><h1>격리 파일 상세</h1><p>격리 파일의 정보와 연관 다운로드 이벤트를 확인합니다.</p></div>
+      <div><p className="eyebrow">Quarantine file</p><h1>격리 파일 상세</h1></div>
       <div className="quarantine-restore-actions"><button className="events-button" type="button" disabled={busy || isLoading} onClick={reload}>새로고침</button>
         <Link className="events-button event-back-link" to="/quarantine">목록으로</Link></div>
     </div>
