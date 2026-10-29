@@ -156,7 +156,6 @@ export function AuditLogsPage() {
         <div>
           <p className="eyebrow">Audit log</p>
           <h1>감사 로그</h1>
-          <p>관리자가 한 등록·해제·복원·발급·로그인 기록입니다. 검사를 약하게 만드는 조작은 위험으로 표시합니다.</p>
         </div>
         <button className="events-button" type="button" onClick={refresh} disabled={isLoading}>새로고침</button>
       </div>

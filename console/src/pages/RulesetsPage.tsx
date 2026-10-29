@@ -191,7 +191,10 @@ export function RulesetsPage() {
   return (
     <section className="page events-page ruleset-page">
       <div className="page-heading ruleset-heading">
-        <h1 className="whitelist-title">YARA 룰셋</h1>
+        <div>
+          <p className="eyebrow">YARA rulesets</p>
+          <h1 className="whitelist-title">YARA 룰셋</h1>
+        </div>
         <div>
           <button className="events-button events-button--primary" type="button" disabled={isBusy} onClick={() => fileInput.current?.click()}>.yar 업로드</button>
           <input ref={fileInput} type="file" accept=".yar" hidden aria-label=".yar 파일 선택" onChange={onFileChosen} />

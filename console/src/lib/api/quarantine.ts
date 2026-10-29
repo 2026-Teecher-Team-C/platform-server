@@ -55,9 +55,11 @@ export function getQuarantineFile(quarantineId: string) {
   }>('/api/admin/quarantine/' + encodeURIComponent(quarantineId))
 }
 
-export function restoreQuarantineFile(quarantineId: string) {
+export function restoreQuarantineFile(quarantineId: string, reason?: string) {
+  // 선택 사유가 없으면 본문을 생략해 서버 기본값인 '오탐 복원'을 사용한다. 파일 바이트를 내려받는 요청은 아니다.
+  const trimmed = reason?.trim()
   return apiRequest<RestoreQuarantineResponse>(
     '/api/admin/quarantine/' + encodeURIComponent(quarantineId) + '/restore',
-    { method: 'POST' },
+    { method: 'POST', ...(trimmed ? { body: JSON.stringify({ reason: trimmed }) } : {}) },
   )
 }

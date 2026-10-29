@@ -59,7 +59,6 @@ export function EventDetailPage() {
         <div>
           <p className="eyebrow">Download event</p>
           <h1>이벤트 상세</h1>
-          <p>다운로드 판정과 PC 정보를 확인합니다.</p>
         </div>
         <Link className="events-button event-back-link" to="/events">목록으로</Link>
       </div>

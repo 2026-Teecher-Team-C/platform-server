@@ -298,7 +298,10 @@ export function WhitelistPage() {
   return (
     <section className="page events-page whitelist-page">
       <div className="page-heading">
-        <h1 className="whitelist-title">화이트리스트</h1>
+        <div>
+          <p className="eyebrow">Whitelist</p>
+          <h1 className="whitelist-title">화이트리스트</h1>
+        </div>
       </div>
 
       <form className="events-filters whitelist-create" onSubmit={submitCreate} aria-labelledby="whitelist-create-title">

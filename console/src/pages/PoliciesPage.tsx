@@ -223,7 +223,6 @@ export function PoliciesPage() {
   return <section className="page events-page">
     <div className="page-heading"><div>
       <p className="eyebrow">Policies</p><h1>정책</h1>
-      <p>바이패스 도메인의 카테고리와 적용 여부를 조회합니다.</p>
     </div><button className="events-button" type="button" disabled={busy || isLoading} onClick={refresh}>새로고침</button></div>
     <div className="events-panel bypass-write-panel">
       <h2>바이패스 도메인 등록</h2>
