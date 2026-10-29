@@ -1107,9 +1107,9 @@ a {
   grid-template-columns: minmax(260px, 1.4fr) minmax(200px, 1fr) auto;
 }
 
-.blacklist-hash-field { position: relative; display: block; min-width: 0; }
-.blacklist-hash-field input { padding-right: 36px; }
-.blacklist-hash-clear {
+.blacklist-hash-field, .bypass-domain-field { position: relative; display: block; min-width: 0; }
+.blacklist-hash-field input, .bypass-domain-field input { padding-right: 36px; }
+.blacklist-hash-clear, .bypass-domain-clear {
   position: absolute;
   top: 50%;
   right: 6px;
@@ -1124,8 +1124,8 @@ a {
   font-size: 20px;
   cursor: pointer;
 }
-.blacklist-hash-clear:disabled { opacity: 0.35; cursor: default; }
-.blacklist-hash-clear:focus-visible { outline: 2px solid var(--border); }
+.blacklist-hash-clear:disabled, .bypass-domain-clear:disabled { opacity: 0.35; cursor: default; }
+.blacklist-hash-clear:focus-visible, .bypass-domain-clear:focus-visible { outline: 2px solid var(--border); }
 
 .blacklist-actions {
   display: flex;
@@ -1133,7 +1133,8 @@ a {
 }
 
 .blacklist-danger { color: #b42318; }
-.blacklist-notice {
+.blacklist-notice,
+.bypass-notice {
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -1151,7 +1152,8 @@ a {
   box-shadow: 0 8px 24px rgb(24 33 47 / 14%);
   font-size: 14px;
 }
-.blacklist-notice-close {
+.blacklist-notice-close,
+.bypass-notice-close {
   flex: 0 0 28px;
   height: 28px;
   padding: 0;
@@ -1163,6 +1165,13 @@ a {
   cursor: pointer;
 }
 .blacklist-notice-close:focus-visible { outline: 2px solid var(--accent); }
+.bypass-notice-close:focus-visible { outline: 2px solid var(--accent); }
+.bypass-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.bypass-write-panel { padding: 20px; margin-bottom: 20px; }
+.bypass-write-panel h2 { margin-top: 0; overflow-wrap: anywhere; }
+.bypass-write-panel p { font-size: 14px; color: var(--muted); }
+.bypass-write-panel [role="alert"] { color: #b42318; }
+.bypass-write-panel .events-filters { padding: 0; margin: 0; border: 0; box-shadow: none; }
 .blacklist-request-status { min-height: 20px; color: var(--muted); font-size: 12px; }
 .agents-request-status { min-height: 20px; color: var(--muted); font-size: 12px; }
 
