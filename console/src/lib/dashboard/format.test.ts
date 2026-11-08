@@ -40,7 +40,7 @@ describe('기간', () => {
   })
 
   it('비교 문구', () => {
-    expect(previousPeriodLabel('today')).toBe('전날 대비')
+    expect(previousPeriodLabel('today')).toBe('직전 같은 시간 대비')
     expect(previousPeriodLabel('7d')).toBe('전주 대비')
     expect(previousPeriodLabel('30d')).toBe('이전 30일 대비')
   })

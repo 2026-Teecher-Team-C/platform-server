@@ -51,6 +51,15 @@ const badge = () => container.querySelector('.dash-badge')?.textContent
 const rows = () => container.querySelectorAll('tbody tr')
 
 describe('UnacknowledgedBlocks', () => {
+  it('확인 버튼에 PC와 파일을 알려 주는 접근성 이름이 있고 표 머리글에 scope가 있다', async () => {
+    await mount(page([block('1'), block('2', { filename: null })]))
+    expect(confirmButtons().map((b) => b.getAttribute('aria-label'))).toEqual([
+      'PC-1 setup-1.exe 차단 확인',
+      'PC-2  차단 확인',
+    ])
+    expect([...container.querySelectorAll('th')].every((th) => th.getAttribute('scope') === 'col')).toBe(true)
+  })
+
   it('확인을 누르면 응답 전까지 버튼이 잠기고 성공하면 행이 사라지고 배지가 줄어든다', async () => {
     const d = deferred<typeof okResult>()
     ack.mockReturnValueOnce(d.promise)

@@ -41,7 +41,7 @@ describe('CounterRow', () => {
     expect(text).toContain('차단율 2.5%')
     expect(text).toContain('1,922')
     await mount(summary, 'today')
-    expect(container.textContent).toContain('전날 대비 +12')
+    expect(container.textContent).toContain('직전 같은 시간 대비 +12')
   })
 
   it('데이터 전이면 숫자 자리에 —를 보이고 부가 문구는 없다', async () => {

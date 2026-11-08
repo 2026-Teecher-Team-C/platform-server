@@ -77,12 +77,12 @@ export function UnacknowledgedBlocks({ page, loaded }: Props) {
           <table>
             <thead>
               <tr>
-                <th>시각</th>
-                <th>PC</th>
-                <th>파일</th>
-                <th>차단 사유</th>
-                <th>심각도</th>
-                <th>처리</th>
+                <th scope="col">시각</th>
+                <th scope="col">PC</th>
+                <th scope="col">파일</th>
+                <th scope="col">차단 사유</th>
+                <th scope="col">심각도</th>
+                <th scope="col">처리</th>
               </tr>
             </thead>
             <tbody>
@@ -92,8 +92,8 @@ export function UnacknowledgedBlocks({ page, loaded }: Props) {
                   <tr key={item.eventId}>
                     <td>{`${formatMonthDay(item.createdAt)} ${formatClock(item.createdAt)}`}</td>
                     <td>{item.hostname}</td>
-                    <td>{item.filename ?? '—'}</td>
-                    <td>{blockReasonText(item)}</td>
+                    <td className="dash-cell-clip" title={item.filename ?? undefined}>{item.filename ?? '—'}</td>
+                    <td className="dash-cell-clip" title={blockReasonText(item)}>{blockReasonText(item)}</td>
                     <td>
                       <span className={`severity-badge severity-badge--${severityTone(item.severity)}`}>
                         {SEVERITY_LABEL[item.severity]}
@@ -103,6 +103,7 @@ export function UnacknowledgedBlocks({ page, loaded }: Props) {
                       <button
                         type="button"
                         disabled={pending}
+                        aria-label={`${item.hostname} ${item.filename ?? ''} 차단 확인`.trim()}
                         onClick={() => void acknowledge(item.eventId)}
                       >
                         {pending ? '처리 중' : '확인'}

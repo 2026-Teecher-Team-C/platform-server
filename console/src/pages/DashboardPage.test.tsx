@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DashboardPage } from './DashboardPage'
 import { loadDashboard, type DashboardSnapshot } from '../lib/dashboard/load'
+import { ApiError } from '../lib/api/client'
 
 vi.mock('../lib/dashboard/load', () => ({ loadDashboard: vi.fn() }))
 const load = vi.mocked(loadDashboard)
@@ -195,5 +196,44 @@ describe('위협 대시보드', () => {
     load.mockResolvedValueOnce({ ...snapshot, recentBlocks: [{ ...snapshot.recentBlocks[0], eventId: 'r9' }] })
     await choosePeriod('30d')
     expect(container.querySelectorAll('tr.is-new')).toHaveLength(0)
+  })
+
+  it('서버에 대시보드 API가 없으면(404) 위젯 대신 안내를 보여 주고 폴링은 계속한다', async () => {
+    vi.useFakeTimers()
+    load.mockRejectedValueOnce(new ApiError(404, null)).mockResolvedValueOnce(snapshot)
+    await mount()
+    const notice = container.querySelector('.dashboard-notice')!
+    expect(notice.textContent).toContain('위협 대시보드 API가 서버에 아직 없습니다')
+    expect(notice.textContent).toContain('/api/admin/dashboard/*')
+    expect(container.querySelector('.live-status')?.textContent).toContain('대시보드 API 없음')
+    expect(container.querySelector('.live-status')?.textContent).not.toContain('연결 실패')
+    expect(container.querySelector('.dash-stack')).toBeNull()
+    expect(container.querySelector('.dashboard-alert')).toBeNull()
+    expect(container.querySelectorAll('.dash-panel')).toHaveLength(0)
+    expect([...container.querySelectorAll('h2')].map((n) => n.textContent)).toEqual(['위협 대시보드 API가 서버에 아직 없습니다'])
+    const links = [...container.querySelectorAll('a')]
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/events'])
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(container.querySelector('.dashboard-notice')).toBeNull()
+    expect(counterValues()).toContain('1,922')
+  })
+
+  it('이전 기간의 404는 새 기간 첫 응답 전에 안내로 남지 않는다', async () => {
+    load.mockRejectedValueOnce(new ApiError(404, null))
+    await mount()
+    expect(container.querySelector('.dashboard-notice')).not.toBeNull()
+    load.mockReturnValueOnce(deferred().promise)
+    await choosePeriod('30d')
+    expect(container.querySelector('.dashboard-notice')).toBeNull()
+    expect(container.querySelector('.live-status')?.textContent).toContain('불러오는 중')
+  })
+
+  it('500은 안내가 아니라 기존 연결 실패로 보여 준다', async () => {
+    load.mockRejectedValueOnce(new ApiError(500, null))
+    await mount()
+    expect(container.querySelector('.dashboard-notice')).toBeNull()
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('서버에서 데이터를 가져오지 못했습니다.')
+    expect(container.querySelector('.live-status')?.textContent).toContain('연결 실패')
+    expect(container.querySelectorAll('h2').length).toBeGreaterThan(0)
   })
 })

@@ -36,12 +36,12 @@ export function ThreatTable({ rows, engine, stale, now }: Props) {
           <table>
             <thead>
               <tr>
-                <th>위협 (룰)</th>
-                <th>심각도</th>
-                <th>영향 PC</th>
-                <th>차단</th>
-                <th>처음</th>
-                <th>마지막</th>
+                <th scope="col">위협 (룰)</th>
+                <th scope="col">심각도</th>
+                <th scope="col">영향 PC</th>
+                <th scope="col">차단</th>
+                <th scope="col">처음</th>
+                <th scope="col">마지막</th>
               </tr>
             </thead>
             <tbody>

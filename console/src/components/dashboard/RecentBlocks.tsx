@@ -39,21 +39,21 @@ export function RecentBlocks({ rows, newIds }: Props) {
           <table>
             <thead>
               <tr>
-                <th>시각</th>
-                <th>PC</th>
-                <th>파일</th>
-                <th>차단 사유</th>
-                <th>심각도</th>
-                <th>판정 출처</th>
+                <th scope="col">시각</th>
+                <th scope="col">PC</th>
+                <th scope="col">파일</th>
+                <th scope="col">차단 사유</th>
+                <th scope="col">심각도</th>
+                <th scope="col">판정 출처</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((item) => (
                 <tr key={item.eventId} className={newIds.has(item.eventId) ? 'is-new' : undefined}>
-                  <td>{`${formatMonthDay(item.createdAt)} ${formatClock(item.createdAt)}`}</td>
+                  <td className="dash-cell-time">{`${formatMonthDay(item.createdAt)} ${formatClock(item.createdAt)}`}</td>
                   <td>{item.hostname}</td>
-                  <td>{fileCell(item)}</td>
-                  <td>{blockReasonText(item)}</td>
+                  <td className="dash-cell-clip" title={fileCell(item)}>{fileCell(item)}</td>
+                  <td className="dash-cell-clip" title={blockReasonText(item)}>{blockReasonText(item)}</td>
                   <td>
                     {item.severity ? (
                       <span className={`severity-badge severity-badge--${severityTone(item.severity)}`}>

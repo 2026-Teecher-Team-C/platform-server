@@ -23,7 +23,7 @@ export function periodRange(key: PeriodKey, now: Date): { from: string; to: stri
 }
 
 export function previousPeriodLabel(key: PeriodKey): string {
-  if (key === 'today') return '전날 대비'
+  if (key === 'today') return '직전 같은 시간 대비'
   if (key === '7d') return '전주 대비'
   return '이전 30일 대비'
 }

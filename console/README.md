@@ -74,12 +74,21 @@ npm test
 
 블랙리스트 등록 시 severity를 관리자 입력으로 받을지는 현재 명세에서 미확정이다. mock에서는 화면 개발을 위해 MANUAL 항목의 severity를 `HIGH` 샘플값으로 둔다. 이는 실제 API 계약이 아니다.
 
-대시보드 mock 데이터는 시드 고정 데이터셋(`src/mocks/dashboard`)이며, 첫 요청 시각 기준으로 한 번 만들어진다. 기간 기본값(최근 7일)과 `engine-status`는 요청 시각으로 계산하므로, `DOWN` 시나리오 화면을 10분 넘게 열어 두면 실제 서버처럼 `IDLE`로 바뀐다. 다시 보려면 새로고침한다(데이터셋도 새로 만들어진다).
+대시보드 mock 데이터는 시드 고정 데이터셋(`src/mocks/dashboard`)이며, 첫 요청 시각 기준으로 한 번 만들어진다. 기간 기본값(최근 7일)과 `engine-status`는 요청 시각으로 계산하므로, 데이터셋은 첫 로드 시각에 고정되므로 화면을 오래 열어 두면 엔진 상태가 시간에 따라 바뀐다. `HEALTHY`는 약 8분 뒤 회색 `IDLE`로, 약 9분 뒤 `DOWN`으로 넘어간다. 다시 보려면 새로고침한다(데이터셋도 새로 만들어진다).
 
 대시보드 시나리오는 URL 쿼리로 고른다.
 
 - `?mockEngine=HEALTHY|DOWN|IDLE`: 엔진 상태 시나리오(그 외 값·생략은 `HEALTHY`)
 - `?mockAck=all`: 모든 차단 이벤트를 확인 완료 상태로 시작(미확인 0건 화면)
+
+주의:
+
+- 로그인 화면으로 로그인하면 `/dashboard`로 이동하면서 `?mockEngine`/`?mockAck` 쿼리가 사라진다. 먼저 로그인한 뒤 시나리오 URL을 연다.
+- 시나리오는 mock 데이터셋을 처음 만들 때 한 번만 읽는다. 쿼리를 바꿨다면 새로고침해야 반영된다.
+
+### real 모드
+
+대시보드는 서버가 API 명세(`docs/superpowers/specs/2026-11-06-threat-dashboard-api.md`)의 §1~§8을 구현해야 동작한다. §8은 다운로드 이벤트 목록의 다중 `decision`, `minSeverity`, `acknowledged` 확장이다. 서버에 대시보드 API가 없으면(404) 대시보드는 위젯 대신 "위협 대시보드 API가 서버에 아직 없습니다" 안내를 보여 주고, 폴링을 계속해 서버가 배포되면 자동으로 채워진다. 현재 서버는 `decision`을 하나만 받으므로 `/events?decision=A&decision=B` 같은 URL을 직접 열면 실패한다.
 
 SSE `/api/admin/events/stream`은 S3 실시간 이벤트 작업에서 별도로 mock한다.
 

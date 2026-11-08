@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CounterRow } from '../components/dashboard/CounterRow'
 import { DailyBlocksChart } from '../components/dashboard/DailyBlocksChart'
@@ -5,6 +6,7 @@ import { RecentBlocks } from '../components/dashboard/RecentBlocks'
 import { ThreatTable } from '../components/dashboard/ThreatTable'
 import { TopAgents } from '../components/dashboard/TopAgents'
 import { UnacknowledgedBlocks } from '../components/dashboard/UnacknowledgedBlocks'
+import { ApiError } from '../lib/api/client'
 import type { StackBy } from '../lib/api/dashboard'
 import { PERIOD_OPTIONS, type PeriodKey } from '../lib/dashboard/format'
 import { loadDashboard, type DashboardSnapshot } from '../lib/dashboard/load'
@@ -65,6 +67,8 @@ export function DashboardPage() {
   const lastUpdatedAt = current ? polling.lastUpdatedAt : null
   const stale = error !== null
   const failedBeforeFirstLoad = snapshot === null && error !== null
+  // 서버에 대시보드 API가 아직 배포되지 않은 경우(404). 연결 실패와 구분해 안내한다.
+  const apiMissing = failedBeforeFirstLoad && error.cause instanceof ApiError && error.cause.status === 404
 
   // 폴링으로 새로 들어온 최근 차단만 잠깐 강조한다. 조건이 바뀐 뒤 첫 응답은 전부 기존 행으로 본다.
   const seenRef = useRef<{ key: symbol; ids: Set<string> } | null>(null)
@@ -82,9 +86,11 @@ export function DashboardPage() {
 
   const statusText = lastUpdatedAt
     ? (stale ? '갱신 실패 · 마지막 ' : '5초마다 갱신 · ') + formatTime(lastUpdatedAt)
-    : failedBeforeFirstLoad
-      ? '연결 실패'
-      : '불러오는 중'
+    : apiMissing
+      ? '대시보드 API 없음'
+      : failedBeforeFirstLoad
+        ? '연결 실패'
+        : '불러오는 중'
 
   // 폴링마다 다시 그려지므로 "N분째"·"N분 전"이 따라 갱신된다.
   const now = new Date()
@@ -114,25 +120,37 @@ export function DashboardPage() {
         </div>
       </header>
 
-      {error !== null && (
+      {apiMissing && (
+        <div className="dashboard-notice">
+          <h2>위협 대시보드 API가 서버에 아직 없습니다</h2>
+          <p>
+            서버에 대시보드 API(/api/admin/dashboard/*)가 배포되면 이 화면이 자동으로 채워집니다. 다운로드 이벤트는{' '}
+            <Link to="/events">탐지 이벤트</Link> 화면에서 볼 수 있습니다.
+          </p>
+        </div>
+      )}
+
+      {error !== null && !apiMissing && (
         <p className="dashboard-alert" role="alert">
           서버에서 데이터를 가져오지 못했습니다.
           {lastUpdatedAt && ' 아래는 ' + formatTime(lastUpdatedAt) + '에 받은 데이터입니다.'}
         </p>
       )}
 
-      <div className="dash-stack">
-        <UnacknowledgedBlocks page={snapshot?.unacknowledged ?? null} loaded={snapshot !== null} />
-        <CounterRow summary={snapshot?.summary ?? null} period={period} />
-        <div className="dash-row dash-row--threats">
-          <ThreatTable rows={snapshot?.threats ?? null} engine={snapshot?.engine ?? null} stale={stale} now={now} />
-          <DailyBlocksChart data={snapshot?.daily ?? null} stackBy={stackBy} onStackByChange={changeStackBy} />
+      {!apiMissing && (
+        <div className="dash-stack">
+          <UnacknowledgedBlocks page={snapshot?.unacknowledged ?? null} loaded={snapshot !== null} />
+          <CounterRow summary={snapshot?.summary ?? null} period={period} />
+          <div className="dash-row dash-row--threats">
+            <ThreatTable rows={snapshot?.threats ?? null} engine={snapshot?.engine ?? null} stale={stale} now={now} />
+            <DailyBlocksChart data={snapshot?.daily ?? null} stackBy={stackBy} onStackByChange={changeStackBy} />
+          </div>
+          <div className="dash-row">
+            <TopAgents rows={snapshot?.topAgents ?? null} />
+            <RecentBlocks rows={snapshot?.recentBlocks ?? null} newIds={newIds} />
+          </div>
         </div>
-        <div className="dash-row">
-          <TopAgents rows={snapshot?.topAgents ?? null} />
-          <RecentBlocks rows={snapshot?.recentBlocks ?? null} newIds={newIds} />
-        </div>
-      </div>
+      )}
     </section>
   )
 }
