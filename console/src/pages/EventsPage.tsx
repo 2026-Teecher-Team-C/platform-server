@@ -1,13 +1,48 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { getDownloadEvents } from '../lib/api/events'
 import type { DownloadDecision, DownloadEventQuery } from '../lib/api/events'
+import type { Severity } from '../lib/api/dashboard'
+import { SEVERITY_LABEL, severityTone } from '../lib/dashboard/format'
 import type { PageResponse } from '../lib/api/types'
 import type { DownloadEventListItem } from '../lib/api/events'
 import { cacheHitLabel, decisionBadge } from '../lib/events/decision'
 
 const PAGE_SIZE = 20
+const DECISIONS: DownloadDecision[] = ['RELEASED', 'BLOCKED', 'BYPASSED', 'FAIL_CLOSE']
+const SEVERITIES = Object.keys(SEVERITY_LABEL) as Severity[]
+const DECISION_LABEL: Record<DownloadDecision, string> = {
+  BLOCKED: '차단', FAIL_CLOSE: '장애 차단', RELEASED: '통과', BYPASSED: '검사 생략',
+}
+
+// 대시보드 링크의 쿼리에서 서버가 받는 값만 골라낸다. 알 수 없는 값은 보내지 않는다(서버는 400).
+function parseUrlFilters(params: URLSearchParams): DownloadEventQuery {
+  const decisions = params.getAll('decision').filter((value): value is DownloadDecision =>
+    (DECISIONS as string[]).includes(value))
+  const minSeverity = params.get('minSeverity')
+  const acknowledged = params.get('acknowledged')
+  const query: DownloadEventQuery = {}
+  if (decisions.length === 1) query.decision = decisions[0]
+  else if (decisions.length > 1) query.decision = decisions
+  if (minSeverity && (SEVERITIES as string[]).includes(minSeverity)) query.minSeverity = minSeverity as Severity
+  if (acknowledged === 'true' || acknowledged === 'false') query.acknowledged = acknowledged === 'true'
+  return query
+}
+
+function describeFilters(query: DownloadEventQuery): string {
+  const parts: string[] = []
+  if (query.decision !== undefined) {
+    parts.push([query.decision].flat().map((value) => DECISION_LABEL[value]).join('·'))
+  }
+  if (query.minSeverity) parts.push(`${SEVERITY_LABEL[query.minSeverity]} 이상`)
+  if (query.acknowledged !== undefined) parts.push(query.acknowledged ? '확인됨' : '미확인')
+  return parts.join(' · ')
+}
+
+function singleDecision(query: DownloadEventQuery): DownloadDecision | '' {
+  return typeof query.decision === 'string' ? query.decision : ''
+}
 
 
 function formatSize(bytes: number | null) {
@@ -16,18 +51,37 @@ function formatSize(bytes: number | null) {
 }
 
 export function EventsPage() {
-  const [decision, setDecision] = useState<DownloadDecision | ''>('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlKey = searchParams.toString()
+  const urlFilters = parseUrlFilters(searchParams)
+  const [decision, setDecision] = useState<DownloadDecision | ''>(() => singleDecision(urlFilters))
   const [agentId, setAgentId] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [filterError, setFilterError] = useState('')
-  const [filters, setFilters] = useState<DownloadEventQuery>({})
+  const [filters, setFilters] = useState<DownloadEventQuery>(urlFilters)
   const [pageNumber, setPageNumber] = useState(0)
   const [limit, setLimit] = useState(PAGE_SIZE)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState<PageResponse<DownloadEventListItem> | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [appliedUrlKey, setAppliedUrlKey] = useState(urlKey)
+
+  // 마운트된 뒤 URL 쿼리가 바뀌면(브라우저 히스토리 등) 다시 읽어 처음부터 조회한다.
+  if (urlKey !== appliedUrlKey) {
+    setAppliedUrlKey(urlKey)
+    setFilters(urlFilters)
+    setDecision(singleDecision(urlFilters))
+    setPageNumber(0)
+    setPage(null)
+    setIsLoading(true)
+  }
+  const urlFilterText = describeFilters(urlFilters)
+
+  function clearUrlFilters() {
+    setSearchParams({}, { replace: true })
+  }
 
   // 입력 중인 폼 값과 실제 조회 조건(filters)을 분리해 '조회'를 눌렀을 때만 재검색한다.
   // 페이지·크기·재시도 키가 바뀌면 다시 요청하고, 이전 요청의 늦은 응답은 무시한다.
@@ -63,6 +117,11 @@ export function EventsPage() {
       return
     }
     setFilterError('')
+    // 폼으로 조회하면 대시보드에서 건 URL 조건은 버리고 폼 값만 쓴다.
+    if (urlKey) {
+      setAppliedUrlKey('')
+      setSearchParams({}, { replace: true })
+    }
     setFilters({
       decision: decision || undefined,
       agentId: agentId.trim() || undefined,
@@ -105,6 +164,13 @@ export function EventsPage() {
         </div>
         <button className="events-button" type="button" onClick={refresh} disabled={isLoading}>새로고침</button>
       </div>
+
+      {urlFilterText && (
+        <p className="events-url-filters">
+          대시보드에서 건 조건: {urlFilterText}{' '}
+          <button className="events-button" type="button" onClick={clearUrlFilters}>조건 해제</button>
+        </p>
+      )}
 
       <form className="events-filters" onSubmit={applyFilters}>
         <label>판정
@@ -159,7 +225,7 @@ export function EventsPage() {
             <table className="events-table">
               <thead><tr>
                 <th scope="col">발생 시각</th><th scope="col">파일명</th><th scope="col">PC / hostname</th>
-                <th scope="col">판정</th><th scope="col">판정 소스</th><th scope="col">캐시</th>
+                <th scope="col">판정</th><th scope="col">심각도</th><th scope="col">판정 소스</th><th scope="col">캐시</th>
                 <th scope="col">파일 크기</th><th scope="col">처리 시간</th><th scope="col">상세</th>
               </tr></thead>
               <tbody>{page.content.map((item) => (
@@ -168,6 +234,9 @@ export function EventsPage() {
                   <td className="events-truncate" title={item.filename ?? undefined}>{item.filename || '파일명 없음'}</td>
                   <td className="events-truncate" title={item.hostname}>{item.hostname}</td>
                   <td><span className={'events-badge events-badge--' + decisionBadge(item.decision).tone}>{decisionBadge(item.decision).text}</span></td>
+                  <td>{item.severity
+                    ? <span className={'severity-badge severity-badge--' + severityTone(item.severity)}>{SEVERITY_LABEL[item.severity]}</span>
+                    : '—'}</td>
                   <td>{item.decisionSource ?? '—'}</td>
                   <td>{cacheHitLabel(item.decision, item.cacheHit)}</td>
                   <td>{formatSize(item.fileSize)}</td>
