@@ -59,14 +59,14 @@ npm test
 - 인증: `POST /api/admin/auth/login`, `GET /api/admin/auth/me`
 - 등록: `POST /api/admin/agents/enrollment-tokens`
 - PC: `GET /api/admin/agents`, `GET /api/admin/agents/{agentId}`
-- 이벤트: `GET /api/admin/download-events`, `GET /api/admin/download-events/{eventId}`
+- 이벤트: `GET /api/admin/download-events`(다중 `decision`, `minSeverity`, `acknowledged`), `GET /api/admin/download-events/{eventId}`, `POST /api/admin/download-events/{eventId}/acknowledge`(차단 확인, 감사 로그 기록)
 - 격리: 목록/상세/오탐 복원
 - 화이트리스트: 목록/등록/사유 수정/해제
 - 블랙리스트: 목록/등록/사유 수정/해제
 - 정책: 바이패스 도메인 목록, 파일 타입 정책 목록
 - YARA: 룰셋 목록
 - 감사: `GET /api/admin/audit-logs`
-- 대시보드: `GET /api/admin/stats`
+- 대시보드: `GET /api/admin/dashboard/summary`, `unacknowledged-blocks`, `threats`, `engine-status`, `daily-blocks`, `top-sources`
 
 목록 응답은 서버와 같은 `PageResponse`(`content/page/size/totalElements/totalPages`)다. 다운로드 이벤트 mock은 이미 이 모양이고, 서버가 아직 없는 API의 mock은 예전 `items/nextCursor` 모양이라 그 API를 구현할 때 같이 바꾼다. 주요 필터와 역할별 401/403은 재현한다. 쓰기 mock은 브라우저 메모리에서만 상태가 바뀌며 새로고침하면 초기 데이터로 돌아간다.
 
@@ -74,7 +74,12 @@ npm test
 
 블랙리스트 등록 시 severity를 관리자 입력으로 받을지는 현재 명세에서 미확정이다. mock에서는 화면 개발을 위해 MANUAL 항목의 severity를 `HIGH` 샘플값으로 둔다. 이는 실제 API 계약이 아니다.
 
-`/api/admin/stats` 응답 형태도 현재 명세에서 추정값으로 표시돼 있으므로 UI 개발용 임시 계약이다. 실제 통계 계약과 Prometheus 메트릭 이름은 B/C와 합의 후 확정한다.
+대시보드 mock 데이터는 시드 고정 데이터셋(`src/mocks/dashboard`)이며, 첫 요청 시각 기준으로 한 번 만들어진다. 기간 기본값(최근 7일)과 `engine-status`는 요청 시각으로 계산하므로, `DOWN` 시나리오 화면을 10분 넘게 열어 두면 실제 서버처럼 `IDLE`로 바뀐다. 다시 보려면 새로고침한다(데이터셋도 새로 만들어진다).
+
+대시보드 시나리오는 URL 쿼리로 고른다.
+
+- `?mockEngine=HEALTHY|DOWN|IDLE`: 엔진 상태 시나리오(그 외 값·생략은 `HEALTHY`)
+- `?mockAck=all`: 모든 차단 이벤트를 확인 완료 상태로 시작(미확인 0건 화면)
 
 SSE `/api/admin/events/stream`은 S3 실시간 이벤트 작업에서 별도로 mock한다.
 

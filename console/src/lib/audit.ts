@@ -28,6 +28,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   ISSUE_ENROLLMENT_TOKEN: '등록 토큰 발급',
   REVOKE_AGENT: '에이전트 폐기',
   INVALIDATE_CACHE: '캐시 무효화',
+  DOWNLOAD_EVENT_ACKNOWLEDGE: '차단 확인',
 }
 
 // 서버 AuditTargetType과 같다.
@@ -44,6 +45,7 @@ export const AUDIT_TARGET_LABEL: Record<string, string> = {
   FILE_TYPE_POLICY: '파일 형식 정책',
   FILE_VERDICT: '판정',
   CACHE: '캐시',
+  DOWNLOAD_EVENT: '다운로드 이벤트',
 }
 
 // 서버 검증(UUID, from <= to)을 먼저 확인해 불필요한 400 요청을 줄인다. from/to는 datetime-local 값이다.
