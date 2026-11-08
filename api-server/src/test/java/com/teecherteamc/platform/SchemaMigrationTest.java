@@ -31,7 +31,7 @@ class SchemaMigrationTest {
                 "hash_blacklist", "hash_whitelist", "quarantine_files",
                 "bypass_domains", "file_type_policies", "audit_logs",
                 "agent_enrollment_tokens", "pending_quarantine_uploads",
-                "download_event_acknowledgements");
+                "download_event_acknowledgements", "file_fingerprints");
     }
 
     @Test

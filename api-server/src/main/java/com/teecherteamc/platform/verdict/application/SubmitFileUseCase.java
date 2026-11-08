@@ -41,6 +41,7 @@ public class SubmitFileUseCase {
     private final PendingQuarantineUploadPort pendingQuarantineUploadPort;
     private final ActiveRulesetKeyPort activeRulesetKeyPort;
     private final TransactionTemplate transactionTemplate;
+    private final RecordFileFingerprint recordFileFingerprint;
 
     public SubmitFileUseCase(
             FileVerdictRepository fileVerdictRepository,
@@ -49,7 +50,8 @@ public class SubmitFileUseCase {
             QuarantineUploadPort quarantineUploadPort,
             PendingQuarantineUploadPort pendingQuarantineUploadPort,
             ActiveRulesetKeyPort activeRulesetKeyPort,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            RecordFileFingerprint recordFileFingerprint) {
         this.fileVerdictRepository = fileVerdictRepository;
         this.analysisRepository = analysisRepository;
         this.engineAnalysisPort = engineAnalysisPort;
@@ -57,6 +59,7 @@ public class SubmitFileUseCase {
         this.pendingQuarantineUploadPort = pendingQuarantineUploadPort;
         this.activeRulesetKeyPort = activeRulesetKeyPort;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.recordFileFingerprint = recordFileFingerprint;
     }
 
     /**
@@ -72,6 +75,9 @@ public class SubmitFileUseCase {
             // 호출자(interfaces)가 이 예외를 잡아 DATA_LOSS로 거부하고 스풀을 지운다.
             throw new HashMismatchException(command.claimedSha256(), command.verifiedSha256());
         }
+
+        // SHA 검증 뒤, 캐시 반환 전에 지문을 남긴다. 불일치 업로드는 이 경로에 도달하지 않는다.
+        recordFileFingerprint.recordVerified(command.verifiedSha256(), command.spoolFile());
 
         Optional<FileVerdict> cached =
                 transactionTemplate.execute(status -> fileVerdictRepository.findBySha256(command.verifiedSha256()));
