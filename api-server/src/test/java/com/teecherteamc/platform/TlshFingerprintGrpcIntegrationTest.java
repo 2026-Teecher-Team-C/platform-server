@@ -23,6 +23,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceStub.class)
 @Import(TestcontainersConfiguration.class)
 class TlshFingerprintGrpcIntegrationTest {
+    @org.junit.jupiter.api.BeforeEach
+    void authenticateVerdictClient() {
+        stub = VerdictTestClient.authenticated(stub, jdbc);
+    }
     @Autowired VerdictServiceGrpc.VerdictServiceStub stub;
     @Autowired JdbcTemplate jdbc;
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean

@@ -34,6 +34,10 @@ import org.springframework.test.context.TestPropertySource;
 // 없앤다 — 블룸 재구축은 각 테스트가 BloomFilterRebuildService.rebuild()로 직접 트리거한다.
 @TestPropertySource(properties = "lookup.bloom-filter.rebuild-interval-ms=86400000")
 class CheckHashGrpcIntegrationTest {
+    @org.junit.jupiter.api.BeforeEach
+    void authenticateVerdictClient() {
+        verdictStub = VerdictTestClient.authenticated(verdictStub, jdbcTemplate);
+    }
 
     @Autowired
     private VerdictServiceGrpc.VerdictServiceBlockingStub verdictStub;
@@ -79,7 +83,7 @@ class CheckHashGrpcIntegrationTest {
     }
 
     @Test
-    void file_verdicts에_CLEAN으로_캐시돼_있으면_ALLOW를_반환한다() {
+    void TLSH_평가가_없는_이전_CLEAN_캐시는_UNKNOWN으로_재검사를_요청한다() {
         String sha256 = "c".repeat(64);
         jdbcTemplate.update(
                 "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'MANUAL')", sha256);
@@ -88,8 +92,8 @@ class CheckHashGrpcIntegrationTest {
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
 
-        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
-        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_CACHE);
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_UNSPECIFIED);
     }
 
     @Test

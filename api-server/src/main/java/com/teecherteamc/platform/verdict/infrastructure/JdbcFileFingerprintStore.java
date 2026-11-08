@@ -32,6 +32,8 @@ public class JdbcFileFingerprintStore implements FileFingerprintStore {
 
     @Override
     public boolean lockActiveAdmin(UUID actor) {
+        // 기준 행의 SHARE 잠금보다 먼저 획득한다. 목록 트리거와 순서가 반대면 교착할 수 있다.
+        jdbc.execute("SELECT pg_advisory_xact_lock(74190321)");
         return !jdbc.queryForList("""
                 SELECT admin_id FROM admin_users
                 WHERE admin_id = ? AND role = 'ADMIN' AND is_active FOR SHARE

@@ -35,6 +35,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceBlockingStub.class)
 @Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class QuarantineRestoreRestIntegrationTest {
+    @org.junit.jupiter.api.BeforeEach
+    void authenticateVerdictClient() {
+        verdictStub = VerdictTestClient.authenticated(verdictStub, jdbcTemplate);
+    }
 
     @Autowired
     private TestRestTemplate restTemplate;

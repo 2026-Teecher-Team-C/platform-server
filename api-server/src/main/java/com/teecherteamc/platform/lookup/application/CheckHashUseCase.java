@@ -5,6 +5,8 @@ import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.CachedVerdict;
 import com.teecherteamc.platform.lookup.domain.VerdictCacheLookupPort;
 import com.teecherteamc.platform.lookup.domain.WhitelistLookupPort;
+import com.teecherteamc.platform.verdict.application.SimilarityDecisions;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -25,21 +27,26 @@ public class CheckHashUseCase {
     private final BloomFilterPort bloomFilterPort;
     private final VerdictCacheLookupPort verdictCacheLookupPort;
     private final Clock clock;
+    private final SimilarityDecisions similarity;
 
     public CheckHashUseCase(
             WhitelistLookupPort whitelistLookupPort,
             BlacklistLookupPort blacklistLookupPort,
             BloomFilterPort bloomFilterPort,
             VerdictCacheLookupPort verdictCacheLookupPort,
-            Clock clock) {
+            Clock clock, SimilarityDecisions similarity) {
         this.whitelistLookupPort = whitelistLookupPort;
         this.blacklistLookupPort = blacklistLookupPort;
         this.bloomFilterPort = bloomFilterPort;
         this.verdictCacheLookupPort = verdictCacheLookupPort;
         this.clock = clock;
+        this.similarity = similarity;
     }
 
+    @Transactional
     public CheckHashResult checkHash(String sha256) {
+        // 정확 예외, 후보 토큰과 캐시를 목록 쓰기와 한 경계에서 읽는다.
+        similarity.lockCorpus();
         if (whitelistLookupPort.isEffective(sha256, clock.instant())) {
             return new CheckHashResult("ALLOW", "WHITELIST", null);
         }
@@ -55,7 +62,9 @@ public class CheckHashUseCase {
 
         Optional<CachedVerdict> cached = verdictCacheLookupPort.find(sha256);
         if (cached.isPresent() && !cached.get().stale()) {
-            return fromCachedVerdict(cached.get().verdict());
+            return "SIMILARITY".equals(cached.get().source())
+                    ? new CheckHashResult("BLOCK", "SIMILARITY", "cached similarity verdict")
+                    : fromCachedVerdict(cached.get().verdict());
         }
 
         return new CheckHashResult("UNKNOWN", null, null);

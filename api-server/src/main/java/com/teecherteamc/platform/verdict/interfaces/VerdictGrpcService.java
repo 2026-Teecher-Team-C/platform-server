@@ -2,7 +2,7 @@ package com.teecherteamc.platform.verdict.interfaces;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
-import com.teecherteamc.platform.event.application.PlaceholderAgent;
+import com.teecherteamc.platform.fleet.interfaces.AgentAuthContext;
 import com.teecherteamc.platform.event.application.ReportEventCommand;
 import com.teecherteamc.platform.event.application.ReportEventUseCase;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
@@ -45,7 +45,7 @@ import org.springframework.grpc.server.service.GrpcService;
  * 하나여야 해서, 3개 RPC가 각자 다른 컨텍스트(verdict/lookup, event) 소관이어도 이 클래스 하나에
  * 모인다 — 여기는 프로토콜 변환만 하고, 실제 로직은 각 컨텍스트의 유스케이스에 위임한다.
  */
-@GrpcService
+@GrpcService(interceptors = com.teecherteamc.platform.fleet.interfaces.AgentAuthServerInterceptor.class)
 public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(VerdictGrpcService.class);
@@ -119,6 +119,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             case "BLACKLIST" -> DecisionSource.DECISION_SOURCE_BLACKLIST;
             case "CACHE" -> DecisionSource.DECISION_SOURCE_CACHE;
             case "ENGINE" -> DecisionSource.DECISION_SOURCE_ENGINE;
+            case "SIMILARITY" -> DecisionSource.DECISION_SOURCE_SIMILARITY;
             default -> throw new IllegalStateException("unmapped decision source: " + source);
         };
     }
@@ -135,6 +136,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             reportEventUseCase.reportEvent(toCommand(request));
             responseObserver.onNext(ReportEventResponse.getDefaultInstance());
             responseObserver.onCompleted();
+        } catch (SecurityException e) {
+            responseObserver.onError(Status.PERMISSION_DENIED.withDescription("event owner or SHA conflict").asRuntimeException());
         } catch (DataIntegrityViolationException e) {
             // JPA는 PK 중복이든 FK 위반이든 전부 DataIntegrityViolationException으로 번역해버린다
             // (DuplicateKeyException이 아니다). pk_download_events 제약 위반일 때만 진짜 중복이고,
@@ -216,8 +219,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
     private ReportEventCommand toCommand(ReportEventRequest request) {
         return new ReportEventCommand(
                 UUID.fromString(request.getEventId()),
-                // TODO(sprint-2): RegisterAgent/agent_token 인증이 생기면 Bearer 토큰에서 유도한 agent_id로 교체
-                PlaceholderAgent.DEV_AGENT_ID,
+                AgentAuthContext.AGENT_ID.get(),
                 request.getSha256().isBlank() ? null : request.getSha256(),
                 request.getRequestHost(),
                 request.getUrl(),
@@ -251,6 +253,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             case DECISION_SOURCE_BLACKLIST -> "BLACKLIST";
             case DECISION_SOURCE_CACHE -> "CACHE";
             case DECISION_SOURCE_ENGINE -> "ENGINE";
+            case DECISION_SOURCE_SIMILARITY -> "SIMILARITY";
             case DECISION_SOURCE_POLICY -> "POLICY";
             case DECISION_SOURCE_UNSPECIFIED, UNRECOGNIZED -> null;
         };
@@ -273,6 +276,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
 
         private SpoolSession spoolSession;
         private String claimedSha256;
+        private UUID eventId;
+        private final UUID agentId;
         private long claimedFileSize;
         private boolean metadataReceived;
         private boolean failed;
@@ -283,6 +288,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             this.responseObserver = responseObserver;
             this.spoolPort = spoolPort;
             this.submitFileUseCase = submitFileUseCase;
+            // 스트림 콜백 실행 시점과 무관하게 RPC 시작 시 인증된 소유자를 보존한다.
+            this.agentId = AgentAuthContext.AGENT_ID.get();
         }
 
         @Override
@@ -317,8 +324,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                 return;
             }
             try {
-                // analyses.event_id는 FK 순서 문제로 안 쓰지만(아래 onCompleted 참고), 형식은 검증한다.
-                UUID.fromString(metadata.getEventId());
+                // 아직 없는 이벤트 FK 대신 pending 근거 매핑에 넘긴다. UUID 형식은 여기서 먼저 검증한다.
+                this.eventId = UUID.fromString(metadata.getEventId());
             } catch (IllegalArgumentException e) {
                 fail(Status.INVALID_ARGUMENT.withDescription("event_id must be a valid UUID"));
                 return;
@@ -369,9 +376,11 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                     return;
                 }
                 SubmitFileResult outcome = submitFileUseCase.submitFile(
-                        new SubmitFileCommand(claimedSha256, result.sha256(), result.bytesWritten(), result.path()));
+                        new SubmitFileCommand(claimedSha256, result.sha256(), result.bytesWritten(), result.path(), eventId, agentId));
                 responseObserver.onNext(toResponse(outcome));
                 responseObserver.onCompleted();
+            } catch (SecurityException e) {
+                responseObserver.onError(Status.PERMISSION_DENIED.withDescription("event owner or SHA conflict").asRuntimeException());
             } catch (HashMismatchException e) {
                 responseObserver.onError(Status.DATA_LOSS.withDescription(e.getMessage()).asRuntimeException());
             } catch (EngineUnavailableException e) {

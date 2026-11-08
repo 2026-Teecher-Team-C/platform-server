@@ -27,10 +27,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceBlockingStub.class)
 @Import(TestcontainersConfiguration.class)
 class ReportEventGrpcIntegrationTest {
+    @org.junit.jupiter.api.BeforeEach
+    void authenticateVerdictClient() {
+        var identity = VerdictTestClient.seed(jdbcTemplate);
+        authenticatedAgent = identity.id();
+        verdictStub = VerdictTestClient.withToken(verdictStub, identity.token());
+    }
 
-    // event/application/PlaceholderAgent.DEV_AGENT_ID 와 동일한 값 — 실제 인증이 생기기 전까지
-    // interfaces 레이어가 이 값을 agent_id로 채워 넣으므로, fixture도 같은 값을 써야 FK가 만족된다.
-    private static final UUID DEV_AGENT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private UUID authenticatedAgent;
 
     @Autowired
     private VerdictServiceGrpc.VerdictServiceBlockingStub verdictStub;
@@ -38,20 +42,6 @@ class ReportEventGrpcIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @BeforeEach
-    void seedDeviceAndAgent() {
-        UUID deviceId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO devices (device_id, hostname, os_platform) VALUES (?, 'test-host', 'WINDOWS')",
-                deviceId);
-        jdbcTemplate.update(
-                """
-                INSERT INTO agents (agent_id, device_id, agent_version, enrollment_token_hash)
-                VALUES (?, ?, '0.0.1', 'test-hash')
-                ON CONFLICT (agent_id) DO NOTHING
-                """,
-                DEV_AGENT_ID, deviceId);
-    }
 
     @Test
     void 정상_케이스는_download_events에_기록된다() {
@@ -88,7 +78,7 @@ class ReportEventGrpcIntegrationTest {
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "SELECT * FROM download_events WHERE event_id = ?", eventId);
         assertThat(row.get("sha256")).isEqualTo(sha256);
-        assertThat(row.get("agent_id")).isEqualTo(DEV_AGENT_ID);
+        assertThat(row.get("agent_id")).isEqualTo(authenticatedAgent);
         assertThat(row.get("pipeline_status")).isEqualTo("COMPLETED");
         assertThat(row.get("decision")).isEqualTo("RELEASED");
         assertThat(row.get("decision_source")).isEqualTo("CACHE");
@@ -284,7 +274,7 @@ class ReportEventGrpcIntegrationTest {
         Map<String, Object> quarantineRow = jdbcTemplate.queryForMap(
                 "SELECT * FROM quarantine_files WHERE event_id = ?", eventId);
         assertThat(quarantineRow.get("sha256")).isEqualTo(sha256);
-        assertThat(quarantineRow.get("agent_id")).isEqualTo(DEV_AGENT_ID);
+        assertThat(quarantineRow.get("agent_id")).isEqualTo(authenticatedAgent);
         assertThat(quarantineRow.get("original_filename")).isEqualTo("evil.exe");
         assertThat(quarantineRow.get("file_size")).isEqualTo(12345L);
         assertThat(quarantineRow.get("s3_bucket")).isEqualTo("platform-quarantine");

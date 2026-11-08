@@ -42,6 +42,7 @@ enum DecisionSource {
   DECISION_SOURCE_CACHE = 3;
   DECISION_SOURCE_ENGINE = 4;
   DECISION_SOURCE_POLICY = 5;
+  DECISION_SOURCE_SIMILARITY = 6;
 }
 
 message CheckHashRequest {

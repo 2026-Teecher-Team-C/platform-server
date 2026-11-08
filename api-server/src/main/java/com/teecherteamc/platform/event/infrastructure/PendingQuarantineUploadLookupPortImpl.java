@@ -19,14 +19,11 @@ class PendingQuarantineUploadLookupPortImpl implements PendingQuarantineUploadLo
     @Override
     public Optional<PendingQuarantineUpload> findAndDelete(String sha256) {
         List<PendingQuarantineUpload> rows = jdbcTemplate.query(
-                "SELECT file_size, s3_bucket, s3_key FROM pending_quarantine_uploads WHERE sha256 = ?",
+                "DELETE FROM pending_quarantine_uploads WHERE sha256 = ? AND event_id IS NULL RETURNING file_size, s3_bucket, s3_key",
                 (rs, rowNum) -> new PendingQuarantineUpload(
                         rs.getLong("file_size"), rs.getString("s3_bucket"), rs.getString("s3_key")),
                 sha256);
         Optional<PendingQuarantineUpload> result = rows.stream().findFirst();
-        if (result.isPresent()) {
-            jdbcTemplate.update("DELETE FROM pending_quarantine_uploads WHERE sha256 = ?", sha256);
-        }
         return result;
     }
 }

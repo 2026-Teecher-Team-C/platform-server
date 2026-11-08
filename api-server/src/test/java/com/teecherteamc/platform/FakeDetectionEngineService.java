@@ -49,6 +49,7 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
     static volatile boolean ignoreLoads = false;
     // null이 아니면 Analyze 응답의 ruleset_key를 적재된 키 대신 이 값으로 보고한다.
     static volatile String reportedKeyOverride = null;
+    static volatile EngineVerdict verdictOverride = null;
     // 다음 Analyze 한 번이 키를 비교하기 전에 실행할 동작(분석 도중 룰 구성이 바뀌는 경합을 흉내낸다).
     static volatile Runnable beforeNextAnalyzeVerdict = null;
 
@@ -63,6 +64,7 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
         failNextLoad = false;
         ignoreLoads = false;
         reportedKeyOverride = null;
+        verdictOverride = null;
         beforeNextAnalyzeVerdict = null;
     }
 
@@ -235,7 +237,7 @@ public class FakeDetectionEngineService extends DetectionEngineGrpc.DetectionEng
                 boolean malicious = content.contains(MALICIOUS_MARKER);
                 AnalyzeResponse.Builder response = AnalyzeResponse.newBuilder()
                         .setStatus(AnalysisStatus.ANALYSIS_STATUS_SUCCESS)
-                        .setVerdict(malicious ? EngineVerdict.ENGINE_VERDICT_MALICIOUS : EngineVerdict.ENGINE_VERDICT_CLEAN)
+                        .setVerdict(verdictOverride != null ? verdictOverride : malicious ? EngineVerdict.ENGINE_VERDICT_MALICIOUS : EngineVerdict.ENGINE_VERDICT_CLEAN)
                         .setEngineVersion("fake-1.0")
                         .setRulesetsVersion(usedVersion)
                         .setRulesetKey(reportedKeyOverride != null ? reportedKeyOverride : usedKey)

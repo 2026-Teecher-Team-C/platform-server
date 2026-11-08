@@ -18,14 +18,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * AgentGrpcService에만 스코프를 건다({@code @GrpcService(interceptors = ...)}) — 전역 인터셉터로
- * 만들면 Bearer 토큰을 안 보내는 기존 VerdictService 테스트가 깨진다. RegisterAgent는 요청 바디의
+ * AgentGrpcService와 VerdictGrpcService에 스코프를 건다({@code @GrpcService(interceptors = ...)}).
+ * RegisterAgent는 요청 바디의
  * 1회용 등록 토큰으로 자체 인증하므로 여기서 건너뛴다. 실패 사유(헤더 없음/형식 오류/토큰 불일치/
  * 만료/REVOKED)는 전부 같은 UNAUTHENTICATED로 응답한다 — 어떤 사유인지 클라이언트에 알려주지 않는
  * 기존 컨벤션(withCause 미노출)과 같은 이유다. 서버 로그에만 구체적인 사유를 남긴다.
  */
 @Component
-class AgentAuthServerInterceptor implements ServerInterceptor {
+public class AgentAuthServerInterceptor implements ServerInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(AgentAuthServerInterceptor.class);
     private static final Metadata.Key<String> AUTHORIZATION =
