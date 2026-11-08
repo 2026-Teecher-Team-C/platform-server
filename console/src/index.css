@@ -791,6 +791,11 @@ a {
   align-items: start;
 }
 
+/* 목업 v3: 위협별 현황 | 일별 차단 = 3:2 */
+.dash-row--threats {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
+
 .dash-panel {
   min-width: 0;
   border: 1px solid var(--border);
@@ -1052,7 +1057,7 @@ a {
 
 .dash-daily__bars {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 4px;
   padding: 14px 14px 0;
   overflow-x: auto;
@@ -1062,16 +1067,20 @@ a {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
-  justify-content: flex-end;
-  align-items: stretch;
   min-width: 14px;
+}
+
+/* 막대의 % 높이는 이 트랙 기준이다. 날짜 라벨은 트랙 밖에 두어 가장 높은 막대가 눌리지 않는다. */
+.dash-daily__track {
+  display: flex;
+  align-items: flex-end;
   height: 160px;
 }
 
 .dash-daily__bar {
   display: flex;
   flex-direction: column-reverse;
-  min-height: 1px;
+  width: 100%;
 }
 
 .dash-daily__seg {
@@ -1112,15 +1121,18 @@ a {
   flex-shrink: 0;
 }
 
-/* 판정 소스별 순서(엔진·판정 이력·블랙리스트·장애 차단)에 목업 색을 맞추고, 룰별은 같은 순번 색을 쓴다. */
-.dash-daily__seg--0 { background: #1565c0; }
-.dash-daily__seg--1 { background: #6ea8de; }
-.dash-daily__seg--2 { background: #3a3a3a; }
-.dash-daily__seg--3 { background: var(--tone-fail-close); }
-.dash-daily__seg--4 { background: #7e57c2; }
-.dash-daily__seg--5 { background: #2e9e8f; }
-.dash-daily__seg--6 { background: var(--tone-blocked); }
-.dash-daily__seg--7 { background: var(--tone-bypassed); }
+/* 고정 키는 의미별 색(판정 소스별·룰별 공통). 룰 팔레트는 고정 색을 다시 쓰지 않는다. */
+.dash-daily__seg--engine { background: #1565c0; }
+.dash-daily__seg--cache { background: #6ea8de; }
+.dash-daily__seg--blacklist { background: #3a3a3a; }
+.dash-daily__seg--fail-close { background: var(--tone-fail-close); }
+.dash-daily__seg--other { background: var(--tone-bypassed); }
+.dash-daily__seg--rule-0 { background: #7e57c2; }
+.dash-daily__seg--rule-1 { background: #2e9e8f; }
+.dash-daily__seg--rule-2 { background: #c2185b; }
+.dash-daily__seg--rule-3 { background: #0277bd; }
+.dash-daily__seg--rule-4 { background: #9e9d24; }
+.dash-daily__seg--rule-5 { background: #6d4c41; }
 
 /* 차단 상위 PC: 이름·막대·건수 */
 .dash-top__list {
@@ -1164,7 +1176,8 @@ a {
 }
 
 @media (max-width: 1100px) {
-  .dash-row {
+  .dash-row,
+  .dash-row--threats {
     grid-template-columns: minmax(0, 1fr);
   }
 }

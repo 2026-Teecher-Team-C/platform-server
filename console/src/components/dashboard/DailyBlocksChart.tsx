@@ -10,6 +10,22 @@ const KEY_LABEL: Record<string, string> = {
   OTHER: '기타',
 }
 
+// 색은 키 의미로 고정한다. 그래야 FAIL_CLOSE·BLACKLIST가 판정 소스별·룰별에서 같은 색으로 보인다.
+const FIXED_TONE: Record<string, string> = {
+  ENGINE: 'engine',
+  CACHE: 'cache',
+  BLACKLIST: 'blacklist',
+  FAIL_CLOSE: 'fail-close',
+  OTHER: 'other',
+}
+const RULE_TONES = 6
+
+// 룰 키는 고정 키를 뺀 순번으로 팔레트를 돈다(팔레트는 고정 색을 쓰지 않는다).
+function toneClasses(keys: string[]): string[] {
+  let rule = 0
+  return keys.map((key) => `dash-daily__seg--${FIXED_TONE[key] ?? `rule-${rule++ % RULE_TONES}`}`)
+}
+
 const TOGGLES: { value: StackBy; label: string }[] = [
   { value: 'SOURCE', label: '판정 소스별' },
   { value: 'RULE', label: '룰별' },
@@ -33,6 +49,7 @@ export function DailyBlocksChart({ data, stackBy, onStackByChange }: Props) {
     : []
   const max = Math.max(0, ...totals)
   const empty = data !== null && max === 0
+  const tones = data ? toneClasses(data.keys) : []
 
   return (
     <section className="dash-panel dash-daily" aria-labelledby="daily-blocks-title">
@@ -59,23 +76,25 @@ export function DailyBlocksChart({ data, stackBy, onStackByChange }: Props) {
               const total = totals[i]
               return (
                 <div key={day.date} className="dash-daily__col">
-                  <div
-                    className="dash-daily__bar"
-                    role="img"
-                    style={{ height: `${(total / max) * 100}%` }}
-                    aria-label={`${monthDay(day.date)} 차단 ${total}건`}
-                  >
-                    {data.keys.map((key, k) => {
-                      const count = day.counts[key] ?? 0
-                      if (count === 0) return null
-                      return (
-                        <div
-                          key={key}
-                          className={`dash-daily__seg dash-daily__seg--${k}`}
-                          style={{ height: `${(count / total) * 100}%` }}
-                        />
-                      )
-                    })}
+                  <div className="dash-daily__track">
+                    <div
+                      className="dash-daily__bar"
+                      role="img"
+                      style={{ height: `${(total / max) * 100}%` }}
+                      aria-label={`${monthDay(day.date)} 차단 ${total}건`}
+                    >
+                      {data.keys.map((key, k) => {
+                        const count = day.counts[key] ?? 0
+                        if (count === 0) return null
+                        return (
+                          <div
+                            key={key}
+                            className={`dash-daily__seg ${tones[k]}`}
+                            style={{ height: `${(count / total) * 100}%` }}
+                          />
+                        )
+                      })}
+                    </div>
                   </div>
                   <span className="dash-daily__label">{monthDay(day.date)}</span>
                 </div>
@@ -85,7 +104,7 @@ export function DailyBlocksChart({ data, stackBy, onStackByChange }: Props) {
           <ul className="dash-daily__legend">
             {data.keys.map((key, k) => (
               <li key={key}>
-                <span className={`dash-daily__swatch dash-daily__seg--${k}`} aria-hidden="true" />
+                <span className={`dash-daily__swatch ${tones[k]}`} aria-hidden="true" />
                 {KEY_LABEL[key] ?? key}
               </li>
             ))}

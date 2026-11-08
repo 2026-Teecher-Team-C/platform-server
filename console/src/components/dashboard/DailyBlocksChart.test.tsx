@@ -85,6 +85,43 @@ describe('DailyBlocksChart', () => {
     expect(rules).toEqual(['Emotet_Loader', 'Other.Rule'])
   })
 
+  it('색 class는 순번이 아니라 키 의미로 정해 FAIL_CLOSE·BLACKLIST는 두 모드에서 같은 색이다', async () => {
+    const classOf = (key: string) => {
+      const index = [...container.querySelectorAll('.dash-daily__legend li')].findIndex((li) => li.textContent === key)
+      return container.querySelectorAll('.dash-daily__swatch')[index].className
+    }
+    await mount({
+      stackBy: 'SOURCE',
+      keys: ['ENGINE', 'CACHE', 'BLACKLIST', 'FAIL_CLOSE', 'OTHER'],
+      days: [{ date: '2026-11-01', counts: { ENGINE: 1, FAIL_CLOSE: 1 } }],
+    })
+    const sourceFailClose = classOf('장애 차단')
+    const sourceBlacklist = classOf('블랙리스트')
+    expect(sourceFailClose).toContain('dash-daily__seg--fail-close')
+    expect(sourceBlacklist).toContain('dash-daily__seg--blacklist')
+    expect(classOf('기타')).toContain('dash-daily__seg--other')
+    const failSeg = container.querySelector('.dash-daily__bar .dash-daily__seg--fail-close')
+    expect(failSeg).not.toBeNull()
+    await mount({
+      stackBy: 'RULE',
+      keys: ['Rule_A', 'BLACKLIST', 'Rule_B', 'FAIL_CLOSE'],
+      days: [{ date: '2026-11-01', counts: { Rule_A: 1, FAIL_CLOSE: 1 } }],
+    }, vi.fn(), 'RULE')
+    expect(classOf('장애 차단')).toBe(sourceFailClose)
+    expect(classOf('블랙리스트')).toBe(sourceBlacklist)
+    expect(classOf('Rule_A')).toContain('dash-daily__seg--rule-0')
+    expect(classOf('Rule_B')).toContain('dash-daily__seg--rule-1')
+  })
+
+  it('날짜 라벨은 막대 트랙 밖에 있다', async () => {
+    await mount(data([{ ENGINE: 2 }, { ENGINE: 1 }]))
+    const col = container.querySelector('.dash-daily__col')!
+    const track = col.querySelector('.dash-daily__track')!
+    expect(track.querySelector('.dash-daily__bar')).not.toBeNull()
+    expect(track.querySelector('.dash-daily__label')).toBeNull()
+    expect(col.querySelector(':scope > .dash-daily__label')?.textContent).toBe('11/1')
+  })
+
   it('data가 null이면 제목만 보인다', async () => {
     await mount(null)
     expect(container.textContent).toContain('일별 차단')

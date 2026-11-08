@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CounterRow } from '../components/dashboard/CounterRow'
 import { DailyBlocksChart } from '../components/dashboard/DailyBlocksChart'
 import { RecentBlocks } from '../components/dashboard/RecentBlocks'
@@ -26,6 +26,12 @@ class KeyedLoadError extends Error {
   }
 }
 
+type Selection = { period: PeriodKey; stackBy: StackBy; key: symbol }
+
+function newSelection(period: PeriodKey, stackBy: StackBy): Selection {
+  return { period, stackBy, key: Symbol(`${period}|${stackBy}`) }
+}
+
 const NO_IDS: ReadonlySet<string> = new Set()
 
 function formatTime(value: Date) {
@@ -33,22 +39,24 @@ function formatTime(value: Date) {
 }
 
 export function DashboardPage() {
-  const [period, setPeriod] = useState<PeriodKey>('7d')
-  const [stackBy, setStackBy] = useState<StackBy>('SOURCE')
-  // 기간·쌓기 기준이 바뀔 때마다 새 key를 만든다. 같은 기간으로 되돌아와도 예전 응답과 섞이지 않는다.
-  const { key, load } = useMemo(() => {
-    const requestKey = Symbol(`${period}|${stackBy}`)
-    return {
-      key: requestKey,
-      load: async (signal: AbortSignal): Promise<KeyedSnapshot> => {
-        try {
-          return { key: requestKey, snapshot: await loadDashboard({ period, stackBy }, signal) }
-        } catch (error) {
-          throw new KeyedLoadError(requestKey, error)
-        }
-      },
-    }
-  }, [period, stackBy])
+  // 기간·쌓기 기준을 바꿀 때마다 이벤트 처리기에서 새 key를 만든다. 같은 기간으로 되돌아와도 예전 응답과 섞이지 않는다.
+  const [selection, setSelection] = useState<Selection>(() => newSelection('7d', 'SOURCE'))
+  const { period, stackBy, key } = selection
+  const changePeriod = (next: PeriodKey) =>
+    setSelection((prev) => (prev.period === next ? prev : newSelection(next, prev.stackBy)))
+  const changeStackBy = (next: StackBy) =>
+    setSelection((prev) => (prev.stackBy === next ? prev : newSelection(prev.period, next)))
+
+  const load = useCallback(
+    async (signal: AbortSignal): Promise<KeyedSnapshot> => {
+      try {
+        return { key, snapshot: await loadDashboard({ period, stackBy }, signal) }
+      } catch (error) {
+        throw new KeyedLoadError(key, error)
+      }
+    },
+    [period, stackBy, key],
+  )
   const polling = usePolling(load, POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS)
 
   const current = polling.data?.key === key ? polling.data : null
@@ -95,7 +103,7 @@ export function DashboardPage() {
           </p>
           <label className="dash-period">
             기간
-            <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodKey)}>
+            <select value={period} onChange={(event) => changePeriod(event.target.value as PeriodKey)}>
               {PERIOD_OPTIONS.map((option) => (
                 <option key={option.key} value={option.key}>
                   {option.label}
@@ -116,8 +124,10 @@ export function DashboardPage() {
       <div className="dash-stack">
         <UnacknowledgedBlocks page={snapshot?.unacknowledged ?? null} loaded={snapshot !== null} />
         <CounterRow summary={snapshot?.summary ?? null} period={period} />
-        <ThreatTable rows={snapshot?.threats ?? null} engine={snapshot?.engine ?? null} stale={stale} now={now} />
-        <DailyBlocksChart data={snapshot?.daily ?? null} stackBy={stackBy} onStackByChange={setStackBy} />
+        <div className="dash-row dash-row--threats">
+          <ThreatTable rows={snapshot?.threats ?? null} engine={snapshot?.engine ?? null} stale={stale} now={now} />
+          <DailyBlocksChart data={snapshot?.daily ?? null} stackBy={stackBy} onStackByChange={changeStackBy} />
+        </div>
         <div className="dash-row">
           <TopAgents rows={snapshot?.topAgents ?? null} />
           <RecentBlocks rows={snapshot?.recentBlocks ?? null} newIds={newIds} />

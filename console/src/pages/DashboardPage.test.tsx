@@ -98,6 +98,9 @@ describe('위협 대시보드', () => {
     const threats = container.querySelector('[aria-labelledby=threat-table-title]')!
     expect(unack.compareDocumentPosition(counters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(counters.compareDocumentPosition(threats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const rows = [...container.querySelectorAll('.dash-row')].map((row) =>
+      [...row.querySelectorAll('h2')].map((node) => node.textContent))
+    expect(rows).toEqual([['위협별 현황', '일별 차단'], ['차단 상위 PC', '최근 차단']])
     expect(counterValues()).toEqual(['48', '46', '2', '9', '1,922'])
     expect(container.querySelector('[role=status].live-status')?.textContent).toContain('5초마다 갱신 · ')
     expect(load).toHaveBeenCalledWith({ period: '7d', stackBy: 'SOURCE' }, expect.any(AbortSignal))
