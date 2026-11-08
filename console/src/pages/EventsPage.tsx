@@ -67,15 +67,25 @@ export function EventsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
   const [appliedUrlKey, setAppliedUrlKey] = useState(urlKey)
+  // 폼 조회가 URL을 비우는 경우, 그 변화는 폼 필터를 덮어쓰지 않도록 표시한다.
+  const [formClearsUrl, setFormClearsUrl] = useState(false)
 
   // 마운트된 뒤 URL 쿼리가 바뀌면(브라우저 히스토리 등) 다시 읽어 처음부터 조회한다.
   if (urlKey !== appliedUrlKey) {
     setAppliedUrlKey(urlKey)
-    setFilters(urlFilters)
-    setDecision(singleDecision(urlFilters))
-    setPageNumber(0)
-    setPage(null)
-    setIsLoading(true)
+    if (formClearsUrl && urlKey === '') {
+      setFormClearsUrl(false)
+    } else {
+      setFilters(urlFilters)
+      setDecision(singleDecision(urlFilters))
+      setAgentId('')
+      setFrom('')
+      setTo('')
+      setFilterError('')
+      setPageNumber(0)
+      setPage(null)
+      setIsLoading(true)
+    }
   }
   const urlFilterText = describeFilters(urlFilters)
 
@@ -119,7 +129,7 @@ export function EventsPage() {
     setFilterError('')
     // 폼으로 조회하면 대시보드에서 건 URL 조건은 버리고 폼 값만 쓴다.
     if (urlKey) {
-      setAppliedUrlKey('')
+      setFormClearsUrl(true)
       setSearchParams({}, { replace: true })
     }
     setFilters({

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { Link, MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventsPage } from './EventsPage'
 import { getDownloadEvents } from '../lib/api/events'
@@ -26,7 +26,7 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 async function mount(url: string) {
-  await act(async () => root.render(<MemoryRouter initialEntries={[url]}><EventsPage /></MemoryRouter>))
+  await act(async () => root.render(<MemoryRouter initialEntries={[url]}><Link to="/events?decision=FAIL_CLOSE">장애만</Link><EventsPage /></MemoryRouter>))
 }
 function arg(n: number) {
   const value = get.mock.calls[n]?.[0]
@@ -89,5 +89,35 @@ describe('탐지 이벤트 URL 필터', () => {
     await mount('/events')
     expect(container.textContent).toContain('심각도')
     expect(container.querySelector('.severity-badge')).toBeNull()
+    const cells = [...container.querySelectorAll('tbody td')].map((td) => td.textContent)
+    expect(cells[4]).toBe('—')
+  })
+
+  it('URL 조건이 있어도 조회하면 폼 값만으로 한 번 더 조회한다', async () => {
+    await mount('/events?decision=BLOCKED&minSeverity=HIGH&acknowledged=false')
+    const input = container.querySelector('input[placeholder="Agent ID"]') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'agent-1')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => button('조회').click())
+    await act(async () => { await Promise.resolve() })
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(arg(1).agentId).toBe('agent-1')
+    // 폼의 판정 select는 URL 값으로 채워져 있으므로 폼 값 BLOCKED만 간다. URL 전용 조건은 버린다.
+    expect(arg(1).decision).toBe('BLOCKED')
+    expect(arg(1).minSeverity).toBeUndefined()
+    expect(arg(1).acknowledged).toBeUndefined()
+    expect(container.textContent).not.toContain('대시보드에서 건 조건')
+    expect(input.value).toBe('agent-1')
+  })
+
+  it('마운트된 뒤 URL 쿼리가 바뀌면 다시 조회한다', async () => {
+    await mount('/events')
+    const link = [...container.querySelectorAll('a')].find((a) => a.textContent === '장애만')!
+    await act(async () => link.click())
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(arg(1).decision).toBe('FAIL_CLOSE')
+    expect(container.textContent).toContain('대시보드에서 건 조건: 장애 차단')
   })
 })
