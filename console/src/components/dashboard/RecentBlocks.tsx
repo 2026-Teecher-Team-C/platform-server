@@ -36,7 +36,7 @@ export function RecentBlocks({ rows, newIds }: Props) {
       {rows && rows.length === 0 && <p className="dash-panel__empty">이 기간에 차단이 없습니다</p>}
       {rows && rows.length > 0 && (
         <div className="table-scroll">
-          <table>
+          <table className="dash-table--recent">
             <thead>
               <tr>
                 <th scope="col">시각</th>

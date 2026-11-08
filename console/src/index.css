@@ -909,6 +909,22 @@ a {
   width: 1%;
 }
 
+/* 최근 차단: 반폭 패널(1440px에서 약 668px)에 6열이 모두 들어가도록 촘촘하게 맞춘다. */
+.dash-table--recent th,
+.dash-table--recent td {
+  padding: 7px 8px;
+}
+
+.dash-table--recent .dash-cell-clip {
+  max-width: 150px;
+}
+
+@media (max-width: 1360px) {
+  .dash-table--recent .dash-cell-clip {
+    max-width: 100px;
+  }
+}
+
 .dash-badge {
   min-width: 22px;
   padding: 1px 8px;
