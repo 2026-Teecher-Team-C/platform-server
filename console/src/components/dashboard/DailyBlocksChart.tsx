@@ -61,6 +61,7 @@ export function DailyBlocksChart({ data, stackBy, onStackByChange }: Props) {
                 <div key={day.date} className="dash-daily__col">
                   <div
                     className="dash-daily__bar"
+                    role="img"
                     style={{ height: `${(total / max) * 100}%` }}
                     aria-label={`${monthDay(day.date)} 차단 ${total}건`}
                   >

@@ -51,9 +51,38 @@ describe('DailyBlocksChart', () => {
     await mount(data([{}, { ENGINE: 0 }]))
     expect(container.textContent).toContain('이 기간에 차단이 없습니다')
     expect(container.innerHTML).not.toContain('NaN')
-    container.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
-      expect(el.style.height === '' || el.style.height === '0%').toBe(true)
+    expect(container.querySelectorAll('.dash-daily__bar')).toHaveLength(0)
+    expect(container.querySelector('[style]')).toBeNull()
+  })
+
+  it('합계 0인 날은 높이 0%에 세그먼트가 없고 다른 날은 비율대로 쌓인다', async () => {
+    await mount(data([{ ENGINE: 0, CACHE: 0 }, { ENGINE: 2, CACHE: 2 }]))
+    const bars = container.querySelectorAll<HTMLElement>('.dash-daily__bar')
+    expect(bars[0].getAttribute('style')).toContain('height: 0%')
+    expect(bars[0].children).toHaveLength(0)
+    const segs = [...bars[1].children].map((el) => el.getAttribute('style'))
+    expect(segs).toEqual(['height: 50%;', 'height: 50%;'])
+    expect(bars[1].getAttribute('style')).toContain('height: 100%')
+    for (const el of container.querySelectorAll('[style]')) {
+      expect(el.getAttribute('style')).not.toMatch(/NaN|Infinity/)
+    }
+  })
+
+  it('범례는 키 라벨을 매핑하고 룰 이름은 그대로 보인다', async () => {
+    await mount({
+      stackBy: 'SOURCE',
+      keys: ['ENGINE', 'CACHE', 'BLACKLIST', 'FAIL_CLOSE', 'OTHER'],
+      days: [{ date: '2026-11-01', counts: { ENGINE: 1 } }],
     })
+    const legend = [...container.querySelectorAll('.dash-daily__legend li')].map((li) => li.textContent)
+    expect(legend).toEqual(['엔진', '판정 이력', '블랙리스트', '장애 차단', '기타'])
+    await mount({
+      stackBy: 'RULE',
+      keys: ['Emotet_Loader', 'Other.Rule'],
+      days: [{ date: '2026-11-01', counts: { Emotet_Loader: 1 } }],
+    }, vi.fn(), 'RULE')
+    const rules = [...container.querySelectorAll('.dash-daily__legend li')].map((li) => li.textContent)
+    expect(rules).toEqual(['Emotet_Loader', 'Other.Rule'])
   })
 
   it('data가 null이면 제목만 보인다', async () => {
