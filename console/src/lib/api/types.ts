@@ -13,12 +13,17 @@ export type CursorPage<T> = {
   nextCursor: string | null
 }
 
-export function toQueryString(params: Record<string, string | number | boolean | null | undefined>) {
+type QueryValue = string | number | boolean | null | undefined
+
+// 배열은 같은 키를 여러 번 붙인다(decision=A&decision=B). 빈 값(undefined/null/'')과 빈 배열은 버리고 false/0은 남긴다.
+export function toQueryString(params: Record<string, QueryValue | QueryValue[]>) {
   const search = new URLSearchParams()
 
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') {
-      search.set(key, String(value))
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item !== undefined && item !== null && item !== '') {
+        search.append(key, String(item))
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 import { apiRequest } from './client'
+import type { Severity } from './dashboard'
 import type { PageResponse } from './types'
 import { toQueryString } from './types'
 
@@ -21,6 +22,11 @@ export type DownloadEventListItem = {
   cacheHit: boolean
   holdDurationMs: number | null
   createdAt: string
+  // 이벤트 심각도·대표 룰(API 명세 §0, §8). 차단이 아니거나 FAIL_CLOSE면 severity/topRuleName은 null이다.
+  severity: Severity | null
+  topRuleName: string | null
+  extraRuleCount: number
+  acknowledged: boolean
 }
 
 export type DownloadEventDetail = DownloadEventListItem & {
@@ -33,7 +39,10 @@ export type DownloadEventDetail = DownloadEventListItem & {
 
 export type DownloadEventQuery = {
   agentId?: string
-  decision?: DownloadDecision
+  // 배열이면 decision=A&decision=B 로 보낸다.
+  decision?: DownloadDecision | DownloadDecision[]
+  minSeverity?: Severity
+  acknowledged?: boolean
   from?: string
   to?: string
   // page는 0부터. size 상한은 서버 기준 200.

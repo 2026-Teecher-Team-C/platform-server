@@ -16,6 +16,10 @@ function event(overrides: Partial<DownloadEventListItem>): DownloadEventListItem
     cacheHit: false,
     holdDurationMs: null,
     createdAt: '2026-10-15T00:00:00Z',
+    severity: null,
+    topRuleName: null,
+    extraRuleCount: 0,
+    acknowledged: false,
     ...overrides,
   }
 }
