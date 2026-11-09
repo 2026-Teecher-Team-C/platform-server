@@ -2,7 +2,12 @@ package com.teecherteamc.platform;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.teecherteamc.platform.event.application.PlaceholderAgent;
 import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
+import com.teecherteamc.platform.proto.verdict.v1.DecisionSource;
+import com.teecherteamc.platform.proto.verdict.v1.FinalDecision;
+import com.teecherteamc.platform.proto.verdict.v1.ReportEventRequest;
+import com.teecherteamc.platform.proto.verdict.v1.VerdictServiceGrpc;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -11,12 +16,15 @@ import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.grpc.test.autoconfigure.AutoConfigureTestGrpcTransport;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.grpc.client.ImportGrpcClients;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -29,11 +37,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 // 로그인이 필요한 API라 AdminApiClient로 로그인한 access 토큰으로 요청한다. ANALYST 권한 게이트는 범위 밖.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@AutoConfigureTestGrpcTransport
+@ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceBlockingStub.class)
 @Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class WhitelistRegisterRestIntegrationTest {
 
     private static final String URL = "/api/admin/whitelist";
     private static final Instant CREATED_AT = Instant.parse("2026-10-01T00:00:00Z");
+
+    @Autowired
+    private VerdictServiceGrpc.VerdictServiceBlockingStub verdictStub;
 
     @Autowired
     private AdminApiClient adminClient;
@@ -54,6 +67,30 @@ class WhitelistRegisterRestIntegrationTest {
         byte[] bytes = new byte[32];
         ThreadLocalRandom.current().nextBytes(bytes);
         return HexFormat.of().formatHex(bytes);
+    }
+
+    // ReportEvent의 agent_id FK용 — VerdictGrpcService가 PlaceholderAgent.DEV_AGENT_ID로 채워넣으므로
+    // fixture도 같은 값을 써야 한다. 여러 테스트에서 재사용하니 ON CONFLICT로 중복 삽입을 무시한다.
+    @BeforeEach
+    void seedDeviceAndAgent() {
+        UUID deviceId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO devices (device_id, hostname, os_platform) VALUES (?, 'test-host', 'WINDOWS')",
+                deviceId);
+        jdbcTemplate.update(
+                """
+                INSERT INTO agents (agent_id, device_id, agent_version, enrollment_token_hash)
+                VALUES (?, ?, '0.0.1', 'test-hash')
+                ON CONFLICT (agent_id) DO NOTHING
+                """,
+                PlaceholderAgent.DEV_AGENT_ID, deviceId);
+    }
+
+    private static com.google.protobuf.Timestamp toTimestamp(Instant instant) {
+        return com.google.protobuf.Timestamp.newBuilder()
+                .setSeconds(instant.getEpochSecond())
+                .setNanos(instant.getNano())
+                .build();
     }
 
     @SuppressWarnings("unchecked")
@@ -176,6 +213,46 @@ class WhitelistRegisterRestIntegrationTest {
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT is_stale FROM file_verdicts WHERE sha256 = ?", Boolean.class, sha256)).isTrue();
+    }
+
+    // IMP-9: 엔진이 한 번도 분석한 적 없는 해시를 관리자가 직접 화이트리스트에 등록하는 경우.
+    // 이게 없으면 download_events.sha256 FK가 안 맞아서 ReportEvent가 그 해시를 NULL로 저장해버린다.
+    @Test
+    void 등록하면_없던_file_verdicts에도_CLEAN_WHITELIST로_새_행이_생긴다() {
+        String sha256 = randomSha256();
+
+        ResponseEntity<Map<String, Object>> response = create(sha256, "외부에서 알려진 정상 벤더 해시", null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        Map<String, Object> verdict = jdbcTemplate.queryForMap(
+                "SELECT verdict, verdict_source, is_stale FROM file_verdicts WHERE sha256 = ?", sha256);
+        assertThat(verdict.get("verdict")).isEqualTo("CLEAN");
+        assertThat(verdict.get("verdict_source")).isEqualTo("WHITELIST");
+        assertThat(verdict.get("is_stale")).isEqualTo(false);
+    }
+
+    // IMP-9 완료 기준 그 자체: 화이트리스트로 통과시킨 다운로드도 나중에 "누가 받았는지" 찾을 수 있어야 한다.
+    @Test
+    void 등록_직후_그_해시로_통과한_다운로드는_sha256이_NULL로_저장되지_않는다() {
+        String sha256 = randomSha256();
+        create(sha256, "외부에서 알려진 정상 벤더 해시", null);
+
+        UUID eventId = UUID.randomUUID();
+        Instant heldAt = Instant.parse("2026-11-09T00:00:00Z");
+        verdictStub.reportEvent(ReportEventRequest.newBuilder()
+                .setEventId(eventId.toString())
+                .setSha256(sha256)
+                .setRequestHost("example.com")
+                .setUrl("https://example.com/file.exe")
+                .setDecision(FinalDecision.FINAL_DECISION_RELEASED)
+                .setDecisionSource(DecisionSource.DECISION_SOURCE_WHITELIST)
+                .setHeldAt(toTimestamp(heldAt))
+                .setDecidedAt(toTimestamp(heldAt))
+                .build());
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT sha256 FROM download_events WHERE event_id = ?", String.class, eventId))
+                .isEqualTo(sha256);
     }
 
     // stale 처리는 verdict 컨텍스트가 이벤트로 받아서 한다. 등록과 같은 트랜잭션이라 등록이 취소되면 함께 취소된다.
