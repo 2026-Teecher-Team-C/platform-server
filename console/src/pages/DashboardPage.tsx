@@ -4,8 +4,9 @@ import { CounterRow } from '../components/dashboard/CounterRow'
 import { DailyBlocksChart } from '../components/dashboard/DailyBlocksChart'
 import { RecentBlocks } from '../components/dashboard/RecentBlocks'
 import { ThreatTable } from '../components/dashboard/ThreatTable'
-import { TopAgents } from '../components/dashboard/TopAgents'
-import { UnacknowledgedBlocks } from '../components/dashboard/UnacknowledgedBlocks'
+import { TopRules } from '../components/dashboard/TopRules'
+import { TopSources } from '../components/dashboard/TopSources'
+import { UnacknowledgedBell } from '../components/dashboard/UnacknowledgedBell'
 import { ApiError } from '../lib/api/client'
 import type { StackBy } from '../lib/api/dashboard'
 import { PERIOD_OPTIONS, type PeriodKey } from '../lib/dashboard/format'
@@ -107,6 +108,7 @@ export function DashboardPage() {
             <span className="live-dot" aria-hidden="true" />
             {statusText}
           </p>
+          {!apiMissing && <UnacknowledgedBell page={snapshot?.unacknowledged ?? null} loaded={snapshot !== null} />}
           <label className="dash-period">
             기간
             <select value={period} onChange={(event) => changePeriod(event.target.value as PeriodKey)}>
@@ -139,14 +141,16 @@ export function DashboardPage() {
 
       {!apiMissing && (
         <div className="dash-stack">
-          <UnacknowledgedBlocks page={snapshot?.unacknowledged ?? null} loaded={snapshot !== null} />
           <CounterRow summary={snapshot?.summary ?? null} period={period} />
           <div className="dash-row dash-row--threats">
             <ThreatTable rows={snapshot?.threats ?? null} engine={snapshot?.engine ?? null} stale={stale} now={now} />
             <DailyBlocksChart data={snapshot?.daily ?? null} stackBy={stackBy} onStackByChange={changeStackBy} />
           </div>
-          <div className="dash-row">
-            <TopAgents rows={snapshot?.topAgents ?? null} />
+          <div className="dash-row dash-row--halves">
+            <TopRules rows={snapshot?.threats ?? null} />
+            <TopSources agents={snapshot?.topAgents ?? null} hosts={snapshot?.topHosts ?? null} />
+          </div>
+          <div className="dash-row dash-row--full">
             <RecentBlocks rows={snapshot?.recentBlocks ?? null} newIds={newIds} />
           </div>
         </div>

@@ -90,7 +90,7 @@ class AuthDisabledRestIntegrationTest {
         jdbcTemplate.update(
                 """
                 INSERT INTO admin_users (admin_id, username, password_hash, role, is_active)
-                VALUES (?, ?, ?, 'VIEWER', true)
+                VALUES (?, ?, ?, 'USER', true)
                 """,
                 UUID.randomUUID(), username, passwordEncoder.encode("other-password"));
         HttpHeaders loginHeaders = new HttpHeaders();

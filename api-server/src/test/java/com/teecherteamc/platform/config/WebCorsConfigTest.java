@@ -7,10 +7,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import com.teecherteamc.platform.admin.application.CurrentAdminUseCase;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,6 +33,11 @@ class WebCorsConfigTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    // SecurityConfig가 토큰 변환기를 만들 때 요구하는 부품이다. 이 테스트는 CORS 필터 순서만 보고 토큰은 보내지 않으므로
+    // 호출되지 않는다. 실제 변환(DB의 role 읽기)은 통합 테스트가 검증한다.
+    @MockitoBean
+    private CurrentAdminUseCase currentAdminUseCase;
 
     @Test
     void 허용된_출처의_사전_요청에는_CORS_헤더를_붙이고_쿠키_자격_증명은_허용하지_않는다() throws Exception {

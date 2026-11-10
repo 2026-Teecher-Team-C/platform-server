@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { UnacknowledgedBlocks } from './UnacknowledgedBlocks'
+import { UnacknowledgedBell } from './UnacknowledgedBell'
 import { acknowledgeDownloadEvent, type UnacknowledgedBlock } from '../../lib/api/dashboard'
 import type { PageResponse } from '../../lib/api/types'
 
@@ -41,16 +41,48 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 
 async function mount(p: PageResponse<UnacknowledgedBlock> | null, loaded = true) {
   await act(async () => root.render(
-    <MemoryRouter><UnacknowledgedBlocks page={p} loaded={loaded} /></MemoryRouter>,
+    <MemoryRouter><UnacknowledgedBell page={p} loaded={loaded} /></MemoryRouter>,
   ))
 }
 function confirmButtons() {
   return [...container.querySelectorAll('button')].filter((b) => b.textContent === '확인' || b.textContent === '처리 중')
 }
-const badge = () => container.querySelector('.dash-badge')?.textContent
+const badge = () => container.querySelector('.bell-badge')?.textContent
+const bell = () => container.querySelector<HTMLButtonElement>('.bell-button')!
+const panel = () => container.querySelector<HTMLElement>('.bell-panel')!
 const rows = () => container.querySelectorAll('tbody tr')
 
-describe('UnacknowledgedBlocks', () => {
+describe('UnacknowledgedBell', () => {
+  it('종 버튼에 미확인 건수 배지와 접근성 이름이 있고, 누르면 패널이 열리고 닫힌다', async () => {
+    await mount(page([block('1'), block('2')], 7))
+    expect(badge()).toBe('7')
+    expect(bell().getAttribute('aria-label')).toBe('확인 안 한 높은 심각도 차단 7건')
+    expect(bell().getAttribute('aria-expanded')).toBe('false')
+    expect(panel().hidden).toBe(true)
+    await act(async () => bell().click())
+    expect(bell().getAttribute('aria-expanded')).toBe('true')
+    expect(panel().hidden).toBe(false)
+    await act(async () => bell().click())
+    expect(panel().hidden).toBe(true)
+  })
+
+  it('Esc를 누르면 닫히고 종 버튼으로 초점이 돌아간다', async () => {
+    await mount(page([block('1')]))
+    await act(async () => bell().click())
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(panel().hidden).toBe(true)
+    expect(document.activeElement).toBe(bell())
+  })
+
+  it('패널 바깥을 누르면 닫히고 안쪽을 누르면 열려 있다', async () => {
+    await mount(page([block('1')]))
+    await act(async () => bell().click())
+    await act(async () => { panel().dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+    expect(panel().hidden).toBe(false)
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+    expect(panel().hidden).toBe(true)
+  })
+
   it('확인 버튼에 PC와 파일을 알려 주는 접근성 이름이 있고 표 머리글에 scope가 있다', async () => {
     await mount(page([block('1'), block('2', { filename: null })]))
     expect(confirmButtons().map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -88,7 +120,7 @@ describe('UnacknowledgedBlocks', () => {
     await act(async () => a.resolve(okResult))
     await act(async () => b.resolve(okResult))
     expect(rows()).toHaveLength(0)
-    expect(badge()).toBe('0')
+    expect(badge()).toBeUndefined()
   })
 
   it('확인이 실패하면 행이 남고 오류를 알린다', async () => {
@@ -124,16 +156,19 @@ describe('UnacknowledgedBlocks', () => {
     expect(badge()).toBe('1')
   })
 
-  it('미확인이 없으면 한 줄로 접는다', async () => {
+  it('미확인이 없으면 배지를 숨기고 패널에는 빈 문구만 둔다', async () => {
     await mount(page([], 0))
+    expect(badge()).toBeUndefined()
+    expect(bell().getAttribute('aria-label')).toBe('확인 안 한 높은 심각도 차단 0건')
     expect(container.textContent).toContain('확인할 차단이 없습니다')
     expect(container.querySelector('table')).toBeNull()
     expect(container.textContent).not.toContain('전체 보기')
   })
 
-  it('불러오기 전에는 배지가 — 이고 빈 목록 문구를 보이지 않는다', async () => {
+  it('불러오기 전에는 배지가 없고 빈 목록 문구를 보이지 않는다', async () => {
     await mount(null, false)
-    expect(badge()).toBe('—')
+    expect(badge()).toBeUndefined()
+    expect(bell().getAttribute('aria-label')).toBe('확인 안 한 높은 심각도 차단')
     expect(container.textContent).not.toContain('확인할 차단이 없습니다')
     expect(container.textContent).toContain('확인 안 한 높은 심각도 차단')
   })

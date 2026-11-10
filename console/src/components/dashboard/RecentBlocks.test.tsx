@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RecentBlocks } from './RecentBlocks'
-import { TopAgents } from './TopAgents'
 import type { DownloadEventListItem } from '../../lib/api/events'
 
 let container: HTMLDivElement
@@ -68,25 +67,5 @@ describe('RecentBlocks', () => {
   it('빈 목록이면 빈 상태 문구', async () => {
     await mountRecent([])
     expect(container.textContent).toContain('이 기간에 차단이 없습니다')
-  })
-})
-
-describe('TopAgents', () => {
-  it('막대 너비는 최대값 대비 비율이다', async () => {
-    await act(async () => root.render(<TopAgents rows={[
-      { key: 'a', label: 'PC-01', blockCount: 10 }, { key: 'b', label: 'PC-02', blockCount: 5 },
-    ]} />))
-    const bars = container.querySelectorAll<HTMLElement>('.dash-top__bar')
-    expect(bars[0].style.width).toBe('100%')
-    expect(bars[1].style.width).toBe('50%')
-    expect(container.textContent).toContain('차단 상위 PC')
-    expect(container.textContent).toContain('PC-02')
-  })
-
-  it('빈 목록이면 빈 상태, null이면 제목만', async () => {
-    await act(async () => root.render(<TopAgents rows={[]} />))
-    expect(container.textContent).toContain('이 기간에 차단이 없습니다')
-    await act(async () => root.render(<TopAgents rows={null} />))
-    expect(container.textContent).not.toContain('이 기간에 차단이 없습니다')
   })
 })
