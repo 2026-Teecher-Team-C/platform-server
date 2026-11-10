@@ -23,6 +23,10 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     heldAt: '2026-10-11T17:41:30+09:00',
     decidedAt: '2026-10-11T17:41:31+09:00',
     createdAt: '2026-10-11T17:41:31+09:00',
+    severity: null,
+    topRuleName: null,
+    extraRuleCount: 0,
+    acknowledged: false,
   },
   {
     eventId: '30000000-0000-4000-8000-000000000002',
@@ -42,6 +46,10 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     heldAt: '2026-10-11T16:20:00+09:00',
     decidedAt: '2026-10-11T16:20:00+09:00',
     createdAt: '2026-10-11T16:20:00+09:00',
+    severity: null,
+    topRuleName: null,
+    extraRuleCount: 0,
+    acknowledged: false,
   },
   {
     eventId: '30000000-0000-4000-8000-000000000003',
@@ -61,6 +69,10 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     heldAt: '2026-10-11T15:11:02+09:00',
     decidedAt: '2026-10-11T15:11:02+09:00',
     createdAt: '2026-10-11T15:11:02+09:00',
+    severity: null,
+    topRuleName: null,
+    extraRuleCount: 0,
+    acknowledged: false,
   },
   // 해시 계산 전에 차단된 이벤트: 상세 화면의 nullable 필드 표시를 검증하는 샘플.
   {
@@ -81,5 +93,9 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     heldAt: null,
     decidedAt: '2026-10-11T14:00:00+09:00',
     createdAt: '2026-10-11T14:00:00+09:00',
+    severity: null,
+    topRuleName: null,
+    extraRuleCount: 0,
+    acknowledged: false,
   },
 ]
