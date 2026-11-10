@@ -16,12 +16,13 @@ beforeEach(() => {
   vi.mocked(dash.getDashboardThreats).mockResolvedValue({ content: [{ ruleName: 'r' }] } as never)
   vi.mocked(dash.getEngineStatus).mockResolvedValue({ state: 'HEALTHY' } as never)
   vi.mocked(dash.getDailyBlocks).mockResolvedValue({ days: [] } as never)
-  vi.mocked(dash.getTopSources).mockResolvedValue({ by: 'AGENT', content: [{ key: 'a' }] } as never)
+  vi.mocked(dash.getTopSources).mockImplementation(async (q) =>
+    ({ by: q.by, content: [{ key: q.by === 'HOST' ? 'h' : 'a' }] }) as never)
   vi.mocked(events.getDownloadEvents).mockResolvedValue({ content: [{ eventId: 'x' }] } as never)
 })
 
 describe('loadDashboard', () => {
-  it('7개 요청을 같은 기간과 signal로 한 번씩 부른다', async () => {
+  it('8개 요청을 같은 기간과 signal로 한 번씩 부른다', async () => {
     const signal = new AbortController().signal
     const snap = await loadDashboard({ period: '7d', stackBy: 'RULE', now }, signal)
     const from = new Date(now.getTime() - 7 * 86400000).toISOString()
@@ -30,13 +31,16 @@ describe('loadDashboard', () => {
     expect(dash.getDashboardSummary).toHaveBeenCalledOnce()
     expect(dash.getDashboardSummary).toHaveBeenCalledWith({ from, to }, signal)
     expect(dash.getUnacknowledgedBlocks).toHaveBeenCalledWith({ size: 5 }, signal)
-    expect(dash.getDashboardThreats).toHaveBeenCalledWith({ from, to, size: 10 }, signal)
+    // 매칭 룰 Top 5를 위협별 현황 표(10줄)보다 넓은 범위에서 고르도록 더 받는다.
+    expect(dash.getDashboardThreats).toHaveBeenCalledWith({ from, to, size: 50 }, signal)
     expect(dash.getEngineStatus).toHaveBeenCalledWith(signal)
     expect(dash.getDailyBlocks).toHaveBeenCalledWith(
       { from, to, tz: 'Asia/Seoul', stackBy: 'RULE' },
       signal,
     )
     expect(dash.getTopSources).toHaveBeenCalledWith({ from, to, by: 'AGENT', size: 5 }, signal)
+    expect(dash.getTopSources).toHaveBeenCalledWith({ from, to, by: 'HOST', size: 5 }, signal)
+    expect(dash.getTopSources).toHaveBeenCalledTimes(2)
     expect(events.getDownloadEvents).toHaveBeenCalledWith(
       { decision: ['BLOCKED', 'FAIL_CLOSE'], from, to, size: 10 },
       signal,
@@ -46,7 +50,6 @@ describe('loadDashboard', () => {
       dash.getDashboardThreats,
       dash.getEngineStatus,
       dash.getDailyBlocks,
-      dash.getTopSources,
       events.getDownloadEvents,
     ]) {
       expect(fn).toHaveBeenCalledOnce()
@@ -54,6 +57,7 @@ describe('loadDashboard', () => {
 
     expect(snap.threats).toEqual([{ ruleName: 'r' }])
     expect(snap.topAgents).toEqual([{ key: 'a' }])
+    expect(snap.topHosts).toEqual([{ key: 'h' }])
     expect(snap.recentBlocks).toEqual([{ eventId: 'x' }])
     expect(snap.unacknowledged).toBe(page)
     expect(snap.engine.state).toBe('HEALTHY')
