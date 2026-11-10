@@ -35,6 +35,7 @@ const snapshot: DashboardSnapshot = {
   },
   daily: { stackBy: 'SOURCE', keys: ['ENGINE'], days: [{ date: '2026-11-08', counts: { ENGINE: 3 } }] },
   topAgents: [{ key: 'a1', label: 'DEV-031', blockCount: 14 }],
+  topHosts: [{ key: 'evil.example', label: 'evil.example', blockCount: 9 }],
   recentBlocks: [{
     eventId: 'r1', agentId: 'a1', hostname: 'DEV-031', sha256: 'a'.repeat(64), filename: 'helper_tool.exe',
     mimeType: null, fileSize: null, decision: 'BLOCKED', decisionSource: 'ENGINE', cacheHit: false,
@@ -93,15 +94,17 @@ describe('위협 대시보드', () => {
     expect(container.querySelector('h1')?.textContent).toBe('위협 대시보드')
     expect(container.querySelector('.eyebrow')?.textContent).toBe('Dashboard')
     const titles = [...container.querySelectorAll('h2')].map((node) => node.textContent)
-    expect(titles).toEqual(['확인 안 한 높은 심각도 차단', '위협별 현황', '일별 차단', '차단 상위 PC', '최근 차단'])
-    const unack = container.querySelector('[aria-labelledby=unack-blocks-title]')!
+    expect(titles).toEqual(['확인 안 한 높은 심각도 차단', '위협별 현황', '일별 차단', '매칭 룰 Top 5', '차단 상위', '최근 차단'])
+    // 미확인 차단은 헤더의 종 버튼 패널로 옮겼다.
+    const bell = container.querySelector('.dashboard-header__controls .bell-button')!
+    expect(bell.getAttribute('aria-label')).toBe('확인 안 한 높은 심각도 차단 1건')
+    expect(container.querySelector('.dash-stack [aria-labelledby=unack-blocks-title]')).toBeNull()
     const counters = container.querySelector('.dash-counters')!
     const threats = container.querySelector('[aria-labelledby=threat-table-title]')!
-    expect(unack.compareDocumentPosition(counters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(counters.compareDocumentPosition(threats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     const rows = [...container.querySelectorAll('.dash-row')].map((row) =>
       [...row.querySelectorAll('h2')].map((node) => node.textContent))
-    expect(rows).toEqual([['위협별 현황', '일별 차단'], ['차단 상위 PC', '최근 차단']])
+    expect(rows).toEqual([['위협별 현황', '일별 차단'], ['매칭 룰 Top 5', '차단 상위'], ['최근 차단']])
     expect(counterValues()).toEqual(['48', '46', '2', '9', '1,922'])
     expect(container.querySelector('[role=status].live-status')?.textContent).toContain('5초마다 갱신 · ')
     expect(load).toHaveBeenCalledWith({ period: '7d', stackBy: 'SOURCE' }, expect.any(AbortSignal))

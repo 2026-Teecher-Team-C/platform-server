@@ -794,6 +794,13 @@ a {
 /* 목업 v3: 위협별 현황 | 일별 차단 = 3:2 */
 .dash-row--threats {
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: stretch;
+}
+
+/* 1행에서 일별 차단 패널을 위협별 현황과 같은 높이로 늘리고, 늘어난 만큼 막대 영역을 키운다. */
+.dash-daily {
+  display: flex;
+  flex-direction: column;
 }
 
 .dash-panel {
@@ -925,16 +932,79 @@ a {
   }
 }
 
-.dash-badge {
-  min-width: 22px;
-  padding: 1px 8px;
+/* 헤더의 종 버튼. 사이드바 로그아웃 버튼과 같은 32px 테두리 네모 + 한 색 선 아이콘(밝은 배경용). */
+.bell {
+  position: relative;
+}
+
+.bell-button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: #475467;
+  cursor: pointer;
+}
+
+.bell-button:hover,
+.bell-button[aria-expanded='true'] {
+  border-color: #98a2b3;
+  color: var(--text);
+}
+
+.bell-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bell-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  padding: 1px 5px;
   border-radius: 999px;
   background: var(--dash-danger);
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
+  line-height: 14px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.bell-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(820px, calc(100vw - 32px));
+  box-shadow: 0 12px 28px rgba(16, 24, 40, 0.18);
+}
+
+.bell-panel[hidden] {
+  display: none;
+}
+
+/* 좁은 화면에서는 종 버튼 기준으로 오른쪽에 붙이면 왼쪽이 화면 밖으로 나간다. 헤더 컨트롤 줄 전체 폭에 맞춘다. */
+@media (max-width: 680px) {
+  .dashboard-header__controls {
+    position: relative;
+  }
+
+  .bell {
+    position: static;
+  }
+
+  .bell-panel {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
 }
 
 /* 위젯 안의 표는 class 없이 table-scroll 안에 들어 있다. */
@@ -1039,23 +1109,25 @@ a {
 .dash-counters {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px 22px;
-  padding: 4px 0 12px;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
 }
 
 .dash-counter {
   min-width: 0;
-  padding-left: 9px;
+  padding: 10px 12px;
   border-left: 3px solid var(--dash-info);
+  border-radius: 0 8px 8px 0;
+  background: #eef4fc;
 }
 
 .dash-counter:nth-child(-n + 2) {
   border-left-color: var(--dash-danger);
+  background: #fdf0ef;
 }
 
 .dash-counter:nth-child(3) {
   border-left-color: var(--tone-fail-close);
+  background: #fff6e6;
 }
 
 .dash-counter__label {
@@ -1108,7 +1180,8 @@ a {
 
 .dash-daily__bars {
   display: flex;
-  align-items: flex-start;
+  flex: 1;
+  align-items: stretch;
   gap: 4px;
   padding: 14px 14px 0;
   overflow-x: auto;
@@ -1124,8 +1197,9 @@ a {
 /* 막대의 % 높이는 이 트랙 기준이다. 날짜 라벨은 트랙 밖에 두어 가장 높은 막대가 눌리지 않는다. */
 .dash-daily__track {
   display: flex;
+  flex: 1;
   align-items: flex-end;
-  height: 160px;
+  min-height: 160px;
 }
 
 .dash-daily__bar {
@@ -1173,16 +1247,17 @@ a {
 }
 
 /* 고정 키는 의미별 색(판정 소스별·룰별 공통). 룰 팔레트는 고정 색을 다시 쓰지 않는다. */
+/* 판정 소스 4색은 색상 계열(파랑·청록·보라·주황)을 나눠 서로 헷갈리지 않게 한다. */
 .dash-daily__seg--engine { background: #1565c0; }
-.dash-daily__seg--cache { background: #6ea8de; }
-.dash-daily__seg--blacklist { background: #3a3a3a; }
-.dash-daily__seg--fail-close { background: var(--tone-fail-close); }
+.dash-daily__seg--cache { background: #0f9d8a; }
+.dash-daily__seg--blacklist { background: #6d4fc2; }
+.dash-daily__seg--fail-close { background: #e8710a; }
 .dash-daily__seg--other { background: var(--tone-bypassed); }
-.dash-daily__seg--rule-0 { background: #7e57c2; }
-.dash-daily__seg--rule-1 { background: #2e9e8f; }
-.dash-daily__seg--rule-2 { background: #c2185b; }
-.dash-daily__seg--rule-3 { background: #0277bd; }
-.dash-daily__seg--rule-4 { background: #9e9d24; }
+.dash-daily__seg--rule-0 { background: #1565c0; }
+.dash-daily__seg--rule-1 { background: #c2185b; }
+.dash-daily__seg--rule-2 { background: #2e7d32; }
+.dash-daily__seg--rule-3 { background: #f9a825; }
+.dash-daily__seg--rule-4 { background: #00838f; }
 .dash-daily__seg--rule-5 { background: #6d4c41; }
 
 /* 차단 상위 PC: 이름·막대·건수 */
@@ -1194,7 +1269,7 @@ a {
 
 .dash-top__row {
   display: grid;
-  grid-template-columns: minmax(0, 9em) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 6px 0;
@@ -1225,7 +1300,46 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+.dash-row--halves {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dash-row--full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dash-top__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 위협별 현황 표의 차단 칸: 막대 + 숫자 */
+.dash-inline-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-inline-bar__track {
+  flex: 1;
+  min-width: 48px;
+  height: 6px;
+  border-radius: 3px;
+  background: #eef1f4;
+}
+
+.dash-inline-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dash-info);
+}
+
 @media (max-width: 1100px) {
+  .dash-row--halves,
   .dash-row,
   .dash-row--threats {
     grid-template-columns: minmax(0, 1fr);

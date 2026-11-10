@@ -11,8 +11,13 @@ import { EngineStatusBadge } from './EngineStatusBadge'
 
 type Props = { rows: ThreatRow[] | null; engine: EngineStatus | null; stale: boolean; now: Date }
 
+const MAX_ROWS = 10
+
 export function ThreatTable({ rows, engine, stale, now }: Props) {
   const showDown = !stale && engine?.state === 'DOWN'
+  // 매칭 룰 Top 5용으로 더 받아 오므로 표에는 최근 위협 10줄만 둔다.
+  const shown = rows ? rows.slice(0, MAX_ROWS) : null
+  const maxBlocks = shown ? Math.max(0, ...shown.map((r) => r.blockCount)) : 0
 
   return (
     <section className="dash-panel" aria-labelledby="threat-table-title">
@@ -30,8 +35,8 @@ export function ThreatTable({ rows, engine, stale, now }: Props) {
           </Link>
         </p>
       )}
-      {rows && rows.length === 0 && <p className="dash-panel__empty">이 기간에 차단된 위협이 없습니다</p>}
-      {rows && rows.length > 0 && (
+      {shown && shown.length === 0 && <p className="dash-panel__empty">이 기간에 차단된 위협이 없습니다</p>}
+      {shown && shown.length > 0 && (
         <div className="table-scroll">
           <table>
             <thead>
@@ -45,7 +50,7 @@ export function ThreatTable({ rows, engine, stale, now }: Props) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {shown.map((r, i) => (
                 <tr key={`${r.kind}:${r.ruleName ?? ''}:${i}`}>
                   <td>{r.kind === 'BLACKLIST' ? '관리자 등록 블랙리스트' : (r.ruleName ?? '룰 정보 없음')}</td>
                   <td>
@@ -54,7 +59,17 @@ export function ThreatTable({ rows, engine, stale, now }: Props) {
                     </span>
                   </td>
                   <td>{r.affectedAgents}</td>
-                  <td>{r.blockCount}</td>
+                  <td>
+                    <span className="dash-inline-bar">
+                      <span className="dash-inline-bar__track" aria-hidden="true">
+                        <span
+                          className="dash-inline-bar__fill"
+                          style={{ width: `${maxBlocks > 0 ? (r.blockCount / maxBlocks) * 100 : 0}%` }}
+                        />
+                      </span>
+                      {r.blockCount}
+                    </span>
+                  </td>
                   <td>{formatMonthDay(r.firstSeenAt)}</td>
                   <td>{formatRelative(r.lastSeenAt, now)}</td>
                 </tr>

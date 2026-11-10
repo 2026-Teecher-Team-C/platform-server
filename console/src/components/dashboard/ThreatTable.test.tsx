@@ -115,4 +115,16 @@ describe('ThreatTable', () => {
     expect(container.querySelector('table')).toBeNull()
     expect(container.textContent).not.toContain('이 기간에 차단된 위협이 없습니다')
   })
+
+  it('차단 칸에 가장 많은 위협 대비 막대를 그린다', async () => {
+    await mount([row({ blockCount: 14 }), row({ ruleName: 'B', blockCount: 7 })], engine())
+    const widths = [...container.querySelectorAll<HTMLElement>('.dash-inline-bar__fill')].map((b) => b.style.width)
+    expect(widths).toEqual(['100%', '50%'])
+    expect([...container.querySelectorAll('.dash-inline-bar')].map((n) => n.textContent)).toEqual(['14', '7'])
+  })
+
+  it('10줄까지만 보여 준다', async () => {
+    await mount(Array.from({ length: 12 }, (_, i) => row({ ruleName: 'R' + i })), engine())
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(10)
+  })
 })
