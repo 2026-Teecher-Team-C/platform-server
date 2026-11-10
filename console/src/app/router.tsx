@@ -1,5 +1,6 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom'
 import { ProtectedRoute } from '../components/auth/ProtectedRoute'
+import { RoleGuard } from '../components/auth/RoleGuard'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AgentsPage } from '../pages/AgentsPage'
 import { AuditLogsPage } from '../pages/AuditLogsPage'
@@ -34,56 +35,23 @@ export const router = createBrowserRouter([
         element: <Navigate to="/dashboard" replace />,
       },
       {
-        path: 'dashboard',
-        element: <DashboardPage />,
-      },
-      {
-        path: 'events',
-        element: <EventsPage />,
-      },
-      {
-        path: 'events/:eventId',
-        element: <EventDetailPage />,
-      },
-      {
-        path: 'quarantine',
-        element: <QuarantinePage />,
-      },
-      {
-        path: 'quarantine/:quarantineId',
-        element: <QuarantineDetailPage />,
-      },
-      {
-        path: 'agents',
-        element: <AgentsPage />,
-      },
-      {
-        path: 'agents/enrollment-token',
-        element: <EnrollmentTokenPage />,
-      },
-      {
-        path: 'whitelist',
-        element: <WhitelistPage />,
-      },
-      {
-        path: 'blacklist',
-        element: <BlacklistPage />,
-      },
-      {
-        path: 'policies',
-        element: <PoliciesPage />,
-      },
-      {
-        path: 'rulesets',
-        element: <RulesetsPage />,
-      },
-      {
-        path: 'audit-logs',
-        element: <AuditLogsPage />,
-      },
-      {
-        path: '*',
-        element: <NotFoundPage />,
+        // 주소가 없는 부모 라우트. 아래 모든 페이지에 역할 검사를 한 번에 적용한다.
+        element: <RoleGuard />,
+        children: [
+          { path: 'dashboard', element: <DashboardPage /> },
+          { path: 'events', element: <EventsPage /> },
+          { path: 'events/:eventId', element: <EventDetailPage /> },
+          { path: 'quarantine', element: <QuarantinePage /> },
+          { path: 'quarantine/:quarantineId', element: <QuarantineDetailPage /> },
+          { path: 'agents', element: <AgentsPage /> },
+          { path: 'agents/enrollment-token', element: <EnrollmentTokenPage /> },
+          { path: 'whitelist', element: <WhitelistPage /> },
+          { path: 'blacklist', element: <BlacklistPage /> },
+          { path: 'policies', element: <PoliciesPage /> },
+          { path: 'rulesets', element: <RulesetsPage /> },
+          { path: 'audit-logs', element: <AuditLogsPage /> },
+          { path: '*', element: <NotFoundPage /> },
+        ],
       },
     ],
   },

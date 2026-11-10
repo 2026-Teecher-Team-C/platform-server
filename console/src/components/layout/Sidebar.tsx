@@ -1,23 +1,16 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../app/useAuth'
-
-const navigation = [
-  { to: '/dashboard', label: '대시보드' },
-  { to: '/events', label: '다운로드 이벤트' },
-  { to: '/quarantine', label: '격리 파일' },
-  { to: '/agents', label: 'PC 현황' },
-  { to: '/agents/enrollment-token', label: '등록 토큰 발급', adminOnly: true },
-  { to: '/whitelist', label: '화이트리스트' },
-  { to: '/blacklist', label: '블랙리스트' },
-  { to: '/policies', label: '정책' },
-  { to: '/rulesets', label: 'YARA 룰셋' },
-  { to: '/audit-logs', label: '감사 로그' },
-]
+import { allowedMenus } from '../../lib/auth/roles'
+import { NAV_ITEMS } from './navigation'
 
 export function Sidebar() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
-  const visibleNavigation = navigation.filter((item) => !item.adminOnly || user?.role === 'ADMIN')
+
+  // 이 사용자의 역할로 볼 수 있는 메뉴 key 목록을 구한다.
+  // 로그인 정보가 없거나 권한 표에 없는 역할이면 빈 목록이 된다(= 메뉴 없음).
+  const allowed = new Set(allowedMenus(user?.role))
+  const visibleNavigation = NAV_ITEMS.filter((item) => allowed.has(item.key))
 
   function handleLogout() {
     signOut()
@@ -32,6 +25,7 @@ export function Sidebar() {
           <strong>Team-c</strong>
           <span>Admin Console</span>
         </div>
+        {/* 로그아웃 버튼은 역할과 상관없이 항상 보인다. 메뉴가 하나도 없는 역할도 나갈 수 있어야 한다. */}
         <button
           className="sidebar-logout"
           type="button"
