@@ -49,13 +49,17 @@ class AdminAuthRestIntegrationTest {
     private JwtEncoder jwtEncoder;
 
     private String seedAdmin(boolean active) {
+        return seedAdmin(active, "ANALYST");
+    }
+
+    private String seedAdmin(boolean active, String role) {
         String username = "admin-" + UUID.randomUUID();
         jdbcTemplate.update(
                 """
                 INSERT INTO admin_users (admin_id, username, password_hash, role, is_active)
-                VALUES (?, ?, ?, 'ANALYST', ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                UUID.randomUUID(), username, passwordEncoder.encode(PASSWORD), active);
+                UUID.randomUUID(), username, passwordEncoder.encode(PASSWORD), role, active);
         return username;
     }
 
@@ -289,13 +293,25 @@ class AdminAuthRestIntegrationTest {
     }
 
     @Test
-    void 로그인하면_없는_관리자_경로는_404다() {
-        String accessToken = accessToken(login(seedAdmin(true), PASSWORD));
+    void ADMIN이_로그인하면_없는_관리자_경로는_404다() {
+        String accessToken = accessToken(login(seedAdmin(true, "ADMIN"), PASSWORD));
 
-                ResponseEntity<Map<String, Object>> response = get("/api/admin/no-such-path", accessToken);
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/no-such-path", accessToken);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody().get("code")).isEqualTo("NOT_FOUND");
+    }
+
+    // 권한표에 없는 경로는 ADMIN만 통과시킨다(SecurityConfig의 anyRequest). 그래서 ADMIN이 아니면 경로가 있는지
+    // 없는지 알려 주지 않고 라우팅 전에 403이다.
+    @Test
+    void ADMIN이_아니면_없는_관리자_경로도_403이다() {
+        String accessToken = accessToken(login(seedAdmin(true, "ANALYST"), PASSWORD));
+
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/no-such-path", accessToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().get("code")).isEqualTo("FORBIDDEN");
     }
 
     @Test
@@ -411,6 +427,51 @@ class AdminAuthRestIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
+    }
+
+    @Test
+    void 역할이_강등되면_같은_토큰으로도_바로_403이다() {
+        String username = seedAdmin(true, "ADMIN");
+        String accessToken = accessToken(login(username, PASSWORD));
+        assertThat(get("/api/admin/audit-logs", accessToken).getStatusCode().value()).isNotIn(401, 403);
+
+        jdbcTemplate.update("UPDATE admin_users SET role = 'ANALYST' WHERE username = ?", username);
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/audit-logs", accessToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().get("code")).isEqualTo("FORBIDDEN");
+    }
+
+    @Test
+    void 비활성화된_계정의_토큰은_me가_아닌_API도_401이다() {
+        String username = seedAdmin(true);
+        String accessToken = accessToken(login(username, PASSWORD));
+        jdbcTemplate.update("UPDATE admin_users SET is_active = false WHERE username = ?", username);
+
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/agents", accessToken);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().get("code")).isEqualTo("UNAUTHORIZED");
+    }
+
+    @Test
+    void 토큰의_role_클레임은_믿지_않고_DB의_role로_판단한다() {
+        UUID adminId = adminIdOf(seedAdmin(true, "ANALYST"));
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .subject(adminId.toString())
+                .claim("username", "whoever")
+                .claim("role", "ADMIN")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(600))
+                .build();
+        String forged = jwtEncoder.encode(
+                JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+
+        ResponseEntity<Map<String, Object>> response = get("/api/admin/audit-logs", forged);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().get("code")).isEqualTo("FORBIDDEN");
     }
 
     @Test
