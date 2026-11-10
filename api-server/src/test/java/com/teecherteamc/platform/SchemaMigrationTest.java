@@ -62,4 +62,21 @@ class SchemaMigrationTest {
                 .contains("rule EICAR_Test_File")
                 .contains("rule Teecher_Demo_Fake_Malware");
     }
+
+    @Test
+    void V6_후_역할_기본값은_USER이고_옛_이름_VIEWER는_거부한다() {
+        String adminId = "00000000-0000-0000-0000-000000000002";
+        jdbcTemplate.update(
+                "INSERT INTO admin_users (admin_id, username, password_hash) VALUES (?::uuid, 'role-default', 'x')",
+                adminId);
+
+        String role = jdbcTemplate.queryForObject(
+                "SELECT role FROM admin_users WHERE admin_id = ?::uuid", String.class, adminId);
+        Throwable thrown = catchThrowable(() -> jdbcTemplate.update(
+                "INSERT INTO admin_users (admin_id, username, password_hash, role) "
+                        + "VALUES (gen_random_uuid(), 'role-viewer', 'x', 'VIEWER')"));
+
+        assertThat(role).isEqualTo("USER");
+        assertThat(thrown).hasMessageContaining("ck_admin_users_role");
+    }
 }

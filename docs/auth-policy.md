@@ -1,13 +1,13 @@
 # 인증 방침
 
 api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bearer 토큰)은 구현됐다(7장).
-역할별 권한과 에이전트 업로드 인증은 아직이다.
+역할별 권한(9장)도 구현됐다. 에이전트 업로드 인증은 아직이다.
 
 ## 1. 적용 범위
 
 - 헬스체크를 제외한 모든 엔드포인트에 인증을 적용한다.
 - 시연용으로 인증 없이 공개한 엔드포인트(다운로드 이벤트 목록 API)는 시연이 끝나면 바로 막는다.
-- 관리자 계정은 현재 모두 같은 권한을 가진다. 역할(`VIEWER` / `ANALYST` / `ADMIN`)은 나중에 필요해지면 나눈다.
+- 관리자 계정의 권한은 역할(`ADMIN` / `ANALYST`)로 나눈다(9장). `USER`는 콘솔 계정이 없는 일반 직원(소명 토큰 사용자)용이라 내 정보 보기·로그아웃 외의 콘솔 API 권한이 없다.
 
 ## 2. 에러 응답
 
@@ -59,7 +59,7 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 | `GET /api/admin/auth/me` | 현재 관리자 `{adminId, username, role, isActive, lastLoginAt}`. access 토큰이 유효해도 그사이 비활성화됐으면 401 |
 
 - 로그인 없이 열린 곳: 로그인·refresh API, 시연용 `GET /api/admin/download-events`, actuator `health`·`prometheus`. 나머지는 로그인이 필요하다.
-- access 토큰: HS256 JWT. `sub`=admin_id, `username` 클레임. role·is_active는 넣지 않고 매번 DB에서 읽는다. 서버에 상태가 없어서 로그아웃해도 만료 전까지는 유효하다 — 그래서 짧게 둔다.
+- access 토큰: HS256 JWT. `sub`=admin_id, `username`, `role` 클레임. `role`은 콘솔이 메뉴를 보여 주는 표시용이고, 서버는 토큰의 role을 믿지 않고 요청마다 role·is_active를 DB에서 읽는다(역할 강등·비활성화가 바로 반영된다). 서버에 상태가 없어서 로그아웃해도 만료 전까지는 유효하다 — 그래서 짧게 둔다.
 - refresh 토큰: JWT가 아닌 랜덤 문자열. Redis에 SHA-256 해시로 저장한다(`admin:refresh:<해시>`). Redis가 죽으면 로그인·refresh가 실패한다.
 - 로그인·로그아웃·로그인 실패는 감사 로그(`LOGIN` / `LOGOUT` / `LOGIN_FAILED`)로 남는다. IP는 nginx가 덮어쓴 `X-Forwarded-For`의 첫 주소다.
 
@@ -78,3 +78,34 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 - 끄더라도 행위자는 있어야 한다(`added_by`·`restored_by` NOT NULL, 감사 로그 `actor_id`). access 토큰을 실은 요청은 그 관리자로, 싣지 않은 요청은 초기 관리자(`ADMIN_BOOTSTRAP_USERNAME`)로 처리되고, `GET /api/admin/auth/me`도 그 계정을 돌려준다. 그 계정이 없거나 비활성이면 기동하지 않는다.
 - 컨트롤러는 두 모드 모두 `@AuthenticationPrincipal AdminPrincipal`로 현재 관리자를 받는다.
 - 콘솔의 `VITE_AUTH_MODE`와는 별개다. 서버를 끄면 콘솔은 `enabled`여도 `/me`가 초기 관리자를 돌려줘 로그인 화면 없이 열린다.
+
+## 9. 역할별 권한
+
+역할은 `ADMIN`(보안 관리자), `ANALYST`(운영자), `USER`(일반 직원) 셋이다. `USER`는 콘솔 계정이 없고 소명 토큰으로만 들어오므로 내 정보 보기·로그아웃만 가능하다(2026-11-10 결정). 기준은 Notion "페이지의 단계별 3단계 분리" §3이다(그 표의 `OPERATOR`는 `ANALYST`와 같다).
+
+**기본 규칙** (Notion 표에 없는 API에 적용, 2026-11-08 팀 결정 대기)
+
+- 쓰기(`POST`·`PATCH`·`DELETE`)는 `ADMIN`만 한다.
+- 읽기(`GET`)는 `ANALYST`도 한다. 단 Notion이 ❌로 정한 화이트리스트와 감사 로그는 읽기도 `ADMIN`만 한다.
+- 에이전트 등록 토큰 발급은 쓰기가 아니어도 민감해서 `ADMIN`만 한다.
+
+| 기능 | API | ADMIN | ANALYST | USER |
+|---|---|---|---|---|
+| 이벤트 조회 | `GET /api/admin/download-events`, `.../{eventId}`, `GET /api/admin/events/stream` | ✅ | ✅ | ❌ |
+| 격리 조회 | `GET /api/admin/quarantine`, `.../{quarantineId}` | ✅ | ✅ | ❌ |
+| 격리 해제(오탐 복구) | `POST /api/admin/quarantine/{quarantineId}/restore` | ✅ | ❌ | ❌ |
+| 블랙리스트 조회 | `GET /api/admin/blacklist` | ✅ | ✅ | ❌ |
+| 블랙리스트 변경 | `POST`·`PATCH`·`DELETE /api/admin/blacklist...` | ✅ | ❌ | ❌ |
+| 화이트리스트 전부 | `/api/admin/whitelist...` | ✅ | ❌ | ❌ |
+| 우회 도메인 조회 | `GET /api/admin/bypass-domains` | ✅ | ✅ | ❌ |
+| 우회 도메인 변경 | `POST`·`DELETE /api/admin/bypass-domains...` | ✅ | ❌ | ❌ |
+| 룰셋 조회 | `GET /api/admin/rulesets`, `.../{version}/rules` | ✅ | ✅ | ❌ |
+| 룰셋 변경 | `POST /api/admin/rulesets`, `.../activate`, `PATCH .../rules/{ruleId}` | ✅ | ❌ | ❌ |
+| 에이전트 목록 | `GET /api/admin/agents` | ✅ | ✅ | ❌ |
+| 에이전트 등록 토큰 발급 | `POST /api/admin/agents/enrollment-tokens` | ✅ | ❌ | ❌ |
+| 감사 로그 | `GET /api/admin/audit-logs` | ✅ | ❌ | ❌ |
+| 내 정보·로그아웃 | `GET /api/admin/auth/me`, `POST /api/admin/auth/logout` | ✅ | ✅ | ✅ |
+
+- 로그인·refresh와 actuator `health`·`prometheus`는 지금처럼 로그인 없이 연다(1장).
+- 권한이 없으면 403 `FORBIDDEN`이다(2장). 로그인하지 않았으면 401이다.
+- 소명 목록·승인과 계정 생성·역할 부여 API는 아직 없어서 표에 없다. 만들 때 이 표에 행을 추가한다.

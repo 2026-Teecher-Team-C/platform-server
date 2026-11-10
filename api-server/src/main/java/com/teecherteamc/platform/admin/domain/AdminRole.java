@@ -1,8 +1,12 @@
 package com.teecherteamc.platform.admin.domain;
 
-/** admin_users.role 값. 지금은 모든 관리자가 같은 권한이라 역할로 막지 않는다(docs/auth-policy.md 1장). */
+/**
+ * admin_users.role 값. 권한은 역할별로 나뉜다(docs/auth-policy.md 9장).
+ *
+ * <p>USER는 콘솔 계정이 없는 일반 직원(소명 토큰 사용자)이라 내 정보 보기·로그아웃 외의 콘솔 API 권한이 없다.
+ */
 public enum AdminRole {
     ADMIN,
     ANALYST,
-    VIEWER
+    USER
 }
