@@ -92,6 +92,8 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 | 기능 | API | ADMIN | ANALYST | USER |
 |---|---|---|---|---|
 | 이벤트 조회 | `GET /api/admin/download-events`, `.../{eventId}`, `GET /api/admin/events/stream` | ✅ | ✅ | ❌ |
+| 차단 확인 처리 | `POST /api/admin/download-events/{eventId}/acknowledge` | ✅ | ❌ | ❌ |
+| 대시보드 조회 | `GET /api/admin/dashboard/unacknowledged-blocks` | ✅ | ✅ | ❌ |
 | 격리 조회 | `GET /api/admin/quarantine`, `.../{quarantineId}` | ✅ | ✅ | ❌ |
 | 격리 해제(오탐 복구) | `POST /api/admin/quarantine/{quarantineId}/restore` | ✅ | ❌ | ❌ |
 | 블랙리스트 조회 | `GET /api/admin/blacklist` | ✅ | ✅ | ❌ |
