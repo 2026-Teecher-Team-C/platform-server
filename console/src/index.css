@@ -7,6 +7,10 @@
   text-rendering: optimizeLegibility;
   --sidebar: #101827;
   --sidebar-soft: #1b2638;
+  --sidebar-line: #263449;
+  --sidebar-text: #aebbc9;
+  --sidebar-heading: #7d8ca3;
+  --sidebar-accent: #60a5fa;
   --surface: #ffffff;
   --surface-muted: #f8fafc;
   --border: #dce2e8;
@@ -59,19 +63,20 @@ a {
   top: 0;
   width: 248px;
   height: 100vh;
-  padding: 24px 16px;
+  padding: 20px 0;
   background: var(--sidebar);
   color: #e8edf5;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  z-index: 10;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 8px 24px;
+  padding: 0 20px 20px;
 }
 
 .brand-mark {
@@ -94,13 +99,55 @@ a {
   margin-left: auto;
   width: 32px;
   height: 32px;
-  border: 1px solid #263449;
+  border: 1px solid var(--sidebar-line);
   border-radius: 8px;
   background: transparent;
-  color: #aebbc9;
+  color: var(--sidebar-text);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+}
+
+.sidebar-collapse {
+  position: absolute;
+  top: 50%;
+  right: -16px;
+  z-index: 1;
+  width: 16px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--sidebar-line);
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  background: var(--sidebar);
+  color: var(--sidebar-text);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.sidebar-collapse:hover {
+  color: #ffffff;
+  background: var(--sidebar-soft);
+}
+
+.sidebar-collapse:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 2px;
+}
+
+.sidebar.collapsed {
+  width: 64px;
+}
+
+.sidebar.collapsed .brand {
+  flex-direction: column;
+  padding: 0 0 16px;
+}
+
+.sidebar.collapsed .sidebar-logout {
+  margin-left: 0;
 }
 
 .sidebar-logout:hover {
@@ -116,16 +163,56 @@ a {
 
 .sidebar-nav {
   display: grid;
-  gap: 4px;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nav-group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--sidebar-heading);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.nav-group-toggle:hover {
+  color: #ffffff;
+}
+
+.nav-group-chevron {
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(2px) rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.nav-group-toggle[aria-expanded='false'] .nav-group-chevron {
+  transform: translateY(-2px) rotate(225deg);
+}
+
+.nav-group-items {
+  display: grid;
 }
 
 .nav-link {
-  padding: 10px 12px;
-  border-radius: 8px;
-  color: #aebbc9;
+  position: relative;
+  padding: 9px 20px 9px 36px;
+  color: var(--sidebar-text);
   text-decoration: none;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .nav-link:hover {
@@ -135,21 +222,22 @@ a {
 
 .nav-link.active {
   color: #ffffff;
-  background: #263449;
+  background: var(--sidebar-line);
+  font-weight: 700;
 }
 
-.sidebar-footer {
-  margin-top: auto;
-  display: grid;
-  gap: 3px;
-  padding: 16px 8px 0;
-  border-top: 1px solid #263449;
-  color: #9cabbd;
-  font-size: 12px;
+.nav-link.active::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--sidebar-accent);
 }
 
-.sidebar-footer small {
-  color: #64748b;
+.nav-group-toggle:focus-visible,
+.nav-link:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: -2px;
 }
 
 .app-main {
@@ -1260,7 +1348,7 @@ a {
 }
 
 @media (max-width: 900px) {
-  .sidebar {
+  .sidebar:not(.collapsed) {
     width: 196px;
   }
 
@@ -1349,13 +1437,28 @@ a {
     height: auto;
   }
 
-  .sidebar-nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .sidebar.collapsed,
+  .sidebar:not(.collapsed) {
+    width: 100%;
   }
 
-  .sidebar-footer {
-    display: none;
+  /* 좁은 화면에서는 사이드바가 위쪽 띠가 되므로, 손잡이를 바깥으로 빼지 않고 띠 안 오른쪽 위에 둔다. */
+  .sidebar-collapse {
+    top: 20px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    border-left: 1px solid var(--sidebar-line);
+    border-radius: 8px;
+    transform: none;
   }
+
+  .sidebar .brand,
+  .sidebar.collapsed .brand {
+    flex-direction: row;
+    padding: 0 64px 16px 20px;
+  }
+
 
   .topbar {
     height: auto;
