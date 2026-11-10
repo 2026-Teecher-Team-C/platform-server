@@ -8,23 +8,30 @@
 // label: 화면에 보이는 한글 이름
 import type { MenuKey } from '../../lib/auth/roles'
 
+// 사이드바 그룹. 관리자 업무 순서(탐지 → 대응 → 정책 → 운영 → 관리)로 묶는다.
+// 설계 레포 docs/research/2026-11-04-dashboard-redesign.md 3장. 아직 화면이 없는
+// 소명 요청(대응)·운영 현황(운영)은 화면이 생길 때 추가한다.
+export const NAV_GROUPS = ['탐지', '대응', '정책', '운영', '관리'] as const
+export type NavGroup = (typeof NAV_GROUPS)[number]
+
 export type NavItem = {
   key: MenuKey
   to: string
   label: string
+  group: NavGroup
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { key: 'dashboard', to: '/dashboard', label: '대시보드' },
-  { key: 'downloadEvents', to: '/events', label: '다운로드 이벤트' },
-  { key: 'quarantine', to: '/quarantine', label: '격리 파일' },
-  { key: 'agents', to: '/agents', label: 'PC 현황' },
-  { key: 'enrollmentTokens', to: '/agents/enrollment-token', label: '등록 토큰 발급' },
-  { key: 'whitelist', to: '/whitelist', label: '화이트리스트' },
-  { key: 'blacklist', to: '/blacklist', label: '블랙리스트' },
-  { key: 'policy', to: '/policies', label: '정책' },
-  { key: 'yaraRules', to: '/rulesets', label: 'YARA 룰셋' },
-  { key: 'auditLog', to: '/audit-logs', label: '감사 로그' },
+  { key: 'dashboard', to: '/dashboard', label: '위협 대시보드', group: '탐지' },
+  { key: 'downloadEvents', to: '/events', label: '탐지 이벤트', group: '탐지' },
+  { key: 'quarantine', to: '/quarantine', label: '격리 파일', group: '대응' },
+  { key: 'policy', to: '/policies', label: '검사 정책', group: '정책' },
+  { key: 'whitelist', to: '/whitelist', label: '화이트리스트', group: '정책' },
+  { key: 'blacklist', to: '/blacklist', label: '블랙리스트', group: '정책' },
+  { key: 'yaraRules', to: '/rulesets', label: 'YARA 룰셋', group: '정책' },
+  { key: 'agents', to: '/agents', label: 'PC 현황', group: '운영' },
+  { key: 'enrollmentTokens', to: '/agents/enrollment-token', label: '등록 토큰 발급', group: '관리' },
+  { key: 'auditLog', to: '/audit-logs', label: '감사 로그', group: '관리' },
 ]
 
 // 주소가 긴 것부터 비교하기 위해 미리 정렬해 둔다.
