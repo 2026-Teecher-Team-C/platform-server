@@ -7,9 +7,11 @@ import { ThreatTable } from '../components/dashboard/ThreatTable'
 import { TopRules } from '../components/dashboard/TopRules'
 import { TopSources } from '../components/dashboard/TopSources'
 import { UnacknowledgedBell } from '../components/dashboard/UnacknowledgedBell'
+import { useAuth } from '../app/useAuth'
 import { ApiError } from '../lib/api/client'
 import type { StackBy } from '../lib/api/dashboard'
 import { PERIOD_OPTIONS, type PeriodKey } from '../lib/dashboard/format'
+import { canManage } from '../lib/auth/roles'
 import { loadDashboard, type DashboardSnapshot } from '../lib/dashboard/load'
 import { findNewEventIds } from '../lib/dashboard/summarize'
 import { usePolling } from '../lib/hooks/usePolling'
@@ -42,6 +44,7 @@ function formatTime(value: Date) {
 }
 
 export function DashboardPage() {
+  const { user } = useAuth()
   // 기간·쌓기 기준을 바꿀 때마다 이벤트 처리기에서 새 key를 만든다. 같은 기간으로 되돌아와도 예전 응답과 섞이지 않는다.
   const [selection, setSelection] = useState<Selection>(() => newSelection('7d', 'SOURCE'))
   const { period, stackBy, key } = selection
@@ -108,7 +111,13 @@ export function DashboardPage() {
             <span className="live-dot" aria-hidden="true" />
             {statusText}
           </p>
-          {!apiMissing && <UnacknowledgedBell page={snapshot?.unacknowledged ?? null} loaded={snapshot !== null} />}
+          {!apiMissing && (
+            <UnacknowledgedBell
+              page={snapshot?.unacknowledged ?? null}
+              loaded={snapshot !== null}
+              canAcknowledge={canManage(user?.role)}
+            />
+          )}
           <label className="dash-period">
             기간
             <select value={period} onChange={(event) => changePeriod(event.target.value as PeriodKey)}>

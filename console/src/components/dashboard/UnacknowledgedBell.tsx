@@ -13,13 +13,14 @@ import {
 const VIEW_ALL_HREF = '/events?decision=BLOCKED&minSeverity=HIGH&acknowledged=false'
 const ERROR_TEXT = '확인 처리에 실패했습니다. 다시 시도해 주세요.'
 
-type Props = { page: PageResponse<UnacknowledgedBlock> | null; loaded: boolean }
+// canAcknowledge: 확인 처리(쓰기)는 서버가 ADMIN만 허용한다. 아니면 버튼 없이 목록만 보여 준다.
+type Props = { page: PageResponse<UnacknowledgedBlock> | null; loaded: boolean; canAcknowledge: boolean }
 
 const TITLE = '확인 안 한 높은 심각도 차단'
 
 // 대시보드 헤더의 종 버튼. 배지는 미확인 High·Critical 차단 수이고, 누르면 목록 패널이 열린다.
 // 패널은 닫혀 있을 때도 마운트해 둔다 — 확인 처리 중인 상태와 방금 확인한 행 숨김이 열고 닫아도 유지된다.
-export function UnacknowledgedBell({ page, loaded }: Props) {
+export function UnacknowledgedBell({ page, loaded, canAcknowledge }: Props) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -114,7 +115,10 @@ export function UnacknowledgedBell({ page, loaded }: Props) {
             </Link>
           )}
         </div>
-        {failed && (
+        {!canAcknowledge && loaded && !empty && (
+        <p className="dash-panel__sub bell-panel__note">조회만 할 수 있습니다. 확인 처리는 관리자(ADMIN)만 합니다.</p>
+      )}
+      {failed && (
           <p className="dash-panel__error" role="alert">
             {ERROR_TEXT}
           </p>
@@ -130,7 +134,7 @@ export function UnacknowledgedBell({ page, loaded }: Props) {
                   <th scope="col">파일</th>
                   <th scope="col">차단 사유</th>
                   <th scope="col">심각도</th>
-                  <th scope="col">처리</th>
+                  {canAcknowledge && <th scope="col">처리</th>}
                 </tr>
               </thead>
               <tbody>
@@ -147,16 +151,18 @@ export function UnacknowledgedBell({ page, loaded }: Props) {
                           {SEVERITY_LABEL[item.severity]}
                         </span>
                       </td>
-                      <td>
-                        <button
-                          type="button"
-                          disabled={pending}
-                          aria-label={`${item.hostname} ${item.filename ?? ''} 차단 확인`.trim()}
-                          onClick={() => void acknowledge(item.eventId)}
-                        >
-                          {pending ? '처리 중' : '확인'}
-                        </button>
-                      </td>
+                      {canAcknowledge && (
+                        <td>
+                          <button
+                            type="button"
+                            disabled={pending}
+                            aria-label={`${item.hostname} ${item.filename ?? ''} 차단 확인`.trim()}
+                            onClick={() => void acknowledge(item.eventId)}
+                          >
+                            {pending ? '처리 중' : '확인'}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   )
                 })}

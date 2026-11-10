@@ -1074,6 +1074,12 @@ a {
   box-shadow: 0 12px 28px rgba(16, 24, 40, 0.18);
 }
 
+.bell-panel__note {
+  display: block;
+  margin: 0;
+  padding: 8px 14px 0;
+}
+
 .bell-panel[hidden] {
   display: none;
 }
