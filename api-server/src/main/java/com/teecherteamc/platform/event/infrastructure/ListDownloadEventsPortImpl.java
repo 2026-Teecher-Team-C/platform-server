@@ -22,10 +22,11 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
             """
             SELECT e.event_id, e.agent_id, d.hostname, e.sha256, e.filename, e.mime_type,
                    e.file_size, e.decision, e.decision_source, e.cache_hit, e.hold_duration_ms,
-                   e.created_at
+                   e.created_at, s.classification
             FROM download_events e
             JOIN agents a ON a.agent_id = e.agent_id
             JOIN devices d ON d.device_id = a.device_id
+            LEFT JOIN similarity_assessments s ON s.assessment_id = e.similarity_assessment_id
             WHERE 1 = 1
             """;
 
@@ -69,7 +70,8 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
                         // 콘솔 타입(cacheHit: boolean, non-null)과 맞아서 의도적으로 그대로 둔다.
                         rs.getBoolean("cache_hit"),
                         rs.getObject("hold_duration_ms", Integer.class),
-                        rs.getTimestamp("created_at").toInstant()),
+                        // 이벤트 FK의 분류만 요약한다. 없는 평가는 NONE으로 바꾸지 않는다.
+                        rs.getTimestamp("created_at").toInstant(), rs.getString("classification")),
                 params.toArray());
     }
 

@@ -6,6 +6,7 @@ const hashC = 'c8'.repeat(32)
 
 export const mockDownloadEvents: DownloadEventDetail[] = [
   {
+    similarity: null,
     eventId: '30000000-0000-4000-8000-000000000001',
     agentId: '10000000-0000-4000-8000-000000000001',
     hostname: 'DESKTOP-7F2K91',
@@ -29,6 +30,7 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     acknowledged: false,
   },
   {
+    similarity: null,
     eventId: '30000000-0000-4000-8000-000000000002',
     agentId: '10000000-0000-4000-8000-000000000002',
     hostname: 'MACBOOK-DEV',
@@ -52,6 +54,7 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     acknowledged: false,
   },
   {
+    similarity: null,
     eventId: '30000000-0000-4000-8000-000000000003',
     agentId: '10000000-0000-4000-8000-000000000001',
     hostname: 'DESKTOP-7F2K91',
@@ -76,6 +79,7 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
   },
   // 해시 계산 전에 차단된 이벤트: 상세 화면의 nullable 필드 표시를 검증하는 샘플.
   {
+    similarity: null,
     eventId: '30000000-0000-4000-8000-000000000004',
     agentId: '10000000-0000-4000-8000-000000000003',
     hostname: 'LAB-LINUX-01',
@@ -99,3 +103,24 @@ export const mockDownloadEvents: DownloadEventDetail[] = [
     acknowledged: false,
   },
 ]
+
+// UI 시연용 합성 기록이다. 실제 검사나 외부 피드 데이터가 아니며 기존 fixture ID/판정은 보존한다.
+for (const [index, classification, distance] of [
+  [5, 'BLOCK', 17], [6, 'WARN', 45], [7, 'NONE', 120], [8, 'NONE', null], [9, 'UNAVAILABLE', null],
+] as const) {
+  mockDownloadEvents.push({
+    ...mockDownloadEvents[0],
+    eventId: '30000000-0000-4000-8000-' + String(index).padStart(12, '0'),
+    filename: `tlsh-${classification.toLowerCase()}-${index}.txt`,
+    decision: classification === 'BLOCK' ? 'BLOCKED' : 'RELEASED',
+    decisionSource: classification === 'BLOCK' ? 'SIMILARITY' : 'ENGINE',
+    mimeType: 'text/plain',
+    requestHost: 'fixture.example.test',
+    url: `https://fixture.example.test/tlsh-${index}.txt`,
+    heldAt: '2026-10-11T00:00:00Z',
+    decidedAt: '2026-10-11T00:00:01Z',
+    createdAt: `2026-10-11T0${10 - index}:00:00Z`,
+    similarity: { classification, distance, matchedSampleSha256: distance === null ? null : hashB,
+      assessedAt: '2026-10-11T00:00:00Z' },
+  })
+}

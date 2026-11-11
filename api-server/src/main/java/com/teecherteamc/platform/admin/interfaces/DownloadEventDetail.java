@@ -1,6 +1,7 @@
 package com.teecherteamc.platform.admin.interfaces;
 
 import com.teecherteamc.platform.event.domain.DownloadEventDetailRow;
+import com.teecherteamc.platform.event.domain.EventSimilarity;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -22,13 +23,14 @@ public record DownloadEventDetail(
         String url,
         long bytesUploaded,
         Instant heldAt,
-        Instant decidedAt) {
+        Instant decidedAt,
+        EventSimilarity similarity) {
 
     static DownloadEventDetail from(DownloadEventDetailRow row) {
         return new DownloadEventDetail(
                 row.eventId(), row.agentId(), row.hostname(), row.sha256(), row.filename(),
                 row.mimeType(), row.fileSize(), row.decision(), row.decisionSource(),
                 row.cacheHit(), row.holdDurationMs(), row.createdAt(), row.requestHost(),
-                row.url(), row.bytesUploaded(), row.heldAt(), row.decidedAt());
+                row.url(), row.bytesUploaded(), row.heldAt(), row.decidedAt(), row.similarity());
     }
 }

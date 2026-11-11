@@ -1874,6 +1874,7 @@ a {
   color: #475467;
 }
 
+.events-badge--warning,
 .events-badge--fail_close {
   background: #fffaeb;
   color: #b54708;
@@ -1978,6 +1979,51 @@ a {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   line-height: 1.6;
 }
+
+/* 당시 근거를 최종 판정과 구분하되 기존 상세 그리드와 해시 줄바꿈을 재사용한다. */
+.event-similarity {
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+}
+.event-similarity-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 24px 16px;
+}
+.event-similarity-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.event-similarity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+.event-similarity-icon--block { color: #b42318; background: #fee4e2; }
+.event-similarity-icon--warn { color: #93370d; background: #fef0c7; }
+.event-similarity-icon--neutral { color: var(--muted); background: var(--surface-muted); }
+.event-similarity-icon--success { color: #15803d; background: #dcfce7; }
+.event-similarity-explanation { margin: 0 24px 20px; font-size: 14px; line-height: 1.6; }
+.event-similarity-explanation summary { width: fit-content; cursor: pointer; color: var(--muted); }
+.event-similarity-explanation summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.event-similarity-explanation p { margin: 10px 0 0; }
+.event-similarity-guide { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.event-similarity-guide h3 { margin: 0 0 12px; font-size: 14px; }
+.event-similarity-guide ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.event-similarity-guide li { display: flex; align-items: flex-start; gap: 10px; }
+.event-similarity-guide li > .event-similarity-icon { margin-top: 1px; }
+.events-badge--warning { margin-left: 6px; }
 
 .page-heading .whitelist-title {
   /* 화이트리스트와 YARA도 영문 라벨 아래 제목의 크기와 간격을 다른 화면에 맞춘다. */

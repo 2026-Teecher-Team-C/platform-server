@@ -243,7 +243,10 @@ export function EventsPage() {
                   <td>{new Date(item.createdAt).toLocaleString('ko-KR')}</td>
                   <td className="events-truncate" title={item.filename ?? undefined}>{item.filename || '파일명 없음'}</td>
                   <td className="events-truncate" title={item.hostname}>{item.hostname}</td>
-                  <td><span className={'events-badge events-badge--' + decisionBadge(item.decision).tone}>{decisionBadge(item.decision).text}</span></td>
+                  <td><span className={'events-badge events-badge--' + decisionBadge(item.decision).tone}>{decisionBadge(item.decision).text}</span>
+                    {/* WARN도 실제 판정은 RELEASED다. 차단 배지와 섞지 않고 상세 진입 단서만 더한다. */}
+                    {item.similarityClassification === 'WARN' && <span className="events-badge events-badge--warning">TLSH 경고</span>}
+                  </td>
                   <td>{item.severity
                     ? <span className={'severity-badge severity-badge--' + severityTone(item.severity)}>{SEVERITY_LABEL[item.severity]}</span>
                     : '—'}</td>

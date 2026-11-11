@@ -6,6 +6,7 @@ import { AgentsPage } from '../pages/AgentsPage'
 import { AuditLogsPage } from '../pages/AuditLogsPage'
 import { BlacklistPage } from '../pages/BlacklistPage'
 import { DashboardPage } from '../pages/DashboardPage'
+import { SampleDetailPage } from '../pages/SampleDetailPage'
 import { EventDetailPage } from '../pages/EventDetailPage'
 import { EventsPage } from '../pages/EventsPage'
 import { EnrollmentTokenPage } from '../pages/EnrollmentTokenPage'
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'events', element: <EventsPage /> },
           { path: 'events/:eventId', element: <EventDetailPage /> },
+          { path: 'samples/:sha256', element: <SampleDetailPage /> },
           { path: 'quarantine', element: <QuarantinePage /> },
           { path: 'quarantine/:quarantineId', element: <QuarantineDetailPage /> },
           { path: 'agents', element: <AgentsPage /> },

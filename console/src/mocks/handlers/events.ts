@@ -70,7 +70,8 @@ export const eventHandlers = [
       if (!event) return notFound()
 
       // 목록과 같은 값(severity, 확인 여부 등)을 쓰도록 계산 필드를 합친다.
-      return HttpResponse.json({ ...event, ...toListItem(ds, event) })
+      const { similarityClassification: _classification, ...item } = toListItem(ds, event)
+      return HttpResponse.json({ ...event, ...item })
     },
   ),
 

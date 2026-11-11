@@ -1,6 +1,7 @@
 package com.teecherteamc.platform.event.infrastructure;
 
 import com.teecherteamc.platform.event.domain.DownloadEventDetailRow;
+import com.teecherteamc.platform.event.domain.EventSimilarity;
 import com.teecherteamc.platform.event.domain.FindDownloadEventPort;
 import java.sql.Timestamp;
 import java.util.List;
@@ -20,10 +21,12 @@ class FindDownloadEventPortImpl implements FindDownloadEventPort {
             """
             SELECT e.event_id, e.agent_id, d.hostname, e.sha256, e.filename, e.mime_type,
                    e.file_size, e.decision, e.decision_source, e.cache_hit, e.hold_duration_ms,
-                   e.created_at, e.request_host, e.url, e.bytes_uploaded, e.held_at, e.decided_at
+                   e.created_at, e.request_host, e.url, e.bytes_uploaded, e.held_at, e.decided_at,
+                   s.classification, s.matched_sample_sha256, s.distance, s.assessed_at
             FROM download_events e
             JOIN agents a ON a.agent_id = e.agent_id
             JOIN devices d ON d.device_id = a.device_id
+            LEFT JOIN similarity_assessments s ON s.assessment_id = e.similarity_assessment_id
             WHERE e.event_id = ?
             """;
 
@@ -56,7 +59,11 @@ class FindDownloadEventPortImpl implements FindDownloadEventPort {
                             rs.getString("url"),
                             rs.getLong("bytes_uploaded"),
                             rs.getTimestamp("held_at").toInstant(),
-                            decidedAt == null ? null : decidedAt.toInstant());
+                            decidedAt == null ? null : decidedAt.toInstant(),
+                            // SHA의 최신 평가가 아닌 이벤트 FK만 사용한다. NULL은 평가 기록 없음이다.
+                            rs.getString("classification") == null ? null : new EventSimilarity(
+                                    rs.getString("classification"), rs.getString("matched_sample_sha256"),
+                                    rs.getObject("distance", Integer.class), rs.getTimestamp("assessed_at").toInstant()));
                 },
                 eventId);
         return rows.stream().findFirst();
