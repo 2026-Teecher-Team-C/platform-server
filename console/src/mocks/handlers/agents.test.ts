@@ -7,7 +7,10 @@ import { mockAgents } from '../data/agents'
 
 // 목록 계약을 확인하므로 로그인 검증은 공통 인증 테스트에 맡긴다.
 vi.mock('../http', () => ({ authorizeMockRequest: () => ({ error: null }) }))
-vi.mock('../../lib/auth/tokenStore', () => ({ getAccessToken: () => null }))
+vi.mock('../../lib/auth/tokenStore', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/auth/tokenStore')>(),
+  getAccessToken: () => null,
+}))
 const server = setupServer(...agentHandlers)
 beforeAll(() => server.listen())
 afterAll(() => server.close())

@@ -1,16 +1,17 @@
 import { http, HttpResponse } from 'msw'
-import type { CreateEnrollmentTokenRequest } from '../../lib/api/agents'
+import type { CreateEnrollmentTokenRequest, CreateEnrollmentTokenResponse } from '../../lib/api/agents'
 import { API_BASE_URL } from '../../lib/api/client'
 import { authorizeMockRequest } from '../http'
 import { mockAgents, toMockAgentDetail } from '../data/agents'
 
-const MOCK_DEFAULT_EXPIRY_MINUTES = 30
+const MOCK_DEFAULT_EXPIRY_MINUTES = 60
 
 export const agentHandlers = [
   http.post(
     API_BASE_URL + '/api/admin/agents/enrollment-tokens',
     async ({ request }) => {
-      const auth = authorizeMockRequest(request, 'ADMIN')
+      // 서버는 역할을 세분화하지 않으므로 로그인 여부만 확인한다.
+      const auth = authorizeMockRequest(request)
       if (auth.error) return auth.error
 
       const body = (await request.json().catch(() => ({}))) as
@@ -19,11 +20,11 @@ export const agentHandlers = [
       const expiresInMinutes =
         body?.expiresInMinutes ?? MOCK_DEFAULT_EXPIRY_MINUTES
 
-      if (!Number.isInteger(expiresInMinutes) || expiresInMinutes <= 0) {
+      if (!Number.isInteger(expiresInMinutes) || expiresInMinutes < 1 || expiresInMinutes > 1440) {
         return HttpResponse.json(
           {
-            code: 'INVALID_EXPIRY',
-            message: 'expiresInMinutes는 1 이상의 정수여야 합니다.',
+            code: 'INVALID_INPUT',
+            message: 'expiresInMinutes는 1 이상 1440 이하의 정수여야 합니다.',
           },
           { status: 400 },
         )
@@ -31,11 +32,12 @@ export const agentHandlers = [
 
       return HttpResponse.json(
         {
-          token: 'mock-enrollment-' + crypto.randomUUID(),
+          // randomUUID 없이도 사설 HTTP 개발 주소에서 보안 난수를 사용할 수 있다.
+          token: 'mock-enrollment-' + Array.from(crypto.getRandomValues(new Uint8Array(32)), (value) => value.toString(16).padStart(2, '0')).join(''),
           expiresAt: new Date(
             Date.now() + expiresInMinutes * 60 * 1000,
           ).toISOString(),
-        },
+        } satisfies CreateEnrollmentTokenResponse,
         { status: 201 },
       )
     },

@@ -3,7 +3,7 @@ import { setupServer } from 'msw/node'
 import { eventHandlers } from './events'
 import { getDownloadEvent, getDownloadEvents } from '../../lib/api/events'
 vi.mock('../http', () => ({ authorizeMockRequest: () => ({ error: null }) }))
-vi.mock('../../lib/auth/tokenStore', () => ({ getAccessToken: () => null }))
+vi.mock(import('../../lib/auth/tokenStore'), async (original) => ({ ...await original(), getAccessToken: () => null }))
 const server = setupServer(...eventHandlers)
 beforeAll(() => server.listen())
 afterAll(() => server.close())

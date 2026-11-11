@@ -7,7 +7,7 @@ import { createBypassDomain, deactivateBypassDomain, getBypassDomains } from '..
 
 // 인증 자체가 아닌 목록 계약을 검증한다. 인증/401 흐름은 공통 인증 모듈의 책임이다.
 vi.mock('../http', () => ({ authorizeMockRequest: () => ({ account: {}, error: null }) }))
-vi.mock('../../lib/auth/tokenStore', () => ({ getAccessToken: () => null }))
+vi.mock(import('../../lib/auth/tokenStore'), async (original) => ({ ...await original(), getAccessToken: () => null }))
 const server = setupServer(...policyHandlers)
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 afterAll(() => server.close())

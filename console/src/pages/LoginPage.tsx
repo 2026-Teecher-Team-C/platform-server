@@ -13,7 +13,7 @@ type LoginLocationState = {
 export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { isAuthenticated, isInitializing, signIn } = useAuth()
+  const { isAuthenticated, isInitializing, signIn, authNotice } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -117,9 +117,9 @@ export function LoginPage() {
               </label>
             </div>
 
-            {errorMessage ? (
+            {errorMessage || authNotice ? (
               <p className="login-error" role="alert">
-                {errorMessage}
+                {errorMessage || authNotice}
               </p>
             ) : null}
 

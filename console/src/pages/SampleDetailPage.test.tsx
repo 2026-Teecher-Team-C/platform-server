@@ -7,7 +7,7 @@ import { router } from '../app/router'
 
 const auth = vi.hoisted(() => ({ isAuthenticated: true }))
 vi.mock('../app/useAuth', () => ({ useAuth: () => ({ isAuthenticated: auth.isAuthenticated, isInitializing: false, user: { role: 'VIEWER', username: 'reviewer' }, signOut: vi.fn() }) }))
-vi.mock('../lib/auth/tokenStore', () => ({ getAccessToken: () => null }))
+vi.mock(import('../lib/auth/tokenStore'), async (original) => ({ ...await original(), getAccessToken: () => null }))
 const sha = 'ab'.repeat(32)
 const fixture = { sha256: sha, blacklist: { reason: 'Synthetic review only', severity: 'HIGH', source: 'MANUAL', isActive: true, registeredAt: '2026-10-23T00:00:00Z' }, fingerprint: { tlsh: 'T1' + 'A'.repeat(70), calculationStatus: 'CALCULATED', algorithmVersion: 'review-vector', provenance: 'ADMIN_IMPORT', provenanceDetail: 'Synthetic, not MalwareBazaar', calculatedAt: '2026-10-23T00:00:00Z' } }
 let container: HTMLDivElement

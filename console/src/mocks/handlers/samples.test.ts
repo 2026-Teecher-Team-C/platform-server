@@ -5,7 +5,7 @@ import { handlers } from './index'
 import { getSample } from '../../lib/api/samples'
 import { mockDownloadEvents } from '../data/events'
 vi.mock('../http', () => ({ authorizeMockRequest: () => ({ error: null }) }))
-vi.mock('../../lib/auth/tokenStore', () => ({ getAccessToken: () => null }))
+vi.mock(import('../../lib/auth/tokenStore'), async (original) => ({ ...await original(), getAccessToken: () => null }))
 const server = setupServer(...handlers, http.get('*', () => HttpResponse.json({}, { status: 404 })))
 beforeAll(() => server.listen())
 afterAll(() => server.close())
