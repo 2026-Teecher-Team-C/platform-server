@@ -39,9 +39,9 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove() })
 
-async function mount(p: PageResponse<UnacknowledgedBlock> | null, loaded = true) {
+async function mount(p: PageResponse<UnacknowledgedBlock> | null, loaded = true, canAcknowledge = true) {
   await act(async () => root.render(
-    <MemoryRouter><UnacknowledgedBell page={p} loaded={loaded} /></MemoryRouter>,
+    <MemoryRouter><UnacknowledgedBell page={p} loaded={loaded} canAcknowledge={canAcknowledge} /></MemoryRouter>,
   ))
 }
 function confirmButtons() {
@@ -64,6 +64,15 @@ describe('UnacknowledgedBell', () => {
     expect(panel().hidden).toBe(false)
     await act(async () => bell().click())
     expect(panel().hidden).toBe(true)
+  })
+
+  it('확인 권한이 없으면(ADMIN 아님) 확인 버튼과 처리 칸 없이 목록만 보여 준다', async () => {
+    await mount(page([block('1'), block('2')]), true, false)
+    expect(confirmButtons()).toHaveLength(0)
+    expect([...container.querySelectorAll('th')].map((th) => th.textContent)).not.toContain('처리')
+    expect(rows()).toHaveLength(2)
+    expect(badge()).toBe('2')
+    expect(container.textContent).toContain('조회만 할 수 있습니다')
   })
 
   it('Esc를 누르면 닫히고 종 버튼으로 초점이 돌아간다', async () => {

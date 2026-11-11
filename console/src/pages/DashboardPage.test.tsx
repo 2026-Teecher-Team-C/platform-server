@@ -8,6 +8,8 @@ import { loadDashboard, type DashboardSnapshot } from '../lib/dashboard/load'
 import { ApiError } from '../lib/api/client'
 
 vi.mock('../lib/dashboard/load', () => ({ loadDashboard: vi.fn() }))
+const auth = vi.hoisted(() => ({ role: 'ADMIN' as 'ADMIN' | 'ANALYST' }))
+vi.mock('../app/useAuth', () => ({ useAuth: () => ({ user: { username: 'u', role: auth.role }, signOut: vi.fn() }) }))
 const load = vi.mocked(loadDashboard)
 
 const snapshot: DashboardSnapshot = {
@@ -238,5 +240,25 @@ describe('위협 대시보드', () => {
     expect(container.querySelector('[role=alert]')?.textContent).toContain('서버에서 데이터를 가져오지 못했습니다.')
     expect(container.querySelector('.live-status')?.textContent).toContain('연결 실패')
     expect(container.querySelectorAll('h2').length).toBeGreaterThan(0)
+  })
+
+  it('ANALYST에게는 종 패널에 확인 버튼을 보여 주지 않는다', async () => {
+    auth.role = 'ANALYST'
+    try {
+      load.mockResolvedValue(snapshot)
+      await mount()
+      const panel = container.querySelector('.bell-panel')!
+      expect(panel.querySelector('tbody tr')).not.toBeNull()
+      expect([...panel.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('확인')
+    } finally {
+      auth.role = 'ADMIN'
+    }
+  })
+
+  it('ADMIN에게는 종 패널에 확인 버튼을 보여 준다', async () => {
+    load.mockResolvedValue(snapshot)
+    await mount()
+    const panel = container.querySelector('.bell-panel')!
+    expect([...panel.querySelectorAll('button')].map((b) => b.textContent)).toContain('확인')
   })
 })
