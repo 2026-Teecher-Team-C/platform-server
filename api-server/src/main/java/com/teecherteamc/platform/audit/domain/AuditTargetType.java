@@ -17,5 +17,7 @@ public enum AuditTargetType {
     BYPASS_DOMAIN,
     FILE_TYPE_POLICY,
     FILE_VERDICT,
-    CACHE
+    CACHE,
+    // DOWNLOAD_EVENT_ACKNOWLEDGE의 대상. target_id는 event_id
+    DOWNLOAD_EVENT
 }

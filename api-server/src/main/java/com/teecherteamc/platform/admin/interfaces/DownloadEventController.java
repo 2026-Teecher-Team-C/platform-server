@@ -1,17 +1,24 @@
 package com.teecherteamc.platform.admin.interfaces;
 
 import com.teecherteamc.platform.common.ApiException;
+import com.teecherteamc.platform.common.ClientIp;
 import com.teecherteamc.platform.common.ErrorCode;
 import com.teecherteamc.platform.common.PageResponse;
+import com.teecherteamc.platform.event.application.AcknowledgeDownloadEventUseCase;
+import com.teecherteamc.platform.event.application.DownloadEventNotFoundException;
 import com.teecherteamc.platform.event.application.FindDownloadEventUseCase;
 import com.teecherteamc.platform.event.application.ListDownloadEventsUseCase;
+import com.teecherteamc.platform.event.application.NotBlockedEventException;
 import com.teecherteamc.platform.event.domain.DownloadEventDetailRow;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -33,12 +40,15 @@ public class DownloadEventController {
 
     private final ListDownloadEventsUseCase listDownloadEventsUseCase;
     private final FindDownloadEventUseCase findDownloadEventUseCase;
+    private final AcknowledgeDownloadEventUseCase acknowledgeDownloadEventUseCase;
 
     public DownloadEventController(
             ListDownloadEventsUseCase listDownloadEventsUseCase,
-            FindDownloadEventUseCase findDownloadEventUseCase) {
+            FindDownloadEventUseCase findDownloadEventUseCase,
+            AcknowledgeDownloadEventUseCase acknowledgeDownloadEventUseCase) {
         this.listDownloadEventsUseCase = listDownloadEventsUseCase;
         this.findDownloadEventUseCase = findDownloadEventUseCase;
+        this.acknowledgeDownloadEventUseCase = acknowledgeDownloadEventUseCase;
     }
 
     @GetMapping("/api/admin/download-events")
@@ -73,6 +83,25 @@ public class DownloadEventController {
         DownloadEventDetailRow row = findDownloadEventUseCase.find(parsedEventId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "download event not found: " + eventId));
         return DownloadEventDetail.from(row);
+    }
+
+    /**
+     * 차단 이벤트를 확인 처리한다. 본문 없음. 멱등이라 이미 확인된 이벤트면 처음 확인한 사람·시각을 그대로 준다.
+     * 없는 이벤트는 404, 차단(BLOCKED·FAIL_CLOSE)이 아니면 409.
+     */
+    @PostMapping("/api/admin/download-events/{eventId}/acknowledge")
+    public AcknowledgeResponse acknowledge(@PathVariable String eventId,
+                                           @AuthenticationPrincipal AdminPrincipal principal,
+                                           HttpServletRequest httpRequest) {
+        UUID parsedEventId = parseUuid(eventId, "eventId");
+        try {
+            return AcknowledgeResponse.from(acknowledgeDownloadEventUseCase.acknowledge(
+                    parsedEventId, principal.adminId(), ClientIp.resolve(httpRequest)));
+        } catch (DownloadEventNotFoundException e) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "download event not found: " + eventId);
+        } catch (NotBlockedEventException e) {
+            throw new ApiException(ErrorCode.CONFLICT, "차단된 이벤트만 확인할 수 있습니다.");
+        }
     }
 
     private static UUID parseUuidOrNull(String value) {

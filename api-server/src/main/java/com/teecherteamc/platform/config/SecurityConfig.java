@@ -97,7 +97,8 @@ public class SecurityConfig {
                         "/api/admin/blacklist",
                         "/api/admin/bypass-domains",
                         "/api/admin/rulesets", "/api/admin/rulesets/*/rules",
-                        "/api/admin/agents").hasAnyRole(admin, analyst)
+                        "/api/admin/agents",
+                        "/api/admin/dashboard/unacknowledged-blocks").hasAnyRole(admin, analyst)
                 // 그 밖의 모든 요청은 ADMIN만
                 .anyRequest().hasRole(admin));
         return http.build();
