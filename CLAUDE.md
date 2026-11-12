@@ -17,8 +17,8 @@ make dev | make test | make proto | make down     # 전부 Docker 안에서 실�
   재시도·서킷 브레이커·로컬 캐시 폴백을 만들지 않는다
 - **탐지 엔진은 API 서버하고만 통신한다.** `engine-net`(internal)에만 붙어 있고 인터넷·AWS·Slack에
   닿지 않는다. Slack 알림·S3 업로드·DB 기록은 전부 API 서버가 한다. 엔진에 외부 연결을 추가하지 않는다
-- **파일 내용 파싱은 탐지 엔진에서만.** API 서버는 받은 바이트를 해석하지 않고 엔진에 넘긴다
-- **화이트리스트는 SHA256만.** TLSH는 블랙리스트에만 예약된 값이며 현재 어떤 단계도 계산하지 않는다
+- **YARA/PE 내용 분석은 Python 탐지 엔진 담당.** 사용자 승인 구조에서 Java API는 SHA256 검증된 업로드 바이트로 공식 TLSH 지문을 계산, 저장한다. YARA 성공 CLEAN 이후에만 활성 악성 기준과 거리를 비교해 최종 보조 정책을 적용한다.
+- **화이트리스트는 정확 SHA256만.** TLSH는 활성 블랙리스트 SHA256의 계산 가능 지문만 기준으로 사용, <=30 추가 차단, 31~70 허용+경고, >70 기존 판정 유지. SHA/YARA 차단은 TLSH가 해제하지 않는다. 짧은 파일의 BLOCK을 WARN으로 낮추는 정책 변경은 미승인, 적용하지 않는다.
 - **블룸 필터는 삭제가 불가능하다.** 오탐 복원은 필터를 고치지 않고 화이트리스트(조회 사슬 ①)로 막는다
 - **격리 S3 객체**: 키는 `quarantine/YYYY/MM/DD/{uuid}`(확장자 없음), `Content-Type: application/octet-stream`,
   버킷은 Block Public Access. 원본 파일명은 `quarantine_files.original_filename`에만 둔다

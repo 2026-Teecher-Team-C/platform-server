@@ -11,6 +11,6 @@ TLSH fingerprint calculation stays in the Java API server. Commit and publicatio
 - This is a local source-build module, not an asserted Maven Central coordinate.
 - Upstream Java README: https://github.com/trendmicro/tlsh/blob/ebdec8fde93a4ac359437f4f3796c78d3ae433bf/java/README.md
 
-Parameters: 128 buckets, one-byte checksum, five-byte sliding window, T1 encoding, `getHash(true)` / `isValid(true)` for the official 50-byte minimum. The Java default without force requires 256 bytes. Length-aware distance uses `totalDiff(other, true)` only in reference verification, not production verdicts.
+Parameters: 128 buckets, one-byte checksum, five-byte sliding window, T1 encoding, `getHash(true)` / `isValid(true)` for the official 50-byte minimum. The Java default without force requires 256 bytes. Length-aware distance uses `totalDiff(other, true)` in both reference verification and the post-YARA production similarity policy. The official force-mode minimum remains 50 bytes; no unapproved <256-byte BLOCK-to-WARN exception is applied.
 
 Reference C++ measurements, hashes, real test results and the Java placement decision are recorded in `../../../docs/tlsh-pr1-report.md` (from this directory).
