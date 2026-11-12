@@ -24,6 +24,9 @@ class PostgresHashListWriteLock implements HashListWriteLock {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void lock(HashKey key) {
+        // 행 UPDATE보다 gate -> corpus를 먼저 획득한다. import가 가진 gate와 행 잠금의 역순 교착 방지.
+        jdbcTemplate.queryForList("SELECT pg_advisory_xact_lock(similarity_lock_key('eligibility'), hashtext(?))", key.getHashValue());
+        jdbcTemplate.execute("SELECT pg_advisory_xact_lock(similarity_lock_key('corpus')::bigint)");
         jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtext(?))", rs -> null,
                 "hashlist:" + key.getHashType().name() + ":" + key.getHashValue());
     }

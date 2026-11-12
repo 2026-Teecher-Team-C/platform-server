@@ -32,8 +32,6 @@ public class JdbcFileFingerprintStore implements FileFingerprintStore {
 
     @Override
     public boolean lockActiveAdmin(UUID actor) {
-        // 기준 행의 SHARE 잠금보다 먼저 획득한다. 목록 트리거와 순서가 반대면 교착할 수 있다.
-        jdbc.execute("SELECT pg_advisory_xact_lock(74190321)");
         return !jdbc.queryForList("""
                 SELECT admin_id FROM admin_users
                 WHERE admin_id = ? AND role = 'ADMIN' AND is_active FOR SHARE
@@ -42,9 +40,12 @@ public class JdbcFileFingerprintStore implements FileFingerprintStore {
 
     @Override
     public boolean lockActiveBaseline(String sha256) {
+        // 목록 트리거와 gate -> corpus 순서를 맞춘다. 없는 기준 행 INSERT와의 경쟁도 막는다.
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(similarity_lock_key('eligibility'), hashtext(?))", sha256);
+        jdbc.execute("SELECT pg_advisory_xact_lock(similarity_lock_key('corpus')::bigint)");
         return !jdbc.queryForList("""
                 SELECT hash_value FROM hash_blacklist
-                WHERE hash_type = 'SHA256' AND hash_value = ? AND is_active FOR SHARE
+                WHERE hash_type = 'SHA256' AND hash_value = ? AND is_active
                 """, sha256).isEmpty();
     }
 

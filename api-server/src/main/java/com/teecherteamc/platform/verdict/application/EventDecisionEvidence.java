@@ -20,7 +20,7 @@ public class EventDecisionEvidence {
         if (agent == null) throw new SecurityException("authenticated agent required");
         String normalizedSha = sha == null || sha.isBlank() ? null : sha;
         // SubmitFile/ReportEvent 모두 event -> corpus -> file 순서다. 아직 없는 UUID도 직렬화한다.
-        jdbc.queryForList("SELECT pg_advisory_xact_lock(74190323, hashtext(?))", event.toString());
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(similarity_lock_key('event'), hashtext(?))", event.toString());
         jdbc.query("SELECT agent_id, sha256 FROM download_events WHERE event_id=?", rs -> {
             if (!agent.equals(rs.getObject("agent_id", UUID.class))
                     || (rs.getString("sha256") != null && !Objects.equals(normalizedSha, rs.getString("sha256")))) {

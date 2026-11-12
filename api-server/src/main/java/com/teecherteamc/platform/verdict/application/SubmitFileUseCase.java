@@ -88,6 +88,7 @@ public class SubmitFileUseCase {
         // SHA 검증 뒤, 캐시 반환 전에 지문을 남긴다. 불일치 업로드는 이 경로에 도달하지 않는다.
         recordFileFingerprint.recordVerified(command.verifiedSha256(), command.spoolFile());
 
+        boolean[] recomputedBlock = {false};
         SubmitFileResult cacheResult = transactionTemplate.execute(status -> {
             evidence.claim(command.eventId(), command.verifiedSha256(), command.agentId());
             similarity.lockCorpus();
@@ -97,6 +98,8 @@ public class SubmitFileUseCase {
                 similarity.clearPending(command.eventId());
                 return exact;
             }
+            // 룰 변경의 stale UPDATE와 재평가 저장 사이에서 stale=false를 되살리는 경쟁을 막는다.
+            activeRulesetKeyPort.lockActiveKey();
             Optional<FileVerdict> cached = fileVerdictRepository.findBySha256(command.verifiedSha256());
             if (cached.isPresent() && !cached.get().isStale()) {
                 FileVerdict v = cached.get();
@@ -106,10 +109,27 @@ public class SubmitFileUseCase {
                     if (result != null) similarity.bindCached(command.verifiedSha256(), command.eventId());
                     return result;
                 }
+                // corpus만 바뀐 경우 원본 YARA 성공은 여전히 유효하다. rules stale은 이 분기에 들어오지 않는다.
+                if (requiresEvidence) {
+                    Optional<UUID> cleanAnalysis = similarity.reusableCleanAnalysis(command.verifiedSha256());
+                    if (cleanAnalysis.isPresent()) {
+                        var assessment = similarity.compare(command.verifiedSha256());
+                        boolean block = "BLOCK".equals(assessment.classification());
+                        v.recordSimilarityPolicy(block);
+                        fileVerdictRepository.save(v);
+                        similarity.save(command.verifiedSha256(), command.eventId(), cleanAnalysis.get(), assessment);
+                        recomputedBlock[0] = block;
+                        return block ? new SubmitFileResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(), List.of())
+                                : new SubmitFileResult("ALLOW", SOURCE_CACHE, null, List.of());
+                    }
+                }
             }
             return null;
         });
-        if (cacheResult != null) return cacheResult;
+        if (cacheResult != null) {
+            if (recomputedBlock[0]) quarantine(command);
+            return cacheResult;
+        }
 
         AnalysisOutcome outcome;
         try {
@@ -127,6 +147,13 @@ public class SubmitFileUseCase {
         // 최종 정책 저장 뒤에 격리한다. 비교 중 목록이 바뀌어도 최종 BLOCK을 기준으로 하며,
         // 느린 S3 호출 중에는 corpus/DB 잠금을 잡지 않는다. 저장소 실패는 차단을 취소하지 않는다.
         if ("SIMILARITY".equals(result.source()) || ("ENGINE".equals(result.source()) && isFreshMaliciousOrSuspicious(outcome))) {
+            quarantine(command);
+        }
+        return result;
+    }
+
+    /** 저장소 I/O는 DB/corpus 잠금 밖에서 실행하고 이벤트별 지연 완료를 조정한다. */
+    private void quarantine(SubmitFileCommand command) {
             try {
                 QuarantineUploadResult upload = quarantineUploadPort.upload(command.spoolFile());
                 transactionTemplate.executeWithoutResult(status -> {
@@ -139,8 +166,6 @@ public class SubmitFileUseCase {
             } catch (RuntimeException e) {
                 log.error("S3 격리 업로드 실패 — 격리 없이 BLOCK 유지, sha256={}", command.verifiedSha256(), e);
             }
-        }
-        return result;
     }
 
     private static boolean isFreshMaliciousOrSuspicious(AnalysisOutcome outcome) {
@@ -168,7 +193,7 @@ public class SubmitFileUseCase {
             // proto상 독립된 필드라 "실패했는데 verdict=CLEAN" 같은 조합이 이론상 가능하고, 그러면
             // 다음 CheckHash가 캐시만 보고 ALLOW를 내줘서 fail-close가 캐시 레벨에서 뚫린다.
             SubmitFileResult exact = similarity.exactOverride(command.verifiedSha256());
-            SimilarityDecisions.Assessment assessment = exact == null && "SUCCESS".equals(outcome.status()) && "CLEAN".equals(outcome.verdict())
+            com.teecherteamc.platform.verdict.domain.SimilarityDecisionStore.Assessment assessment = exact == null && "SUCCESS".equals(outcome.status()) && "CLEAN".equals(outcome.verdict())
                     ? similarity.compare(command.verifiedSha256()) : null;
             boolean similarityBlock = assessment != null && "BLOCK".equals(assessment.classification());
             String source = similarityBlock ? "SIMILARITY" : SOURCE_ENGINE;

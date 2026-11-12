@@ -74,6 +74,8 @@ class TlshSimilarityGrpcIntegrationTest {
                 .setHeldAt(com.google.protobuf.Timestamp.newBuilder().setSeconds(java.time.Instant.now().getEpochSecond())).build());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM quarantine_files WHERE event_id=?", Integer.class, event)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT similarity_assessment_id FROM download_events WHERE event_id=?", UUID.class, event)).isEqualTo(evidence.get("assessment_id"));
+        assertThat(jdbc.queryForMap("SELECT severity, severity_rank, reason_type FROM download_event_threats WHERE event_id=?", event))
+                .containsEntry("severity", "MEDIUM").containsEntry("severity_rank", 2).containsEntry("reason_type", "SIMILARITY");
     }
 
     @org.junit.jupiter.api.AfterEach
@@ -100,6 +102,19 @@ class TlshSimilarityGrpcIntegrationTest {
         assertThat(upload(padded, UUID.randomUUID()).getDecision()).isEqualTo(Decision.DECISION_ALLOW);
         jdbc.update("UPDATE hash_blacklist SET is_active = true WHERE hash_value = ?", baseline);
         assertThat(upload(padded, UUID.randomUUID()).getSourceValue()).isEqualTo(6);
+    }
+
+    @Test
+    void corpus_only_change_reuses_clean_engine_analysis() throws Exception {
+        byte[] bytes = getClass().getResourceAsStream("/tlsh/reference.txt").readAllBytes();
+        String sha = TlshFingerprintGrpcIntegrationTest.sha(bytes);
+        upload(bytes, UUID.randomUUID());
+        Integer before = jdbc.queryForObject("SELECT count(*) FROM analyses WHERE sha256=?", Integer.class, sha);
+        Integer analysisCount = jdbc.queryForObject("SELECT analysis_count FROM file_verdicts WHERE sha256=?", Integer.class, sha);
+        baseline(FingerprintImportRestIntegrationTest.TLSH);
+        assertThat(upload(bytes, UUID.randomUUID()).getSourceValue()).isEqualTo(6);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM analyses WHERE sha256=?", Integer.class, sha)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT analysis_count FROM file_verdicts WHERE sha256=?", Integer.class, sha)).isEqualTo(analysisCount);
     }
 
     @Test

@@ -46,7 +46,8 @@ public class CheckHashUseCase {
     @Transactional
     public CheckHashResult checkHash(String sha256) {
         // 정확 예외, 후보 토큰과 캐시를 목록 쓰기와 한 경계에서 읽는다.
-        similarity.lockCorpus();
+        // 쓰기와 경쟁하면 캐시 ALLOW를 사용하지 않는다. 잠금 대기 대신 업로드 재검사를 유도한다.
+        if (!similarity.tryLockCorpus()) return new CheckHashResult("UNKNOWN", null, null);
         if (whitelistLookupPort.isEffective(sha256, clock.instant())) {
             return new CheckHashResult("ALLOW", "WHITELIST", null);
         }
