@@ -84,7 +84,9 @@ function refreshOnce(version: number) {
   const promise = renewal.then(() => {
     if (getSessionVersion() !== version) throw sessionChanged()
   }).catch((error: unknown) => {
-    invalidateSession(version)
+    // 장애와 자격 거절을 구분한다. 이전 세대의 실패도 새 로그인에는 영향을 주지 않는다.
+    if (getSessionVersion() !== version) throw sessionChanged()
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) invalidateSession(version)
     throw error
   }).finally(() => {
     if (refreshFlight?.promise === promise) refreshFlight = null
@@ -119,12 +121,12 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     requestInit.signal?.throwIfAborted()
     response = await send(getAccessToken())
     if (getSessionVersion() !== version) throw sessionChanged()
-    if (response.status === 401) invalidateSession(version)
   }
   const body = await readBody(response)
   // 본문 수신/JSON 파싱 중에도 로그아웃할 수 있으므로 반환 직전에 한 번 더 확인한다.
-  if (response.ok && sessionRequest && getSessionVersion() !== version) throw sessionChanged()
+  if (sessionRequest && getSessionVersion() !== version) throw sessionChanged()
   if (!response.ok) {
+    if (sessionRequest && response.status === 401) invalidateSession(version)
     throw new ApiError(response.status, body)
   }
 

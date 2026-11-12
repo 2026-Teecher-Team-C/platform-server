@@ -129,3 +129,39 @@ it('문자열 본문은 JSON Content-Type을 유지한다', async () => {
   await apiRequest('/api/admin/qa', { method: 'POST', body: '{}' })
   expect(new Headers(fetcher.mock.calls[0][1].headers).get('Content-Type')).toBe('application/json')
 })
+
+// 일시적인 갱신 장애는 자격 증명이 틀렸다는 뜻이 아니다.
+it.each([500, 502, 503])('refresh %i는 토큰과 세션을 보존하고 반복하지 않는다', async (status) => {
+  const notify = vi.fn()
+  window.addEventListener('teecher:auth-unauthorized', notify)
+  const fetcher = vi.fn().mockResolvedValueOnce(json({}, 401)).mockResolvedValueOnce(json({}, status))
+  vi.stubGlobal('fetch', fetcher)
+  await expect(apiRequest('/protected')).rejects.toMatchObject({ status })
+  expect(storage.get(accessKey)).toBe('expired-access')
+  expect(storage.get(refreshKey)).toBe('valid-refresh')
+  expect(notify).not.toHaveBeenCalled()
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+it('refresh 네트워크 오류는 세션을 보존한다', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json({}, 401)).mockRejectedValueOnce(new TypeError('offline')))
+  await expect(apiRequest('/protected')).rejects.toThrow('offline')
+  expect(storage.get(refreshKey)).toBe('valid-refresh')
+})
+it.each([401, 403])('refresh %i는 자격 거절로 세션을 삭제한다', async (status) => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json({}, 401)).mockResolvedValueOnce(json({}, status)))
+  await expect(apiRequest('/protected')).rejects.toMatchObject({ status })
+  expect(storage.has(refreshKey)).toBe(false)
+})
+
+it('실패 본문을 읽는 중 로그아웃하면 이전 세션의 403 오류도 숨긴다', async () => {
+  let finish!: (value: unknown) => void
+  const response = json({}, 403)
+  vi.spyOn(response, 'json').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+  const request = apiRequest('/protected')
+  const assertion = expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  clearAccessToken()
+  finish({ privateData: 'old-session' })
+  await assertion
+})

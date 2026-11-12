@@ -14,6 +14,32 @@ const storage = new Map<string, string>()
 afterEach(() => vi.unstubAllGlobals())
 
 describe.skipIf(!realEnabled)('실제 서버 인증 연동', () => {
+  it.each(['503', 'network'])('실제 로그인 후 refresh %s 모의 장애는 세션을 보존한다', async (fault) => {
+    storage.clear()
+    vi.stubGlobal('sessionStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) })
+    vi.stubGlobal('window', new EventTarget())
+    const nativeFetch = globalThis.fetch
+    await establishSession({ username: process.env.AUTH_QA_USERNAME!, password: process.env.AUTH_QA_PASSWORD! })
+    const refresh = getRefreshToken()
+    storage.set('teecher.console.accessToken', 'invalid-for-fault-probe')
+    const notify = vi.fn()
+    window.addEventListener('teecher:auth-unauthorized', notify)
+    // 실제 API의 401 뒤 갱신 호출만 고의로 차단한다. 실제 서버 장애를 관측했다는 의미가 아니다.
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/auth/refresh')) {
+        if (fault === 'network') return Promise.reject(new TypeError('injected offline'))
+        return Promise.resolve(new Response('{}', { status: 503, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return nativeFetch(input, init)
+    })
+    await expect(getMe()).rejects.toBeDefined()
+    expect(getRefreshToken()).toBe(refresh)
+    expect(getAccessToken()).toBe('invalid-for-fault-probe')
+    expect(notify).not.toHaveBeenCalled()
+    vi.stubGlobal('fetch', nativeFetch)
+    expect((await getMe()).username).toBe(process.env.AUTH_QA_USERNAME)
+    expect(await endSession()).toBe(true)
+  })
   it('서버가 이미 회전한 응답이 로그아웃/새 로그인 뒤 도착해도 이전 세션과 새 refresh를 남기지 않는다', async () => {
     storage.clear()
     vi.stubGlobal('sessionStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) })
