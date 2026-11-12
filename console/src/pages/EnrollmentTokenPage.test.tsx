@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { EnrollmentTokenPage } from './EnrollmentTokenPage'
 import { createEnrollmentToken, type CreateEnrollmentTokenResponse } from '../lib/api/agents'
 
-vi.mock('../app/useAuth', () => ({ useAuth: () => ({ user: { role: 'VIEWER' } }) }))
+vi.mock('../app/useAuth', () => ({ useAuth: () => ({ user: { role: 'ADMIN' } }) }))
 vi.mock('../lib/api/agents', () => ({ createEnrollmentToken: vi.fn() }))
 const issue = vi.mocked(createEnrollmentToken)
 let container: HTMLDivElement
@@ -32,7 +32,7 @@ function deferred() {
 }
 // 테스트용 원문은 실행 중 생성하며 실패 출력에 원문을 넣지 않는다.
 const result = (): CreateEnrollmentTokenResponse => ({ token: crypto.randomUUID(), expiresAt: '2030-01-01T00:00:00Z' })
-it('역할 세분화 전에는 로그인한 VIEWER도 기본 정책으로 발급한다', async () => {
+it('ADMIN은 기본 정책으로 발급한다', async () => {
   issue.mockResolvedValue(result())
   expect(container.querySelector('form')).not.toBeNull()
   await submit()

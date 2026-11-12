@@ -1,6 +1,6 @@
 import { apiRequest } from './client'
 
-export type AdminRole = 'VIEWER' | 'ANALYST' | 'ADMIN'
+export type AdminRole = 'USER' | 'ANALYST' | 'ADMIN'
 
 export type LoginRequest = {
   username: string

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import type { EventSimilarity } from '../../lib/api/events'
 
 // 최종 판정은 부모 화면에 그대로 둔다. 유사도는 별도 근거이며 악성의 독립 증거가 아니다.
-export function SimilarityEvidence({ similarity, returnTo }: { similarity: EventSimilarity | null; returnTo?: string }) {
+export function SimilarityEvidence({ similarity, returnTo, canReadSample = false }: { similarity: EventSimilarity | null; returnTo?: string; canReadSample?: boolean }) {
   const message = !similarity ? '기록된 유사도 평가 없음'
     : similarity.classification === 'BLOCK' ? '유사도 차단'
     : similarity.classification === 'WARN' ? '유사도 경고'
@@ -22,7 +22,8 @@ export function SimilarityEvidence({ similarity, returnTo }: { similarity: Event
       {/* 0도 실제 거리다. NULL인 경우 숫자나 가짜 기준 샘플을 만들지 않는다. */}
       {similarity.distance !== null && <div><dt>TLSH 거리</dt><dd>{similarity.distance}</dd></div>}
       <div><dt>평가 시각</dt><dd>{new Date(similarity.assessedAt).toLocaleString('ko-KR')}</dd></div>
-      {similarity.matchedSampleSha256 !== null && <div className="event-detail-wide"><dt>최근접 기준 샘플 SHA-256</dt><dd className="event-long-value event-hash"><Link className="events-detail-link" to={'/samples/' + encodeURIComponent(similarity.matchedSampleSha256) + (returnTo ? '?returnTo=' + encodeURIComponent(returnTo) : '')}>{similarity.matchedSampleSha256}</Link></dd></div>}
+      {/* 당시 근거인 SHA는 보존하되, ADMIN 전용 상세로 갈 수 없는 역할에는 링크를 제공하지 않는다. */}
+      {similarity.matchedSampleSha256 !== null && <div className="event-detail-wide"><dt>최근접 기준 샘플 SHA-256</dt><dd className="event-long-value event-hash">{canReadSample ? <Link className="events-detail-link" to={'/samples/' + encodeURIComponent(similarity.matchedSampleSha256) + (returnTo ? '?returnTo=' + encodeURIComponent(returnTo) : '')}>{similarity.matchedSampleSha256}</Link> : <>{similarity.matchedSampleSha256}<p>샘플 상세는 ADMIN만 조회할 수 있습니다.</p></>}</dd></div>}
     </dl>}
     {/* 기본은 접는다. native details는 키보드로도 열 수 있고 핵심 수치는 접힘과 무관하게 남는다. */}
     <details className="event-similarity-explanation" key={`${similarity?.classification}:${similarity?.assessedAt}`}>

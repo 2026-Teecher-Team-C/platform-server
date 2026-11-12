@@ -5,6 +5,8 @@ import { getDownloadEvent } from '../lib/api/events'
 import type { DownloadEventDetail } from '../lib/api/events'
 import { cacheHitLabel, decisionBadge } from '../lib/events/decision'
 import { SimilarityEvidence } from '../components/events/SimilarityEvidence'
+import { useAuth } from '../app/useAuth'
+import { canManage } from '../lib/auth/roles'
 
 function displayDate(value: string | null | undefined) {
   // 판정 전 이벤트에는 결정 시각이 없으므로 날짜 대신 대시를 보여준다.
@@ -17,6 +19,7 @@ function displayBytes(value: number | null) {
 
 export function EventDetailPage() {
   const { eventId } = useParams()
+  const { user } = useAuth()
   // 요청 대상과 재시도 회차를 함께 저장해 다른 이벤트의 오래된 응답이 보이지 않게 한다.
   const [result, setResult] = useState<{
     eventId: string
@@ -104,7 +107,7 @@ export function EventDetailPage() {
             <div className="event-detail-wide"><dt>SHA-256</dt><dd className="event-long-value event-hash">{event.sha256 || '—'}</dd></div>
             <div className="event-detail-wide"><dt>URL</dt><dd className="event-long-value">{event.url || '—'}</dd></div>
           </dl>
-          <SimilarityEvidence similarity={event.similarity} returnTo={'/events/' + encodeURIComponent(eventId!)} />
+          <SimilarityEvidence similarity={event.similarity} canReadSample={canManage(user?.role)} returnTo={'/events/' + encodeURIComponent(eventId!)} />
         </div>
       ) : null}
     </section>

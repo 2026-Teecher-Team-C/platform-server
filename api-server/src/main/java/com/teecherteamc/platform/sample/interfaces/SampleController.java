@@ -13,7 +13,7 @@ public class SampleController {
     private final FindSamplePort samples;
     public SampleController(FindSamplePort samples) { this.samples = samples; }
 
-    // 기존 SecurityConfig의 authenticated 정책을 그대로 적용한다. VIEWER도 조회만 가능하다.
+    // 최신 SecurityConfig의 기본 규칙에 따라 ADMIN만 조회한다. USER/ANALYST 권한을 암묵적으로 넓히지 않는다.
     @GetMapping("/api/admin/samples/{sha256}")
     public SampleDetailResponse find(@PathVariable String sha256) {
         // 원문 형식을 먼저 검증한다. 공백 제거 등으로 잘못된 식별자를 고쳐서 조회하지 않는다.

@@ -4,7 +4,7 @@ import { createEnrollmentToken } from '../lib/api/agents'
 import type { CreateEnrollmentTokenResponse } from '../lib/api/agents'
 import { ApiError } from '../lib/api/client'
 
-// 라우트의 공통 인증을 사용한다. 현재 서버 정책은 로그인한 관리자 사이의 역할을 나누지 않는다.
+// 공통 RoleGuard가 ADMIN만 허용한다. 발급 API의 서버 권한 검사도 그대로 적용한다.
 export function EnrollmentTokenPage() {
   const pending = useRef(false)
   const generation = useRef(0)

@@ -40,7 +40,7 @@ const snapshot: DashboardSnapshot = {
   topHosts: [{ key: 'evil.example', label: 'evil.example', blockCount: 9 }],
   recentBlocks: [{
     eventId: 'r1', agentId: 'a1', hostname: 'DEV-031', sha256: 'a'.repeat(64), filename: 'helper_tool.exe',
-    mimeType: null, fileSize: null, decision: 'BLOCKED', decisionSource: 'ENGINE', cacheHit: false,
+    mimeType: null, fileSize: null, decision: 'BLOCKED', decisionSource: 'ENGINE', similarityClassification: null, cacheHit: false,
     holdDurationMs: null, createdAt: '2026-11-08T05:00:00Z', severity: 'HIGH',
     topRuleName: 'Embedded_PowerShell_Loader', extraRuleCount: 0, acknowledged: false,
   }],

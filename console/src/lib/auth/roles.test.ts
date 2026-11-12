@@ -23,13 +23,13 @@ describe('역할별 메뉴 권한', () => {
   it('역할이 없거나 권한 표에 없는 역할은 어떤 메뉴도 볼 수 없다', () => {
     expect(allowedMenus(undefined)).toEqual([])
     expect(allowedMenus(null)).toEqual([])
-    expect(allowedMenus('VIEWER')).toEqual([])
+    expect(allowedMenus('USER')).toEqual([])
   })
 
   it('변경 권한은 ADMIN만 가진다', () => {
     expect(canManage('ADMIN')).toBe(true)
     expect(canManage('ANALYST')).toBe(false)
-    expect(canManage('VIEWER')).toBe(false)
+    expect(canManage('USER')).toBe(false)
     expect(canManage(undefined)).toBe(false)
   })
 })

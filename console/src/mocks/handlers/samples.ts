@@ -13,7 +13,7 @@ const samples = new Map<string, SampleDetail>(mockDownloadEvents.flatMap(event =
   }]] : []
 }))
 export const sampleHandlers = [http.get(API_BASE_URL + '/api/admin/samples/:sha256', ({ request, params }) => {
-  const auth = authorizeMockRequest(request)
+  const auth = authorizeMockRequest(request, 'ADMIN')
   if (auth.error) return auth.error
   const sha = String(params.sha256)
   if (!/^[0-9a-fA-F]{64}$/.test(sha)) return HttpResponse.json({ code: 'INVALID_INPUT' }, { status: 400 })

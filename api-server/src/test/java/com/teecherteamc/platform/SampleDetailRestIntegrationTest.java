@@ -37,7 +37,7 @@ class SampleDetailRestIntegrationTest {
     }
 
     @Test
-    void viewerCanReadAndInactiveBlacklistDoesNotInventFingerprint() {
+    void userCannotReadAndAdminSeesInactiveBlacklistWithoutInventedFingerprint() {
         String sha = hash();
         jdbc.update("""
                 INSERT INTO hash_blacklist(hash_type,hash_value,reason,severity,source,is_active,created_at,deactivated_at)
@@ -45,13 +45,15 @@ class SampleDetailRestIntegrationTest {
                 """, sha);
         String username = "sample-viewer-" + UUID.randomUUID();
         String password = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO admin_users(admin_id,username,password_hash,role,is_active) VALUES (?,?,?,'VIEWER',true)",
+        jdbc.update("INSERT INTO admin_users(admin_id,username,password_hash,role,is_active) VALUES (?,?,?,'USER',true)",
                 UUID.randomUUID(), username, encoder.encode(password));
         var login = rest.postForEntity("/api/admin/auth/login", Map.of("username",username,"password",password), Map.class);
         var headers = new org.springframework.http.HttpHeaders();
         headers.setBearerAuth((String)login.getBody().get("accessToken"));
         var response = rest.exchange(url(sha.toUpperCase()), org.springframework.http.HttpMethod.GET,
                 new org.springframework.http.HttpEntity<>(headers), Map.class);
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        response = admin.getForEntity(url(sha.toUpperCase()), Map.class);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat((Map<String,Object>)response.getBody().get("blacklist")).containsEntry("isActive",false).containsEntry("reason","inactive synthetic");
         assertThat(response.getBody()).containsEntry("fingerprint",null);

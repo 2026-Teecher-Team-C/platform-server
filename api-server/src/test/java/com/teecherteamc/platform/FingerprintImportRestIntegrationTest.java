@@ -40,11 +40,11 @@ class FingerprintImportRestIntegrationTest {
     }
 
     @Test
-    void viewer_cannot_import_even_with_a_valid_access_token() {
+    void user_cannot_import_even_with_a_valid_access_token() {
         String sha = randomSha();
         seed(sha);
         UUID actor = admin.adminId();
-        jdbc.update("UPDATE admin_users SET role = 'VIEWER' WHERE admin_id = ?", actor);
+        jdbc.update("UPDATE admin_users SET role = 'USER' WHERE admin_id = ?", actor);
         try {
             assertThat(admin.postForEntity(URL, payload(sha, TLSH), Map.class).getStatusCode())
                     .isEqualTo(HttpStatus.FORBIDDEN);

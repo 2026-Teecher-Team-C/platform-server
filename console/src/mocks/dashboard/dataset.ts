@@ -360,6 +360,7 @@ export function createDashboardDataset(options: {
       bytesUploaded: inspected ? int(20_000, 8_000_000) : 0,
       heldAt: holdDurationMs === null ? null : iso(draft.offset + holdDurationMs),
       decidedAt: createdAt,
+      similarity: null,
     }
   })
   analyses.sort((a, b) => b.createdAt.localeCompare(a.createdAt))

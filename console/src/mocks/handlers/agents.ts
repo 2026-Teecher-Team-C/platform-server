@@ -10,8 +10,8 @@ export const agentHandlers = [
   http.post(
     API_BASE_URL + '/api/admin/agents/enrollment-tokens',
     async ({ request }) => {
-      // 서버는 역할을 세분화하지 않으므로 로그인 여부만 확인한다.
-      const auth = authorizeMockRequest(request)
+      // 최신 서버의 등록 토큰 발급 권한은 ADMIN 전용이다. 조회 권한으로 쓰기를 허용하지 않는다.
+      const auth = authorizeMockRequest(request, 'ADMIN')
       if (auth.error) return auth.error
 
       const body = (await request.json().catch(() => ({}))) as

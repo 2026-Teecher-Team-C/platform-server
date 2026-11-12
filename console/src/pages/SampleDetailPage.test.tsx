@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { router } from '../app/router'
 
 const auth = vi.hoisted(() => ({ isAuthenticated: true }))
-vi.mock('../app/useAuth', () => ({ useAuth: () => ({ isAuthenticated: auth.isAuthenticated, isInitializing: false, user: { role: 'VIEWER', username: 'reviewer' }, signOut: vi.fn() }) }))
+vi.mock('../app/useAuth', () => ({ useAuth: () => ({ isAuthenticated: auth.isAuthenticated, isInitializing: false, user: { role: 'ADMIN', username: 'reviewer' }, signOut: vi.fn() }) }))
 vi.mock(import('../lib/auth/tokenStore'), async (original) => ({ ...await original(), getAccessToken: () => null }))
 const sha = 'ab'.repeat(32)
 const fixture = { sha256: sha, blacklist: { reason: 'Synthetic review only', severity: 'HIGH', source: 'MANUAL', isActive: true, registeredAt: '2026-10-23T00:00:00Z' }, fingerprint: { tlsh: 'T1' + 'A'.repeat(70), calculationStatus: 'CALCULATED', algorithmVersion: 'review-vector', provenance: 'ADMIN_IMPORT', provenanceDetail: 'Synthetic, not MalwareBazaar', calculatedAt: '2026-10-23T00:00:00Z' } }
@@ -83,7 +83,7 @@ it('없는 블랙리스트와 지문은 비활성/가짜 TLSH가 아니라 기�
   expect(container.textContent).toContain('지문 기록 없음')
   expect(container.textContent).not.toContain('비활성')
 })
-it('VIEWER가 보호된 샘플 경로에서 실제 계약의 현재 메타데이터를 읽고 원래 이벤트로 돌아간다', async () => {
+it('ADMIN이 보호된 샘플 경로에서 실제 계약의 현재 메타데이터를 읽고 원래 이벤트로 돌아간다', async () => {
   await mount()
   expect(container.textContent).toContain('샘플 상세')
   expect(container.textContent).toContain('Synthetic review only')

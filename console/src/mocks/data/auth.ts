@@ -33,7 +33,7 @@ export const mockAdminAccounts: MockAdminAccount[] = [
     adminId: '00000000-0000-4000-8000-000000000003',
     username: 'viewer',
     password: 'password',
-    role: 'VIEWER',
+    role: 'USER',
     isActive: true,
     lastLoginAt: initialLastLoginAt,
     accessToken: 'mock-access-viewer',
@@ -70,7 +70,7 @@ export function toCurrentAdmin(account: MockAdminAccount): CurrentAdmin {
 
 export function hasAtLeastRole(actual: AdminRole, required: AdminRole) {
   const rank: Record<AdminRole, number> = {
-    VIEWER: 1,
+    USER: 1,
     ANALYST: 2,
     ADMIN: 3,
   }

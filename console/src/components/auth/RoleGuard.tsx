@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../app/useAuth'
-import { canAccess } from '../../lib/auth/roles'
+import { canAccess, canManage } from '../../lib/auth/roles'
 import { ForbiddenPage } from '../../pages/ForbiddenPage'
 import { findNavItemByPath } from '../layout/navigation'
 
@@ -20,7 +20,9 @@ export function RoleGuard() {
   const menu = findNavItemByPath(pathname)
 
   // 메뉴 목록에 없는 주소(404 등)는 권한 검사 대상이 아니므로 그대로 통과시킨다.
-  if (menu && !canAccess(user?.role, menu.key)) {
+  // 샘플 조회는 새 서버 권한표의 기본 규칙(ADMIN 전용)을 따른다. 메뉴가 없어도 가드를 생략하지 않는다.
+  const samplePath = pathname.toLowerCase().startsWith('/samples/')
+  if ((samplePath && !canManage(user?.role)) || (menu && !canAccess(user?.role, menu.key))) {
     return <ForbiddenPage />
   }
 

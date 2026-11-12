@@ -59,6 +59,7 @@ function matchedRules(ds: DashboardDataset, e: Event): Rule[] {
 
 export function eventSeverity(ds: DashboardDataset, e: Event): Severity | null {
   if (e.decision !== 'BLOCKED' || !e.sha256) return null
+  if (e.decisionSource === 'SIMILARITY') return 'MEDIUM'
   if (e.decisionSource === 'BLACKLIST') return ds.blacklist.get(e.sha256) ?? null
   return matchedRules(ds, e)[0]?.severity ?? null
 }
@@ -69,9 +70,11 @@ export function eventRules(ds: DashboardDataset, e: Event): { topRuleName: strin
 }
 
 export function toListItem(ds: DashboardDataset, e: DownloadEventDetail): DownloadEventListItem {
-  const { requestHost: _h, url: _u, bytesUploaded: _b, heldAt: _held, decidedAt: _d, ...item } = e
+  const { requestHost: _h, url: _u, bytesUploaded: _b, heldAt: _held, decidedAt: _d, similarity, ...item } = e
   return {
     ...item,
+    // 상세 스냅샷은 내리지 않고 이벤트 당시 분류만 목록에 전달한다.
+    similarityClassification: similarity?.classification ?? null,
     severity: eventSeverity(ds, e),
     ...eventRules(ds, e),
     acknowledged: isBlock(e) && ds.acknowledgements.has(e.eventId),
@@ -240,7 +243,8 @@ export function computeDailyBlocks(
   let keys: string[]
   let keyOf: (e: Event) => string | null
   if (stackBy === 'SOURCE') {
-    keys = ['ENGINE', 'CACHE', 'BLACKLIST', 'FAIL_CLOSE']
+    // 새 판정 소스가 실제 존재하면 별도 버킷으로 보존한다. TLSH를 룰 악성 통계에 합쳐 해석하지 않는다.
+    keys = ['ENGINE', 'CACHE', 'BLACKLIST', ...(blocks.some(e => e.decisionSource === 'SIMILARITY') ? ['SIMILARITY'] : []), 'FAIL_CLOSE']
     keyOf = (e) => (e.decision === 'FAIL_CLOSE' ? 'FAIL_CLOSE' : e.decisionSource)
   } else {
     // 이벤트 하나는 대표 룰 한 칸에만 센다(막대 합 = 차단 수).

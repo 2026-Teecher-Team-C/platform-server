@@ -4,6 +4,15 @@ import { expect, it } from 'vitest'
 import { SimilarityEvidence } from './SimilarityEvidence'
 import type { EventSimilarity } from '../../lib/api/events'
 
+const restrictedSimilarity: EventSimilarity = { classification: 'WARN', distance: 45, matchedSampleSha256: 'ab'.repeat(32), assessedAt: '2026-10-23T00:00:00Z' }
+
+it('권한 prop을 빠뜨리면 SHA는 보존하되 기본적으로 샘플 링크를 허용하지 않는다', () => {
+  const html = renderToStaticMarkup(<MemoryRouter><SimilarityEvidence similarity={restrictedSimilarity} /></MemoryRouter>)
+  expect(html).toContain(restrictedSimilarity.matchedSampleSha256)
+  expect(html).not.toContain('href=')
+  expect(html).toContain('샘플 상세는 ADMIN만 조회할 수 있습니다.')
+})
+
 it('접힌 설명 안에 모든 아이콘의 거리 구간과 기록 없는 경우를 안내한다', () => {
   const html = renderToStaticMarkup(<SimilarityEvidence similarity={null} />)
   expect(html).toContain('아이콘과 거리 기준')

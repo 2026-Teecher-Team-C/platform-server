@@ -162,6 +162,9 @@ class RolePermissionRestIntegrationTest {
     }
 
     private static final List<Row> TABLE = List.of(
+            // TLSH 조회/관리도 최신 ADMIN 전용 정책을 유지한다.
+            new Row("GET", "/api/admin/samples/" + SOME_SHA256, true, false, false),
+            new Row("POST", "/api/admin/file-fingerprints/import", true, false, false),
             // 이벤트 조회 (목록 GET은 시연용으로 로그인 없이 열려 있어 역할 표에 없다)
             new Row("GET", "/api/admin/download-events/" + SOME_UUID, true, true, false),
             new Row("GET", "/api/admin/events/stream", true, true, false),
