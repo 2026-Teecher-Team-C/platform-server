@@ -80,9 +80,9 @@ describe('createDashboardDataset', () => {
     }
   })
 
-  it('기존 mockDownloadEvents 4건을 그대로 뒤에 붙인다', () => {
+  it('기존 이벤트와 TLSH fixture를 모두 그대로 뒤에 붙인다', () => {
     const dataset = createDashboardDataset({ now: NOW })
-    expect(dataset.events.slice(-4)).toEqual(mockDownloadEvents)
+    expect(dataset.events.slice(-mockDownloadEvents.length)).toEqual(mockDownloadEvents)
   })
 
   it('M1 최소 조건을 만족한다', () => {

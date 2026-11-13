@@ -1,0 +1,6 @@
+plugins { id 'java-library' }
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+// 바이너리 배포에도 원저작권, 라이선스 고지를 함께 포함한다.
+processResources {
+    from(project.files('LICENSE', 'NOTICE.txt')) { into 'META-INF' }
+}

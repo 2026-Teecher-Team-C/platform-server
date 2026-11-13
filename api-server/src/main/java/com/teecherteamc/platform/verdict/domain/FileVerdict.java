@@ -109,6 +109,12 @@ public class FileVerdict implements Persistable<String> {
         this.lastVerdictAt = now;
     }
 
+    /** 원본 YARA 분석은 그대로 두고 보조 정책만 갱신한다. 분석 횟수/시각/룰 버전/stale을 덮어쓰지 않는다. */
+    public void recordSimilarityPolicy(boolean block) {
+        this.verdict = block ? "MALICIOUS" : "CLEAN";
+        this.verdictSource = block ? "SIMILARITY" : "ENGINE";
+    }
+
     /** 이 판정을 더 이상 캐시로 쓰지 않게 한다. 다음 조회 때 재검사되고 recordAnalysis()가 stale을 해제한다. */
     public void markStale() {
         this.stale = true;

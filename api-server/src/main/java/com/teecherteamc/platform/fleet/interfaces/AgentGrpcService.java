@@ -36,8 +36,8 @@ import org.springframework.grpc.server.service.GrpcService;
 /**
  * AgentService의 gRPC 어댑터. RegisterAgent/Heartbeat/GetPolicy를 실제 구현한다 — RefreshAgentToken은
  * proto가 요구하는 메서드지만 이번 스프린트 범위 밖(S4에 팀과 재협의)이라 명시적으로 UNIMPLEMENTED를
- * 돌려준다. AgentAuthServerInterceptor를 이 서비스에만 스코프를 걸어서, Bearer 토큰이 필요 없는
- * RegisterAgent와 VerdictService의 기존 RPC들이 영향받지 않게 한다.
+ * 돌려준다. AgentAuthServerInterceptor는 AgentService와 VerdictService에 각각 적용한다.
+ * RegisterAgent만 등록 토큰으로 인증하며, 나머지 RPC에는 발급된 agent Bearer 토큰이 필요하다.
  */
 @GrpcService(interceptors = AgentAuthServerInterceptor.class)
 public class AgentGrpcService extends AgentServiceGrpc.AgentServiceImplBase {

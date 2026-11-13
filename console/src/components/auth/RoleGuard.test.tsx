@@ -21,7 +21,8 @@ function renderAt(path: string, role: AdminRole) {
     isInitializing: false,
     isAuthenticated: true,
     signIn: async () => user,
-    signOut: () => {},
+    signOut: async () => {},
+    authNotice: '',
   }
 
   return renderToStaticMarkup(
@@ -40,6 +41,13 @@ function renderAt(path: string, role: AdminRole) {
 }
 
 describe('RoleGuard', () => {
+  it.each(['ANALYST', 'USER'] as const)('샘플 상세도 서버의 ADMIN 전용 정책에 맞춰 %s를 막는다', (role) => {
+    expect(renderAt('/samples/' + 'a'.repeat(64), role)).toContain('접근 권한이 없습니다.')
+  })
+
+  it('ADMIN은 샘플 상세 경로를 통과한다', () => {
+    expect(renderAt('/samples/' + 'a'.repeat(64), 'ADMIN')).not.toContain('접근 권한이 없습니다.')
+  })
   it('권한이 있는 주소는 그대로 보여 준다', () => {
     const html = renderAt('/dashboard', 'ANALYST')
 
@@ -83,7 +91,7 @@ describe('RoleGuard', () => {
   })
 
   it('갈 수 있는 메뉴가 하나도 없는 역할에게는 이동 링크 없이 로그아웃만 준다', () => {
-    const html = renderAt('/dashboard', 'VIEWER')
+    const html = renderAt('/dashboard', 'USER')
 
     expect(html).toContain('접근 권한이 없습니다.')
     expect(html).not.toContain('(으)로 이동')

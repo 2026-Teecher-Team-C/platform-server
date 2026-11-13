@@ -111,3 +111,11 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 - 로그인·refresh와 actuator `health`·`prometheus`는 지금처럼 로그인 없이 연다(1장).
 - 권한이 없으면 403 `FORBIDDEN`이다(2장). 로그인하지 않았으면 401이다.
 - 소명 목록·승인과 계정 생성·역할 부여 API는 아직 없어서 표에 없다. 만들 때 이 표에 행을 추가한다.
+
+
+### TLSH 관리 경계 (PR92)
+
+- `GET /api/admin/samples/{sha256}`, `POST /api/admin/file-fingerprints/import`: ADMIN 전용, ANALYST/USER는 403.
+- ANALYST 이벤트 근거에는 정확 SHA 문자열과 ADMIN 권한 안내만 표시, ADMIN만 returnTo를 보존한 샘플 상세 링크 사용.
+- VerdictService의 CheckHash/SubmitFile/ReportEvent는 기존 fleet Bearer 토큰으로 인증, 요청 UUID와 SHA를 인증된 Agent에 예약. platform-agent가 이미 전달하는 Bearer 계약 유지.
+- refresh 자격 거절 401/403만 현재 세션 폐기, 네트워크/5xx는 요청 실패로 전달하되 토큰 보존. 이전 세대의 늦은 응답은 AbortError로 숨김.

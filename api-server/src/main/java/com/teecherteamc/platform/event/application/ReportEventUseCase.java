@@ -29,22 +29,29 @@ public class ReportEventUseCase {
     private final PendingQuarantineUploadLookupPort pendingQuarantineUploadLookupPort;
     private final QuarantineRecorderPort quarantineRecorderPort;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.teecherteamc.platform.verdict.application.EventDecisionEvidence evidence;
+    private final com.teecherteamc.platform.verdict.application.EventQuarantineUploads eventQuarantineUploads;
 
     public ReportEventUseCase(
             DownloadEventRepository downloadEventRepository,
             FileVerdictExistsPort fileVerdictExistsPort,
             PendingQuarantineUploadLookupPort pendingQuarantineUploadLookupPort,
             QuarantineRecorderPort quarantineRecorderPort,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            com.teecherteamc.platform.verdict.application.EventDecisionEvidence evidence,
+            com.teecherteamc.platform.verdict.application.EventQuarantineUploads eventQuarantineUploads) {
         this.downloadEventRepository = downloadEventRepository;
         this.fileVerdictExistsPort = fileVerdictExistsPort;
         this.pendingQuarantineUploadLookupPort = pendingQuarantineUploadLookupPort;
         this.quarantineRecorderPort = quarantineRecorderPort;
         this.eventPublisher = eventPublisher;
+        this.evidence = evidence;
+        this.eventQuarantineUploads = eventQuarantineUploads;
     }
 
     @Transactional
     public void reportEvent(ReportEventCommand command) {
+        evidence.claim(command.eventId(), command.sha256(), command.agentId());
         DownloadEvent event = DownloadEvent.record(
                 command.eventId(),
                 command.agentId(),
@@ -63,8 +70,9 @@ public class ReportEventUseCase {
                 command.decidedAt(),
                 command.holdDurationMs());
         downloadEventRepository.save(event);
+        boolean linked = eventQuarantineUploads.link(command.eventId(), command.sha256(), command.agentId());
 
-        if (DECISION_BLOCKED.equals(command.decision())) {
+        if (DECISION_BLOCKED.equals(command.decision()) && !linked) {
             recordQuarantineIfPending(event, command);
         }
 

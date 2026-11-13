@@ -1,48 +1,35 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useAuth } from '../app/useAuth'
 import { createEnrollmentToken } from '../lib/api/agents'
 import type { CreateEnrollmentTokenResponse } from '../lib/api/agents'
 import { ApiError } from '../lib/api/client'
 
+// 공통 RoleGuard가 ADMIN만 허용한다. 발급 API의 서버 권한 검사도 그대로 적용한다.
 export function EnrollmentTokenPage() {
-  const { user } = useAuth()
+  const pending = useRef(false)
+  const generation = useRef(0)
+  useEffect(() => () => { generation.current += 1 }, [])
   const [expiresInMinutes, setExpiresInMinutes] = useState('')
   const [issuedToken, setIssuedToken] = useState<CreateEnrollmentTokenResponse | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [copyLabel, setCopyLabel] = useState('복사')
 
-  if (user?.role !== 'ADMIN') {
-    return (
-      <section className="page">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">Agent Enrollment</p>
-            <h1>등록 토큰 발급</h1>
-            <p>등록 토큰 발급은 ADMIN 권한이 필요합니다.</p>
-          </div>
-        </div>
-
-        <div className="access-denied-panel">
-          <strong>접근 권한이 없습니다.</strong>
-          <p>현재 계정 권한: {user?.role ?? '-'}</p>
-        </div>
-      </section>
-    )
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    // state 반영 전 같은 렌더에서 제출해도 발급은 한 번만 보낸다.
+    if (pending.current) return
 
     const trimmed = expiresInMinutes.trim()
     const parsed = trimmed ? Number(trimmed) : undefined
 
-    if (parsed !== undefined && (!Number.isInteger(parsed) || parsed <= 0)) {
-      setErrorMessage('유효 시간은 1 이상의 정수(분)로 입력해 주세요.')
+    if (parsed !== undefined && (!Number.isInteger(parsed) || parsed < 1 || parsed > 1440)) {
+      setErrorMessage('유효 시간은 1 이상 1440 이하의 정수(분)로 입력해 주세요.')
       return
     }
 
+    pending.current = true
+    const current = ++generation.current
     setIsSubmitting(true)
     setErrorMessage('')
     setIssuedToken(null)
@@ -52,8 +39,11 @@ export function EnrollmentTokenPage() {
       const response = await createEnrollmentToken(
         parsed === undefined ? {} : { expiresInMinutes: parsed },
       )
+      // 화면이 사라지거나 더 새 작업으로 바뀌면 원문을 다시 표시하지 않는다.
+      if (current !== generation.current) return
       setIssuedToken(response)
     } catch (error) {
+      if (current !== generation.current) return
       if (error instanceof ApiError && error.status === 400) {
         setErrorMessage('유효 시간이 서버 정책의 허용 범위를 벗어났습니다.')
       } else if (error instanceof ApiError && error.status === 401) {
@@ -64,7 +54,10 @@ export function EnrollmentTokenPage() {
         setErrorMessage('등록 토큰을 발급하지 못했습니다. 잠시 후 다시 시도해 주세요.')
       }
     } finally {
-      setIsSubmitting(false)
+      if (current === generation.current) {
+        pending.current = false
+        setIsSubmitting(false)
+      }
     }
   }
 
@@ -73,11 +66,12 @@ export function EnrollmentTokenPage() {
       return
     }
 
+    const current = generation.current
     try {
       await navigator.clipboard.writeText(issuedToken.token)
-      setCopyLabel('복사됨')
+      if (current === generation.current) setCopyLabel('복사됨')
     } catch {
-      setCopyLabel('복사 실패')
+      if (current === generation.current) setCopyLabel('복사 실패')
     }
   }
 
@@ -88,7 +82,6 @@ export function EnrollmentTokenPage() {
           <p className="eyebrow">Agent Enrollment</p>
           <h1>등록 토큰 발급</h1>
         </div>
-        <span className="phase-badge">ADMIN</span>
       </div>
 
       <div className="enrollment-grid">
@@ -96,8 +89,7 @@ export function EnrollmentTokenPage() {
           <div>
             <h2>새 등록 토큰</h2>
             <p>
-              유효 시간을 비워두면 서버 기본 정책을 사용합니다. 최대 허용 시간은 서버 정책을
-              따릅니다.
+              유효 시간을 비워두면 60분을 사용합니다. 1분부터 1440분까지 설정할 수 있습니다.
             </p>
           </div>
 
@@ -107,10 +99,11 @@ export function EnrollmentTokenPage() {
               type="number"
               inputMode="numeric"
               min="1"
+              max="1440"
               step="1"
               value={expiresInMinutes}
               onChange={(event) => setExpiresInMinutes(event.target.value)}
-              placeholder="예: 30"
+              placeholder="기본 60분"
               disabled={isSubmitting}
             />
           </label>

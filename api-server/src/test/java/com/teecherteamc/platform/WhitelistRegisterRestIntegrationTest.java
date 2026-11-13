@@ -2,7 +2,6 @@ package com.teecherteamc.platform;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.teecherteamc.platform.event.application.PlaceholderAgent;
 import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import com.teecherteamc.platform.proto.verdict.v1.DecisionSource;
 import com.teecherteamc.platform.proto.verdict.v1.FinalDecision;
@@ -69,21 +68,14 @@ class WhitelistRegisterRestIntegrationTest {
         return HexFormat.of().formatHex(bytes);
     }
 
-    // ReportEvent의 agent_id FK용 — VerdictGrpcService가 PlaceholderAgent.DEV_AGENT_ID로 채워넣으므로
-    // fixture도 같은 값을 써야 한다. 여러 테스트에서 재사용하니 ON CONFLICT로 중복 삽입을 무시한다.
+    private UUID authenticatedAgent;
+
+    // SHA 보존 회귀도 실제 인증된 에이전트로 보고한다. 가짜 고정 소유자로 인증을 우회하지 않는다.
     @BeforeEach
     void seedDeviceAndAgent() {
-        UUID deviceId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO devices (device_id, hostname, os_platform) VALUES (?, 'test-host', 'WINDOWS')",
-                deviceId);
-        jdbcTemplate.update(
-                """
-                INSERT INTO agents (agent_id, device_id, agent_version, enrollment_token_hash)
-                VALUES (?, ?, '0.0.1', 'test-hash')
-                ON CONFLICT (agent_id) DO NOTHING
-                """,
-                PlaceholderAgent.DEV_AGENT_ID, deviceId);
+        var identity = VerdictTestClient.seed(jdbcTemplate);
+        authenticatedAgent = identity.id();
+        verdictStub = VerdictTestClient.withToken(verdictStub, identity.token());
     }
 
     private static com.google.protobuf.Timestamp toTimestamp(Instant instant) {
@@ -253,6 +245,8 @@ class WhitelistRegisterRestIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT sha256 FROM download_events WHERE event_id = ?", String.class, eventId))
                 .isEqualTo(sha256);
+        assertThat(jdbcTemplate.queryForObject("SELECT agent_id FROM download_events WHERE event_id = ?", UUID.class, eventId))
+                .isEqualTo(authenticatedAgent);
     }
 
     // stale 처리는 verdict 컨텍스트가 이벤트로 받아서 한다. 등록과 같은 트랜잭션이라 등록이 취소되면 함께 취소된다.

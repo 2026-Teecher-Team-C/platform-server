@@ -10,7 +10,8 @@ export type CreateEnrollmentTokenResponse = {
   expiresAt: string
 }
 
-export function createEnrollmentToken(body: CreateEnrollmentTokenRequest) {
+// 컨트롤러는 생략 시 60분, 1~1440분을 허용하며 201에 원문과 만료 시각만 반환한다.
+export function createEnrollmentToken(body: CreateEnrollmentTokenRequest): Promise<CreateEnrollmentTokenResponse> {
   return apiRequest<CreateEnrollmentTokenResponse>('/api/admin/agents/enrollment-tokens', {
     method: 'POST',
     body: JSON.stringify(body),

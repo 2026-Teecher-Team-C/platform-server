@@ -15,6 +15,7 @@ class AnalysisRepositoryImpl implements AnalysisRepository {
 
     @Override
     public Analysis save(Analysis analysis) {
-        return jpaRepository.save(analysis);
+        // 뒤따르는 JDBC 근거가 analysis_id FK를 참조하므로 같은 트랜잭션에서 먼저 반영한다.
+        return jpaRepository.saveAndFlush(analysis);
     }
 }

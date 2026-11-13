@@ -5,7 +5,16 @@ import { toQueryString } from './types'
 
 // 실제 DB CHECK 제약(ck_download_events_decision/ck_download_events_decision_source)과 1:1.
 export type DownloadDecision = 'RELEASED' | 'BLOCKED' | 'BYPASSED' | 'FAIL_CLOSE'
-export type DownloadDecisionSource = 'WHITELIST' | 'BLACKLIST' | 'CACHE' | 'ENGINE' | 'POLICY'
+export type DownloadDecisionSource = 'WHITELIST' | 'BLACKLIST' | 'CACHE' | 'ENGINE' | 'POLICY' | 'SIMILARITY'
+
+export type SimilarityClassification = 'BLOCK' | 'WARN' | 'NONE' | 'UNAVAILABLE'
+// 이벤트 FK에 연결된 당시 평가다. null은 기록 없음, NONE은 평가 완료, UNAVAILABLE은 계산 불가다.
+export type EventSimilarity = {
+  classification: SimilarityClassification
+  matchedSampleSha256: string | null
+  distance: number | null
+  assessedAt: string
+}
 
 export type DownloadEventListItem = {
   eventId: string
@@ -22,6 +31,7 @@ export type DownloadEventListItem = {
   cacheHit: boolean
   holdDurationMs: number | null
   createdAt: string
+  similarityClassification: SimilarityClassification | null
   // 이벤트 심각도·대표 룰(API 명세 §0, §8). 차단이 아니거나 FAIL_CLOSE면 severity/topRuleName은 null이다.
   severity: Severity | null
   topRuleName: string | null
@@ -29,12 +39,13 @@ export type DownloadEventListItem = {
   acknowledged: boolean
 }
 
-export type DownloadEventDetail = DownloadEventListItem & {
+export type DownloadEventDetail = Omit<DownloadEventListItem, 'similarityClassification'> & {
   requestHost: string
   url: string
   bytesUploaded: number
   heldAt?: string | null
   decidedAt: string | null
+  similarity: EventSimilarity | null
 }
 
 export type DownloadEventQuery = {

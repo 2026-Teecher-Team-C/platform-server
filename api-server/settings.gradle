@@ -1,1 +1,3 @@
 rootProject.name = 'api-server'
+include 'tlsh'
+project(':tlsh').projectDir = file('third-party/tlsh')

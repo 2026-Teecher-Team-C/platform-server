@@ -3,7 +3,7 @@ import type { AdminRole } from '../lib/api/auth'
 import { getAuthenticatedMockAccount } from './auth'
 import { hasAtLeastRole } from './data/auth'
 
-export function authorizeMockRequest(request: Request, required: AdminRole = 'VIEWER') {
+export function authorizeMockRequest(request: Request, required: AdminRole = 'USER') {
   const account = getAuthenticatedMockAccount(request)
 
   if (!account) {

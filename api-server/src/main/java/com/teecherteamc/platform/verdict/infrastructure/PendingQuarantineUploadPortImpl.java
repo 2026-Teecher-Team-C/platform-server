@@ -24,7 +24,7 @@ class PendingQuarantineUploadPortImpl implements PendingQuarantineUploadPort {
                 """
                 INSERT INTO pending_quarantine_uploads (sha256, file_size, s3_bucket, s3_key)
                 VALUES (?, ?, ?, ?)
-                ON CONFLICT (sha256) DO NOTHING
+                ON CONFLICT (sha256) WHERE event_id IS NULL DO NOTHING
                 """,
                 sha256, fileSize, bucket, key);
     }

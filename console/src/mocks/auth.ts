@@ -3,6 +3,7 @@ import {
   hasAtLeastRole,
 } from './data/auth'
 import type { AdminRole } from '../lib/api/auth'
+import { findMockSession } from './sessions'
 
 export function getBearerToken(request: Request) {
   const authorization = request.headers.get('authorization')
@@ -21,7 +22,7 @@ export function getAuthenticatedMockAccount(request: Request) {
     return null
   }
 
-  return findMockAccountByAccessToken(token) ?? null
+  return findMockSession(token) ?? findMockAccountByAccessToken(token) ?? null
 }
 
 export function canAccessMockRole(request: Request, required: AdminRole) {

@@ -25,5 +25,6 @@ public record DownloadEventDetailRow(
         String url,
         long bytesUploaded,
         Instant heldAt,
-        Instant decidedAt) {
+        Instant decidedAt,
+        EventSimilarity similarity) {
 }

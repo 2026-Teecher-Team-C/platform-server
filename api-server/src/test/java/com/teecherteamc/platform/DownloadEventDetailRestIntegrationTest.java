@@ -27,6 +27,16 @@ class DownloadEventDetailRestIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private org.springframework.boot.resttestclient.TestRestTemplate anonymousClient;
+
+    @Test
+    void 목록의_시연용_공개와_상세의_인증_정책을_유지한다() {
+        // 기존 SecurityConfig의 시연용 목록 공개는 이번 읽기 DTO 카드에서 바꾸지 않는다.
+        assertThat(anonymousClient.getForEntity("/api/admin/download-events", String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(anonymousClient.getForEntity("/api/admin/download-events/" + UUID.randomUUID(), String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
     private UUID seedDevice(String hostname) {
         UUID deviceId = UUID.randomUUID();
         jdbcTemplate.update(
@@ -78,6 +88,67 @@ class DownloadEventDetailRestIntegrationTest {
         assertThat(body.get("heldAt")).isNotNull();
         assertThat(body.get("decidedAt")).isNotNull();
         assertThat(body.get("decision")).isEqualTo("BLOCKED");
+        // CheckHash 전용 등 연결 없는 이벤트에 최신 SHA 평가를 추측해 붙이지 않는다.
+        assertThat(body).containsKey("similarity");
+        assertThat(body.get("similarity")).isNull();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"BLOCK,17", "WARN,45", "NONE,120", "NONE,", "UNAVAILABLE,"})
+    void 이벤트_FK의_평가_스냅샷만_공개한다(String classification, Integer distance) {
+        UUID agent = seedAgent(seedDevice("TLSH-HISTORY"));
+        String sha = UUID.randomUUID().toString().replace("-", "").repeat(2);
+        String sample = UUID.randomUUID().toString().replace("-", "").repeat(2);
+        UUID assessment = UUID.randomUUID();
+        UUID event = UUID.randomUUID();
+        Instant assessedAt = Instant.parse("2026-10-23T00:00:00Z");
+        jdbcTemplate.update("INSERT INTO file_verdicts(sha256,verdict,verdict_source) VALUES (?,'CLEAN','ENGINE')", sha);
+        jdbcTemplate.update("""
+                INSERT INTO similarity_assessments(assessment_id,sha256,corpus_token,policy_version,
+                    matched_sample_sha256,matched_sample_tlsh,distance,classification,assessed_at)
+                VALUES (?,?,'private-token','v1',?,?,?,?,?)
+                """, assessment, sha, distance == null ? null : sample,
+                distance == null ? null : "T1" + "A".repeat(70), distance, classification, Timestamp.from(assessedAt));
+        jdbcTemplate.update("INSERT INTO event_decision_evidence(event_id,agent_id,sha256,assessment_id) VALUES (?,?,?,?)",
+                event, agent, sha, assessment);
+        jdbcTemplate.update("""
+                INSERT INTO download_events(event_id,agent_id,sha256,request_host,url,pipeline_status,decision,decision_source,held_at)
+                VALUES (?,?,?,'history.example','https://history.example/test','COMPLETED',?,?,now())
+                """, event, agent, sha, classification.equals("BLOCK") ? "BLOCKED" : "RELEASED",
+                classification.equals("BLOCK") ? "SIMILARITY" : "ENGINE");
+        Map before = adminClient.getForEntity("/api/admin/download-events/" + event, Map.class).getBody();
+        Map<String, Object> expected = new java.util.HashMap<>();
+        expected.put("classification", classification);
+        expected.put("matchedSampleSha256", distance == null ? null : sample);
+        expected.put("distance", distance);
+        expected.put("assessedAt", assessedAt.toString());
+        assertThat(before.get("similarity")).isEqualTo(expected);
+        // 최신 SHA 평가와 기준 지문을 바꿔도 과거 이벤트는 정확히 자기 FK를 읽어야 한다.
+        jdbcTemplate.update("""
+                INSERT INTO similarity_assessments(assessment_id,sha256,corpus_token,policy_version,classification)
+                VALUES (?,?,'new-token','v2','UNAVAILABLE')
+                """, UUID.randomUUID(), sha);
+        jdbcTemplate.update("""
+                INSERT INTO file_fingerprints(sha256,tlsh,calculation_status,algorithm_version,provenance)
+                VALUES (?,?,'CALCULATED','test','VERIFIED_UPLOAD')
+                """, sample, "T1" + "B".repeat(70));
+        jdbcTemplate.update("UPDATE file_fingerprints SET tlsh=? WHERE sha256=?", "T1" + "C".repeat(70), sample);
+        if (distance != null) {
+            Map current = adminClient.getForEntity("/api/admin/samples/" + sample, Map.class).getBody();
+            assertThat((Map) current.get("fingerprint")).containsEntry("tlsh", "T1" + "C".repeat(70));
+            assertThat(current).containsEntry("blacklist", null);
+        }
+        Map after = adminClient.getForEntity("/api/admin/download-events/" + event, Map.class).getBody();
+        assertThat(after.get("similarity")).isEqualTo(before.get("similarity"));
+        Map page = adminClient.getForEntity("/api/admin/download-events?agentId=" + agent, Map.class).getBody();
+        Map item = (Map) ((java.util.List<?>) page.get("content")).getFirst();
+        assertThat(item).containsEntry("similarityClassification", classification);
+        UUID absent = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO download_events(event_id,agent_id,sha256,request_host,url,pipeline_status,decision,decision_source,held_at)
+                VALUES (?,?,?,'check.example','https://check.example/test','COMPLETED','RELEASED','CACHE',now())
+                """, absent, agent, sha);
+        assertThat(adminClient.getForEntity("/api/admin/download-events/" + absent, Map.class).getBody().get("similarity")).isNull();
     }
 
     @Test

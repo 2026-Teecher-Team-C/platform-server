@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw'
 import type { LoginRequest } from '../../lib/api/auth'
 import { API_BASE_URL } from '../../lib/api/client'
 import { getAuthenticatedMockAccount } from '../auth'
+import { issueMockSession, revokeMockSession, rotateMockSession } from '../sessions'
 import {
   findMockAccountByCredentials,
   toCurrentAdmin,
@@ -45,11 +46,22 @@ export const authHandlers = [
 
     account.lastLoginAt = new Date().toISOString()
 
-    return HttpResponse.json({
-      accessToken: account.accessToken,
-      refreshToken: account.refreshToken,
-      tokenType: 'Bearer',
-    })
+    return HttpResponse.json(issueMockSession(account))
+  }),
+
+  // 일회용 refresh를 교환해 실제 서버의 토큰 회전과 재사용 거부를 mock에서도 확인한다.
+  http.post(API_BASE_URL + '/api/admin/auth/refresh', async ({ request }) => {
+    const body = await request.json().catch(() => null) as { refreshToken?: unknown } | null
+    const session = typeof body?.refreshToken === 'string' ? rotateMockSession(body.refreshToken) : null
+    return session ? HttpResponse.json(session) : HttpResponse.json({ code: 'UNAUTHORIZED', message: '다시 로그인하세요.' }, { status: 401 })
+  }),
+
+  http.post(API_BASE_URL + '/api/admin/auth/logout', async ({ request }) => {
+    const account = getAuthenticatedMockAccount(request)
+    if (!account) return HttpResponse.json({ code: 'UNAUTHORIZED' }, { status: 401 })
+    const body = await request.json().catch(() => null) as { refreshToken?: unknown } | null
+    if (typeof body?.refreshToken === 'string') revokeMockSession(body.refreshToken, account.adminId)
+    return new HttpResponse(null, { status: 204 })
   }),
 
   http.get(API_BASE_URL + '/api/admin/auth/me', ({ request }) => {

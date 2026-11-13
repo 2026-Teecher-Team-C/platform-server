@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 interface FileVerdictJpaRepository extends JpaRepository<FileVerdict, String> {
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query(value = "UPDATE file_verdicts SET is_stale = true WHERE verdict_source = 'ENGINE' AND is_stale = false",
+    @Query(value = "UPDATE file_verdicts SET is_stale = true WHERE verdict_source IN ('ENGINE', 'SIMILARITY') AND is_stale = false",
             nativeQuery = true)
     int markEngineVerdictsStale();
 }

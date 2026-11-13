@@ -16,5 +16,6 @@ public record DownloadEventListRow(
         String decisionSource,
         boolean cacheHit,
         Integer holdDurationMs,
-        Instant createdAt) {
+        Instant createdAt,
+        String similarityClassification) {
 }

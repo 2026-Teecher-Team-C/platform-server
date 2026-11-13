@@ -50,6 +50,7 @@ function makeEvent(partial: Partial<DownloadEventDetail>): DownloadEventDetail {
     bytesUploaded: 0,
     heldAt: null,
     decidedAt: null,
+    similarity: null,
     ...partial,
   }
 }

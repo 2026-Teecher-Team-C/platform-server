@@ -39,7 +39,8 @@ export function Sidebar() {
   })).filter((group) => group.items.length > 0)
 
   function handleLogout() {
-    signOut()
+    // 로컬 인증은 즉시 지우고 로그인 화면으로 이동한다. 서버 폐기 실패 안내는 AuthProvider가 이어서 표시한다.
+    void signOut()
     navigate('/login', { replace: true })
   }
 

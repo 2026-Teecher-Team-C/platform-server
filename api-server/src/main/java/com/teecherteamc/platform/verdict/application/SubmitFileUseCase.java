@@ -17,9 +17,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -41,6 +41,10 @@ public class SubmitFileUseCase {
     private final PendingQuarantineUploadPort pendingQuarantineUploadPort;
     private final ActiveRulesetKeyPort activeRulesetKeyPort;
     private final TransactionTemplate transactionTemplate;
+    private final RecordFileFingerprint recordFileFingerprint;
+    private final SimilarityDecisions similarity;
+    private final EventDecisionEvidence evidence;
+    private final EventQuarantineUploads eventQuarantineUploads;
 
     public SubmitFileUseCase(
             FileVerdictRepository fileVerdictRepository,
@@ -49,7 +53,9 @@ public class SubmitFileUseCase {
             QuarantineUploadPort quarantineUploadPort,
             PendingQuarantineUploadPort pendingQuarantineUploadPort,
             ActiveRulesetKeyPort activeRulesetKeyPort,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            RecordFileFingerprint recordFileFingerprint,
+            SimilarityDecisions similarity, EventDecisionEvidence evidence, EventQuarantineUploads eventQuarantineUploads) {
         this.fileVerdictRepository = fileVerdictRepository;
         this.analysisRepository = analysisRepository;
         this.engineAnalysisPort = engineAnalysisPort;
@@ -57,6 +63,10 @@ public class SubmitFileUseCase {
         this.pendingQuarantineUploadPort = pendingQuarantineUploadPort;
         this.activeRulesetKeyPort = activeRulesetKeyPort;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.recordFileFingerprint = recordFileFingerprint;
+        this.similarity = similarity;
+        this.evidence = evidence;
+        this.eventQuarantineUploads = eventQuarantineUploads;
     }
 
     /**
@@ -73,15 +83,52 @@ public class SubmitFileUseCase {
             throw new HashMismatchException(command.claimedSha256(), command.verifiedSha256());
         }
 
-        Optional<FileVerdict> cached =
-                transactionTemplate.execute(status -> fileVerdictRepository.findBySha256(command.verifiedSha256()));
-        if (cached.isPresent() && !cached.get().isStale()) {
-            SubmitFileResult fromCache = fromCachedVerdict(cached.get());
-            if (fromCache != null) {
-                return fromCache;
+        transactionTemplate.executeWithoutResult(status -> evidence.claim(command.eventId(), command.verifiedSha256(), command.agentId()));
+
+        // SHA 검증 뒤, 캐시 반환 전에 지문을 남긴다. 불일치 업로드는 이 경로에 도달하지 않는다.
+        recordFileFingerprint.recordVerified(command.verifiedSha256(), command.spoolFile());
+
+        boolean[] recomputedBlock = {false};
+        SubmitFileResult cacheResult = transactionTemplate.execute(status -> {
+            evidence.claim(command.eventId(), command.verifiedSha256(), command.agentId());
+            similarity.lockCorpus();
+            similarity.lockFile(command.verifiedSha256());
+            SubmitFileResult exact = similarity.exactOverride(command.verifiedSha256());
+            if (exact != null) {
+                similarity.clearPending(command.eventId());
+                return exact;
             }
-            // CLEAN/MALICIOUS/SUSPICIOUS가 아닌(= 과거 UNKNOWN/ERROR) 캐시는 미스로 취급하고
-            // 그대로 엔진을 호출한다.
+            // 룰 변경의 stale UPDATE와 재평가 저장 사이에서 stale=false를 되살리는 경쟁을 막는다.
+            activeRulesetKeyPort.lockActiveKey();
+            Optional<FileVerdict> cached = fileVerdictRepository.findBySha256(command.verifiedSha256());
+            if (cached.isPresent() && !cached.get().isStale()) {
+                FileVerdict v = cached.get();
+                boolean requiresEvidence = "CLEAN".equals(v.getVerdict()) || "SIMILARITY".equals(v.getVerdictSource());
+                if (!requiresEvidence || similarity.cacheValid(command.verifiedSha256())) {
+                    SubmitFileResult result = fromCachedVerdict(v);
+                    if (result != null) similarity.bindCached(command.verifiedSha256(), command.eventId());
+                    return result;
+                }
+                // corpus만 바뀐 경우 원본 YARA 성공은 여전히 유효하다. rules stale은 이 분기에 들어오지 않는다.
+                if (requiresEvidence) {
+                    Optional<UUID> cleanAnalysis = similarity.reusableCleanAnalysis(command.verifiedSha256());
+                    if (cleanAnalysis.isPresent()) {
+                        var assessment = similarity.compare(command.verifiedSha256());
+                        boolean block = "BLOCK".equals(assessment.classification());
+                        v.recordSimilarityPolicy(block);
+                        fileVerdictRepository.save(v);
+                        similarity.save(command.verifiedSha256(), command.eventId(), cleanAnalysis.get(), assessment);
+                        recomputedBlock[0] = block;
+                        return block ? new SubmitFileResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(), List.of())
+                                : new SubmitFileResult("ALLOW", SOURCE_CACHE, null, List.of());
+                    }
+                }
+            }
+            return null;
+        });
+        if (cacheResult != null) {
+            if (recomputedBlock[0]) quarantine(command);
+            return cacheResult;
         }
 
         AnalysisOutcome outcome;
@@ -92,25 +139,33 @@ public class SubmitFileUseCase {
             // 호출자(interfaces)가 UNAVAILABLE로 거부하도록 그대로 다시 던지되, 그 전에 감사 기록은
             // 남겨둔다(verdict=ERROR라 CheckHash/SubmitFile 둘 다 캐시 미스로 취급 — 다음 요청은
             // 다시 엔진을 부른다).
-            recordEngineFailure(command.verifiedSha256(), command.fileSize(), cached, e);
+            recordEngineFailure(command, e);
             throw e;
         }
 
-        // 신규 엔진 호출에서만 격리 대상을 판단한다 — 캐시 히트는 fromCachedVerdict()에서 이미
-        // 반환돼 여기 안 온다. S3 PUT도 엔진 호출처럼 느릴 수 있어 트랜잭션 밖에서 한다.
-        QuarantineUploadResult quarantineUpload = null;
-        if (isFreshMaliciousOrSuspicious(outcome)) {
-            try {
-                quarantineUpload = quarantineUploadPort.upload(command.spoolFile());
-            } catch (RuntimeException e) {
-                // S3 장애 하나가 엔진이 이미 확정한 MALICIOUS/SUSPICIOUS 판정 자체를 날려버리면
-                // 안 된다 — 격리는 포기하고 판정 저장과 BLOCK 응답은 그대로 진행한다(fail-close
-                // 원칙의 연장: 격리 저장소가 죽어도 판정 자체는 안전하게 내려가야 한다).
-                log.error("S3 격리 업로드 실패 — 격리 없이 판정만 저장함, sha256={}", command.verifiedSha256(), e);
-            }
+        SubmitFileResult result = persistOutcome(command, outcome);
+        // 최종 정책 저장 뒤에 격리한다. 비교 중 목록이 바뀌어도 최종 BLOCK을 기준으로 하며,
+        // 느린 S3 호출 중에는 corpus/DB 잠금을 잡지 않는다. 저장소 실패는 차단을 취소하지 않는다.
+        if ("SIMILARITY".equals(result.source()) || ("ENGINE".equals(result.source()) && isFreshMaliciousOrSuspicious(outcome))) {
+            quarantine(command);
         }
+        return result;
+    }
 
-        return persistOutcome(command, cached, outcome, quarantineUpload);
+    /** 저장소 I/O는 DB/corpus 잠금 밖에서 실행하고 이벤트별 지연 완료를 조정한다. */
+    private void quarantine(SubmitFileCommand command) {
+            try {
+                QuarantineUploadResult upload = quarantineUploadPort.upload(command.spoolFile());
+                transactionTemplate.executeWithoutResult(status -> {
+                    if (command.eventId() == null) {
+                        pendingQuarantineUploadPort.save(command.verifiedSha256(), command.fileSize(), upload.bucket(), upload.key());
+                    } else {
+                        eventQuarantineUploads.complete(command.eventId(), command.verifiedSha256(), command.agentId(), command.fileSize(), upload);
+                    }
+                });
+            } catch (RuntimeException e) {
+                log.error("S3 격리 업로드 실패 — 격리 없이 BLOCK 유지, sha256={}", command.verifiedSha256(), e);
+            }
     }
 
     private static boolean isFreshMaliciousOrSuspicious(AnalysisOutcome outcome) {
@@ -119,97 +174,92 @@ public class SubmitFileUseCase {
     }
 
     private SubmitFileResult persistOutcome(
-            SubmitFileCommand command, Optional<FileVerdict> cached, AnalysisOutcome outcome,
-            QuarantineUploadResult quarantineUpload) {
-        try {
-            return transactionTemplate.execute(status -> {
-                // 활성 룰셋에 공유 잠금을 건 채로 지금 활성 키를 읽는다(file_verdicts를 쓰기 전에 — 잠금 순서를
-                // 활성화·룰 토글과 같게 둔다). 엔진이 판정에 쓴 키와 다르면, 분석 도중 활성화·토글이 커밋돼
-                // 그쪽 stale UPDATE가 아직 없던 이 행을 놓친 것이다 — 옛 룰 판정이므로 stale로 저장해 다음 요청
-                // 때 재검사되게 한다. 잠금 덕에 이 트랜잭션이 커밋되기 전에는 새 활성화·토글이 커밋되지 못하고,
-                // 커밋된 뒤의 활성화·토글은 이 행을 보고 stale로 만든다.
-                boolean staleRules = !activeRulesetKeyPort.lockActiveKey()
-                        .map(activeKey -> activeKey.equals(outcome.rulesetKey()))
-                        .orElse(false);
-                // status가 SUCCESS가 아니면(TIMEOUT/CRASH/OOM/UNSUPPORTED) toResult()는 무조건 BLOCK을
-                // 돌려주는데, 캐시에는 outcome.verdict()를 그대로 저장하면 안 된다 — status/verdict는
-                // proto상 독립된 필드라 "실패했는데 verdict=CLEAN" 같은 조합이 이론상 가능하고, 그러면
-                // 다음 CheckHash가 캐시만 보고 ALLOW를 내줘서 fail-close가 캐시 레벨에서 뚫린다.
-                String cachedVerdict = "SUCCESS".equals(outcome.status()) ? outcome.verdict() : "ERROR";
-                FileVerdict fileVerdict = cached
-                        .map(fv -> {
-                            fv.recordAnalysis(
-                                    cachedVerdict, SOURCE_ENGINE, outcome.rulesetsVersion(),
-                                    outcome.detectedFileType(), Instant.now());
-                            return fv;
-                        })
-                        .orElseGet(() -> FileVerdict.create(
-                                command.verifiedSha256(),
-                                command.fileSize(),
-                                outcome.detectedFileType(),
-                                cachedVerdict,
-                                SOURCE_ENGINE,
-                                outcome.rulesetsVersion(),
-                                Instant.now()));
-                if (staleRules) {
-                    fileVerdict.markStale();
-                }
-                fileVerdictRepository.save(fileVerdict);
-                if (quarantineUpload != null) {
-                    // file_verdicts가 방금 저장된 뒤라야 FK가 만족된다 — 순서 중요.
-                    pendingQuarantineUploadPort.save(
-                            command.verifiedSha256(), command.fileSize(), quarantineUpload.bucket(),
-                            quarantineUpload.key());
-                }
-                saveAnalysis(command.verifiedSha256(), outcome);
-                return toResult(outcome);
-            });
-        } catch (DataIntegrityViolationException e) {
-            if (cached.isPresent()) {
-                throw e; // 기존 행 갱신 중 충돌이면 레이스가 아니라 진짜 문제 — 그대로 던진다.
+            SubmitFileCommand command, AnalysisOutcome outcome) {
+        return transactionTemplate.execute(status -> {
+            evidence.claim(command.eventId(), command.verifiedSha256(), command.agentId());
+            similarity.lockCorpus();
+            similarity.lockFile(command.verifiedSha256());
+            Optional<FileVerdict> current = fileVerdictRepository.findBySha256(command.verifiedSha256());
+            // 활성 룰셋에 공유 잠금을 건 채로 지금 활성 키를 읽는다(file_verdicts를 쓰기 전에 — 잠금 순서를
+            // 활성화·룰 토글과 같게 둔다). 엔진이 판정에 쓴 키와 다르면, 분석 도중 활성화·토글이 커밋돼
+            // 그쪽 stale UPDATE가 아직 없던 이 행을 놓친 것이다 — 옛 룰 판정이므로 stale로 저장해 다음 요청
+            // 때 재검사되게 한다. 잠금 덕에 이 트랜잭션이 커밋되기 전에는 새 활성화·토글이 커밋되지 못하고,
+            // 커밋된 뒤의 활성화·토글은 이 행을 보고 stale로 만든다.
+            boolean staleRules = !activeRulesetKeyPort.lockActiveKey()
+                    .map(activeKey -> activeKey.equals(outcome.rulesetKey()))
+                    .orElse(false);
+            // status가 SUCCESS가 아니면(TIMEOUT/CRASH/OOM/UNSUPPORTED) toResult()는 무조건 BLOCK을
+            // 돌려주는데, 캐시에는 outcome.verdict()를 그대로 저장하면 안 된다 — status/verdict는
+            // proto상 독립된 필드라 "실패했는데 verdict=CLEAN" 같은 조합이 이론상 가능하고, 그러면
+            // 다음 CheckHash가 캐시만 보고 ALLOW를 내줘서 fail-close가 캐시 레벨에서 뚫린다.
+            SubmitFileResult exact = similarity.exactOverride(command.verifiedSha256());
+            com.teecherteamc.platform.verdict.domain.SimilarityDecisionStore.Assessment assessment = exact == null && "SUCCESS".equals(outcome.status()) && "CLEAN".equals(outcome.verdict())
+                    ? similarity.compare(command.verifiedSha256()) : null;
+            boolean similarityBlock = assessment != null && "BLOCK".equals(assessment.classification());
+            String source = similarityBlock ? "SIMILARITY" : SOURCE_ENGINE;
+            String cachedVerdict = similarityBlock ? "MALICIOUS" : "SUCCESS".equals(outcome.status()) ? outcome.verdict() : "ERROR";
+            FileVerdict fileVerdict = current
+                    .map(fv -> {
+                        fv.recordAnalysis(
+                                cachedVerdict, source, outcome.rulesetsVersion(),
+                                outcome.detectedFileType(), Instant.now());
+                        return fv;
+                    })
+                    .orElseGet(() -> FileVerdict.create(
+                            command.verifiedSha256(),
+                            command.fileSize(),
+                            outcome.detectedFileType(),
+                            cachedVerdict,
+                            source,
+                            outcome.rulesetsVersion(),
+                            Instant.now()));
+            // 검사 중 등록된 정확 예외가 해제된 뒤, 예전 엔진 BLOCK이 되살아나지 않게 한다.
+            if (staleRules || (exact != null && "WHITELIST".equals(exact.source()))) {
+                fileVerdict.markStale();
             }
-            // 같은 새 파일이 동시에 두 번 들어와서, 먼저 커밋된 쪽이 file_verdicts PK를 이미 차지한
-            // 경우다. 우리 쪽 분석이 틀린 게 아니라 그냥 늦게 도착한 것뿐이니, 먼저 커밋된 캐시를
-            // 그대로 신뢰해서 응답한다(우리 Analysis 행은 포기 — 감사 이력 1건 누락은 레이스의
-            // 부작용으로 받아들인다).
-            FileVerdict winner = transactionTemplate
-                    .execute(status -> fileVerdictRepository.findBySha256(command.verifiedSha256()))
-                    .orElseThrow(() -> e);
-            SubmitFileResult fromCache = fromCachedVerdict(winner);
-            return fromCache != null ? fromCache : toResult(outcome);
-        }
+            fileVerdictRepository.save(fileVerdict);
+            UUID analysis = saveAnalysis(command.verifiedSha256(), outcome);
+            if (assessment != null) similarity.save(command.verifiedSha256(), command.eventId(), analysis, assessment);
+            else {
+                similarity.clearCache(command.verifiedSha256());
+                similarity.clearPending(command.eventId());
+            }
+            // 검사에서 이미 확인한 악성/의심 응답은 도중에 추가된 예외로 소급 해제하지 않는다.
+            // stale 표시는 유지하여 이후 독립 요청의 정확 예외와 예외 해제 후 재검사를 보존한다.
+            if (!"SUCCESS".equals(outcome.status()) || isFreshMaliciousOrSuspicious(outcome)) return toResult(outcome);
+            if (exact != null) return exact;
+            return similarityBlock
+                    ? new SubmitFileResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(), List.of())
+                    : toResult(outcome);
+        });
     }
 
-    private void recordEngineFailure(
-            String sha256, long fileSize, Optional<FileVerdict> cached, EngineUnavailableException e) {
-        try {
-            transactionTemplate.executeWithoutResult(status -> {
-                FileVerdict fileVerdict = cached
-                        .map(fv -> {
-                            fv.recordAnalysis("ERROR", SOURCE_ENGINE, null, null, Instant.now());
-                            return fv;
-                        })
-                        .orElseGet(() -> FileVerdict.create(
-                                sha256, fileSize, null, "ERROR", SOURCE_ENGINE, null, Instant.now()));
-                fileVerdictRepository.save(fileVerdict);
-
-                Analysis analysis = Analysis.record(
-                        sha256, null, FALLBACK_RULESETS_VERSION, "unavailable", "TIMEOUT", "ERROR", null, false,
-                        null, 0, e.getMessage());
-                analysisRepository.save(analysis);
-            });
-        } catch (DataIntegrityViolationException ignored) {
-            // 같은 새 파일이 동시에 들어와 이미 기록됐다 — 우리 쪽 실패 기록은 포기해도 안전하다
-            // (어느 쪽이든 이 해시는 다음 CheckHash/SubmitFile에서 캐시 미스로 재시도된다).
-        }
+    private void recordEngineFailure(SubmitFileCommand command, EngineUnavailableException e) {
+        String sha256 = command.verifiedSha256();
+        long fileSize = command.fileSize();
+        transactionTemplate.executeWithoutResult(status -> {
+            evidence.claim(command.eventId(), sha256, command.agentId());
+            similarity.lockCorpus();
+            similarity.lockFile(sha256);
+            // 캐시를 읽은 뒤 엔진을 기다리는 동안 다른 업로드가 저장할 수 있어 잠금 뒤 현재 행을 다시 읽는다.
+            FileVerdict verdict = fileVerdictRepository.findBySha256(sha256).map(existing -> {
+                existing.recordAnalysis("ERROR", SOURCE_ENGINE, null, null, Instant.now());
+                return existing;
+            }).orElseGet(() -> FileVerdict.create(
+                    sha256, fileSize, null, "ERROR", SOURCE_ENGINE, null, Instant.now()));
+            fileVerdictRepository.save(verdict);
+            similarity.clearCache(sha256);
+            similarity.clearPending(command.eventId());
+            analysisRepository.save(Analysis.record(sha256, null, FALLBACK_RULESETS_VERSION, "unavailable",
+                    "TIMEOUT", "ERROR", null, false, null, 0, e.getMessage()));
+        });
     }
 
-    private void saveAnalysis(String sha256, AnalysisOutcome outcome) {
+    private UUID saveAnalysis(String sha256, AnalysisOutcome outcome) {
         Analysis analysis = Analysis.record(
                 sha256,
-                // analyses.event_id -> download_events FK. SubmitFile은 보류가 끝나기 전에 실행되고,
-                // download_events 행은 ReportEvent가 그 이후에나 만든다 — 지금 이 시점엔 아직 존재할 수
-                // 없는 행이라 항상 NULL로 남긴다(스키마 주석의 "이벤트 없이 재검사한 경우"에 해당).
+                // ReportEvent 이전이라 analyses.event_id FK는 아직 쓸 수 없다.
+                // 대신 similarity_assessments.analysis_id와 event_decision_evidence를 통해 정확한 요청에 연결한다.
                 null,
                 outcome.rulesetsVersion(),
                 outcome.engineVersion(),
@@ -224,13 +274,14 @@ public class SubmitFileUseCase {
             analysis.addMatch(match.ruleName(), match.severity(), toJson(match.matchedStrings()));
         }
         analysisRepository.save(analysis);
+        return analysis.getAnalysisId();
     }
 
     private SubmitFileResult fromCachedVerdict(FileVerdict fileVerdict) {
         return switch (fileVerdict.getVerdict()) {
             case "CLEAN" -> new SubmitFileResult("ALLOW", SOURCE_CACHE, null, List.of());
             case "MALICIOUS", "SUSPICIOUS" -> new SubmitFileResult(
-                    "BLOCK", SOURCE_CACHE, "cached verdict: " + fileVerdict.getVerdict(), List.of());
+                    "BLOCK", "SIMILARITY".equals(fileVerdict.getVerdictSource()) ? "SIMILARITY" : SOURCE_CACHE, "cached verdict: " + fileVerdict.getVerdict(), List.of());
             default -> null;
         };
     }

@@ -41,7 +41,8 @@ public enum AuditAction {
     SET_MANUAL_VERDICT,
     ISSUE_ENROLLMENT_TOKEN,
     REVOKE_AGENT,
-    INVALIDATE_CACHE;
+    INVALIDATE_CACHE,
+    IMPORT_FILE_FINGERPRINT;
 
     // 검사를 약하게 만드는 조작. 기능 API 명세 "감사 로그 조회" 조회 로직 3번의 4종이다.
     // (감사 로그 규격 2장의 ⚠️ 7종 중 이번 범위에서 실제로 기록하는 것만 남겼다)

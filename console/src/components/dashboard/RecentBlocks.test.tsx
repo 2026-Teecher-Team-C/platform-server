@@ -20,7 +20,8 @@ function item(over: Partial<DownloadEventListItem> = {}): DownloadEventListItem 
   return {
     eventId: 'e1', agentId: 'a1', hostname: 'PC-01', sha256: 'abcdef0123456789', filename: 'setup.exe',
     mimeType: null, fileSize: null, decision: 'BLOCKED', decisionSource: 'ENGINE', cacheHit: false,
-    holdDurationMs: null, createdAt: new Date(2026, 10, 8, 9, 5, 0).toISOString(), severity: 'HIGH',
+    holdDurationMs: null, similarityClassification: null,
+    createdAt: new Date(2026, 10, 8, 9, 5, 0).toISOString(), severity: 'HIGH',
     topRuleName: 'Emotet', extraRuleCount: 2, acknowledged: false, ...over,
   }
 }

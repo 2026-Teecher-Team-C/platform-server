@@ -34,6 +34,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceStub.class)
 @Import(TestcontainersConfiguration.class)
 class EngineRulesetSyncIntegrationTest {
+    @org.junit.jupiter.api.BeforeEach
+    void authenticateVerdictClient() {
+        verdictStub = VerdictTestClient.authenticated(verdictStub, jdbcTemplate);
+    }
 
     @Autowired
     private VerdictServiceGrpc.VerdictServiceStub verdictStub;

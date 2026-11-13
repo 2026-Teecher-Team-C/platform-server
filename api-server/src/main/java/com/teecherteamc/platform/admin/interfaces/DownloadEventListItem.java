@@ -17,12 +17,13 @@ public record DownloadEventListItem(
         String decisionSource,
         boolean cacheHit,
         Integer holdDurationMs,
-        Instant createdAt) {
+        Instant createdAt,
+        String similarityClassification) {
 
     static DownloadEventListItem from(DownloadEventListRow row) {
         return new DownloadEventListItem(
                 row.eventId(), row.agentId(), row.hostname(), row.sha256(), row.filename(),
                 row.mimeType(), row.fileSize(), row.decision(), row.decisionSource(),
-                row.cacheHit(), row.holdDurationMs(), row.createdAt());
+                row.cacheHit(), row.holdDurationMs(), row.createdAt(), row.similarityClassification());
     }
 }

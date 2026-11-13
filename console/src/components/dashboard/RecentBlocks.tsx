@@ -16,6 +16,7 @@ const SOURCE_LABELS: Record<DownloadDecisionSource, string> = {
   CACHE: '판정 이력',
   ENGINE: '탐지 엔진',
   POLICY: '정책',
+  SIMILARITY: 'TLSH 유사도',
 }
 
 type Props = { rows: DownloadEventListItem[] | null; newIds: ReadonlySet<string> }
@@ -52,7 +53,8 @@ export function RecentBlocks({ rows, newIds }: Props) {
                 <tr key={item.eventId} className={newIds.has(item.eventId) ? 'is-new' : undefined}>
                   <td className="dash-cell-time">{`${formatMonthDay(item.createdAt)} ${formatClock(item.createdAt)}`}</td>
                   <td>{item.hostname}</td>
-                  <td className="dash-cell-clip" title={fileCell(item)}>{fileCell(item)}</td>
+                  {/* 집계 화면에서도 이벤트 당시 TLSH 근거로 들어갈 수 있도록 같은 상세 경로를 사용한다. */}
+                  <td className="dash-cell-clip" title={fileCell(item)}><Link to={'/events/' + encodeURIComponent(item.eventId)}>{fileCell(item)}</Link></td>
                   <td className="dash-cell-clip" title={blockReasonText(item)}>{blockReasonText(item)}</td>
                   <td>
                     {item.severity ? (

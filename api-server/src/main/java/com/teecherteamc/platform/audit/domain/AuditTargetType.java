@@ -19,5 +19,6 @@ public enum AuditTargetType {
     FILE_VERDICT,
     CACHE,
     // DOWNLOAD_EVENT_ACKNOWLEDGE의 대상. target_id는 event_id
-    DOWNLOAD_EVENT
+    DOWNLOAD_EVENT,
+    FILE_FINGERPRINT
 }
