@@ -1,8 +1,6 @@
 package com.teecherteamc.platform.event.domain;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * download_events를 devices(호스트명)와 조인해 관리자 콘솔용 목록을 1회 쿼리로 읽는 포트.
@@ -11,9 +9,8 @@ import java.util.UUID;
  */
 public interface ListDownloadEventsPort {
 
-    List<DownloadEventListRow> list(
-            UUID agentId, String decision, Instant from, Instant to, long offset, int limit);
+    List<DownloadEventListRow> list(DownloadEventListFilter filter, long offset, int limit);
 
     /** list()와 같은 조건의 전체 행 수. 페이지 정보(totalElements)에 쓴다. */
-    long count(UUID agentId, String decision, Instant from, Instant to);
+    long count(DownloadEventListFilter filter);
 }

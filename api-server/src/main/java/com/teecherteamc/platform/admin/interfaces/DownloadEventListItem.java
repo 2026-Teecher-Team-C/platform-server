@@ -18,12 +18,17 @@ public record DownloadEventListItem(
         boolean cacheHit,
         Integer holdDurationMs,
         Instant createdAt,
-        String similarityClassification) {
+        String similarityClassification,
+        String severity,
+        String topRuleName,
+        int extraRuleCount,
+        boolean acknowledged) {
 
     static DownloadEventListItem from(DownloadEventListRow row) {
         return new DownloadEventListItem(
                 row.eventId(), row.agentId(), row.hostname(), row.sha256(), row.filename(),
                 row.mimeType(), row.fileSize(), row.decision(), row.decisionSource(),
-                row.cacheHit(), row.holdDurationMs(), row.createdAt(), row.similarityClassification());
+                row.cacheHit(), row.holdDurationMs(), row.createdAt(), row.similarityClassification(),
+                row.severity(), row.topRuleName(), row.extraRuleCount(), row.acknowledged());
     }
 }

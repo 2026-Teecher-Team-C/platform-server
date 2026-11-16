@@ -10,9 +10,11 @@ import com.teecherteamc.platform.event.application.FindDownloadEventUseCase;
 import com.teecherteamc.platform.event.application.ListDownloadEventsUseCase;
 import com.teecherteamc.platform.event.application.NotBlockedEventException;
 import com.teecherteamc.platform.event.domain.DownloadEventDetailRow;
+import com.teecherteamc.platform.event.domain.DownloadEventListFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +37,8 @@ public class DownloadEventController {
 
     private static final Set<String> VALID_DECISIONS =
             Set.of("RELEASED", "BLOCKED", "BYPASSED", "FAIL_CLOSE");
+    // 심각도 순위(LOW=1 … CRITICAL=4). download_event_threats 뷰의 severity_rank와 같다.
+    private static final List<String> SEVERITY_ORDER = List.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 200;
 
@@ -54,13 +58,16 @@ public class DownloadEventController {
     @GetMapping("/api/admin/download-events")
     public PageResponse<DownloadEventListItem> list(
             @RequestParam(required = false) String agentId,
-            @RequestParam(required = false) String decision,
+            @RequestParam(required = false) List<String> decision,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
+            @RequestParam(required = false) String minSeverity,
+            @RequestParam(required = false) String acknowledged,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "" + DEFAULT_SIZE) int size) {
         UUID parsedAgentId = parseUuidOrNull(agentId);
-        if (decision != null && !VALID_DECISIONS.contains(decision)) {
+        List<String> decisions = decision == null ? List.of() : decision;
+        if (!VALID_DECISIONS.containsAll(decisions)) {
             throw invalid("decision must be one of " + VALID_DECISIONS);
         }
         Instant parsedFrom = parseInstantOrNull(from, "from");
@@ -71,10 +78,10 @@ public class DownloadEventController {
         if (size < 1 || size > MAX_SIZE) {
             throw invalid("size must be between 1 and " + MAX_SIZE);
         }
+        DownloadEventListFilter filter = new DownloadEventListFilter(parsedAgentId, decisions, parsedFrom, parsedTo,
+                parseSeverityRank(minSeverity), parseBooleanOrNull(acknowledged));
 
-        return PageResponse.from(
-                listDownloadEventsUseCase.list(parsedAgentId, decision, parsedFrom, parsedTo, page, size),
-                DownloadEventListItem::from);
+        return PageResponse.from(listDownloadEventsUseCase.list(filter, page, size), DownloadEventListItem::from);
     }
 
     @GetMapping("/api/admin/download-events/{eventId}")
@@ -102,6 +109,27 @@ public class DownloadEventController {
         } catch (NotBlockedEventException e) {
             throw new ApiException(ErrorCode.CONFLICT, "차단된 이벤트만 확인할 수 있습니다.");
         }
+    }
+
+    private static Integer parseSeverityRank(String value) {
+        if (value == null) {
+            return null;
+        }
+        int rank = SEVERITY_ORDER.indexOf(value) + 1;
+        if (rank == 0) {
+            throw invalid("minSeverity must be one of " + SEVERITY_ORDER);
+        }
+        return rank;
+    }
+
+    private static Boolean parseBooleanOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        if (!value.equals("true") && !value.equals("false")) {
+            throw invalid("acknowledged must be true or false");
+        }
+        return Boolean.valueOf(value);
     }
 
     private static UUID parseUuidOrNull(String value) {
