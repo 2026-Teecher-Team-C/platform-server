@@ -8,7 +8,7 @@ from pathlib import Path
 import grpc
 import yara
 
-from detection_engine.analyzer import ENGINE_VERSION, Analyzer
+from detection_engine.analyzer import ENGINE_VERSION, MAX_SOURCE_BYTES, Analyzer
 from teecher.engine.v1 import engine_pb2, engine_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,12 @@ class DetectionEngineServicer(engine_pb2_grpc.DetectionEngineServicer):
 
 
 def create_server(analyzer: Analyzer, address: str, spool_dir: Path | None = None) -> tuple[grpc.Server, int]:
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    # 룰 원문은 단발 메시지(CompileRules/LoadRuleset)로 온다. 기본 4MiB로는 큰 룰셋이 RESOURCE_EXHAUSTED로 막히므로
+    # 원문 상한에 메시지 여유분 1MiB를 더한다. 파일 분석(Analyze)은 청크 스트림이라 이 값과 무관하다.
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=4),
+        options=[("grpc.max_receive_message_length", MAX_SOURCE_BYTES + 1024 * 1024)],
+    )
     engine_pb2_grpc.add_DetectionEngineServicer_to_server(DetectionEngineServicer(analyzer, spool_dir), server)
     port = server.add_insecure_port(address)
     return server, port

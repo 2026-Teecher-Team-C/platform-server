@@ -21,12 +21,14 @@ describe('rulesetStatus', () => {
 })
 
 describe('validateRulesetFile', () => {
-  it('.yar 확장자, 1바이트 이상, 1MiB 이하만 통과한다', () => {
+  it('.yar 확장자, 1바이트 이상, 32MiB 이하만 통과한다', () => {
     expect(validateRulesetFile({ name: 'a.yar', size: 10 })).toBe('')
     expect(validateRulesetFile({ name: 'a.txt', size: 10 })).not.toBe('')
     expect(validateRulesetFile({ name: 'a.yar', size: 0 })).not.toBe('')
-    expect(validateRulesetFile({ name: 'a.yar', size: 1_048_576 })).toBe('')
-    expect(validateRulesetFile({ name: 'a.yar', size: 1_048_577 })).not.toBe('')
+    expect(validateRulesetFile({ name: 'a.yar', size: 33_554_432 })).toBe('')
+    expect(validateRulesetFile({ name: 'a.yar', size: 33_554_433 })).toBe(
+      '파일이 너무 큽니다. 32MB 이하의 룰셋만 올릴 수 있습니다.',
+    )
   })
 })
 
