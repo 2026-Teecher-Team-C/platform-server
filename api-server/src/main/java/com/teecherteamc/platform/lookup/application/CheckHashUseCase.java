@@ -11,6 +11,8 @@ import com.teecherteamc.platform.verdict.application.SubmitFileResult;
 import com.teecherteamc.platform.verdict.domain.SimilarityDecisionStore.Assessment;
 import java.time.Clock;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CheckHashUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(CheckHashUseCase.class);
     private static final CheckHashResult UNKNOWN = new CheckHashResult("UNKNOWN", null, null);
 
     private final WhitelistLookupPort whitelistLookupPort;
@@ -74,7 +77,7 @@ public class CheckHashUseCase {
         if (!similarity.tryLockCorpus()) return UNKNOWN;
 
         boolean listsChecked = false;
-        if (bloomFilterPort.mightContain(sha256)) {
+        if (bloomMightContain(sha256)) {
             if (whitelistLookupPort.isEffective(sha256, clock.instant())) {
                 return new CheckHashResult("ALLOW", "WHITELIST", null);
             }
@@ -103,6 +106,19 @@ public class CheckHashUseCase {
         return "BLOCK".equals(classification)
                 ? new CheckHashResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance())
                 : UNKNOWN;
+    }
+
+    /**
+     * Redis 장애로 블룸이 던지면 "있을 수 있음"으로 본다. 목록·캐시 조회를 더 할 뿐 ALLOW 쪽으로 기울지 않아,
+     * 블룸 장애가 화이트리스트 다운로드를 막지 않는다(목록 판정은 Postgres만으로 가능).
+     */
+    private boolean bloomMightContain(String sha256) {
+        try {
+            return bloomFilterPort.mightContain(sha256);
+        } catch (RuntimeException e) {
+            log.warn("블룸 필터 조회 실패 — 목록·캐시 조회로 계속한다", e);
+            return true;
+        }
     }
 
     /** 결론 있는 캐시면 결과, 미결(없음·stale·UNKNOWN/ERROR)이면 null. */

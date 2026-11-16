@@ -54,7 +54,7 @@ class CheckHashGrpcIntegrationTest {
     @Autowired
     private WhitelistLookupPort whitelistLookupPort;
 
-    @Autowired
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     private BloomFilterPort bloomFilterPort;
 
     @Autowired
@@ -97,6 +97,26 @@ class CheckHashGrpcIntegrationTest {
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
         assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
         assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    // Redis(블룸) 장애에도 목록 판정은 Postgres만으로 나와야 한다 — 블룸 예외는 "있을 수 있음"으로 취급한다.
+    @Test
+    void whitelisted_and_blacklisted_hashes_are_decided_while_bloom_throws() {
+        String white = "a7".repeat(32);
+        String black = "a8".repeat(32);
+        UUID adminId = seedAdmin();
+        addWhitelistEntryUseCase.add(new AddWhitelistEntryUseCase.Command(white, "exception", null, adminId, null));
+        addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(black, "known bad", adminId, null));
+        org.mockito.Mockito.doThrow(new IllegalStateException("redis down"))
+                .when(bloomFilterPort).mightContain(org.mockito.ArgumentMatchers.anyString());
+
+        CheckHashResponse allowed = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(white).build());
+        CheckHashResponse blocked = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(black).build());
+
+        assertThat(allowed.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(allowed.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+        assertThat(blocked.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(blocked.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
     }
 
     @Test
