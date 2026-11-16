@@ -1,3 +1,5 @@
+import threading
+import time
 from pathlib import Path
 
 import grpc
@@ -198,3 +200,28 @@ def test_이미_적재된_키면_다시_컴파일하지_않고_OK(stub):
     load(stub, 8, "8:k", "rule { }")
 
     assert stub.Analyze(stream(b"ONLY-MARK", ruleset_key="8:k")).verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS
+
+
+def test_같은_키를_동시에_적재해도_한_번만_컴파일한다(monkeypatch):
+    # 엔진 재시작 직후 판정 요청들이 같은 활성 룰셋을 동시에 적재하러 오는 상황.
+    analyzer = Analyzer(RULES_DIR)
+    calls = []
+    real_compile = Analyzer._compile
+
+    def slow_compile(source):
+        calls.append(source)
+        time.sleep(0.2)
+        return real_compile(source)
+
+    monkeypatch.setattr(Analyzer, "_compile", staticmethod(slow_compile))
+    threads = [
+        threading.Thread(target=analyzer.load, args=(7, "7:k", "rule A { condition: true }", ()))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(calls) == 1
+    assert analyzer.loaded() == (7, "7:k")

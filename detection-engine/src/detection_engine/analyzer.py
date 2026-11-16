@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -59,6 +60,8 @@ class Analyzer:
         if not rule_files:
             raise ValueError(f"YARA 룰이 없습니다: {rules_dir}")
         self._state = _RuleState(yara.compile(filepaths=rule_files), frozenset(), 0, "")
+        # 적재를 한 번에 하나로 묶는다. 분석(analyze_file)은 이 잠금을 잡지 않고 _state를 한 번만 읽는다.
+        self._load_lock = threading.Lock()
 
     @property
     def version(self) -> int:
@@ -89,10 +92,15 @@ class Analyzer:
         """컴파일에 성공해야만 교체한다. 실패하면 기존 룰셋이 그대로 남는다.
 
         이미 같은 키가 적재돼 있으면 다시 컴파일하지 않는다(키는 버전과 꺼진 룰 집합을 함께 나타낸다).
+        엔진 재시작 직후에는 판정 요청들이 같은 활성 룰셋을 동시에 적재하러 온다. 큰 룰셋(수 초, 수백 MB)을
+        요청마다 따로 컴파일하지 않도록 잠금 안에서 키를 다시 확인한다.
         """
         if key and key == self._state.key:
             return
-        self._state = _RuleState(self._compile(source), frozenset(disabled), version, key)
+        with self._load_lock:
+            if key and key == self._state.key:
+                return
+            self._state = _RuleState(self._compile(source), frozenset(disabled), version, key)
 
     def analyze_file(self, path: Path) -> Analysis:
         """파일을 메모리에 올리지 않고 YARA가 경로로 직접 읽게 한다. 메모리 사용이 파일 크기와 무관하다."""
