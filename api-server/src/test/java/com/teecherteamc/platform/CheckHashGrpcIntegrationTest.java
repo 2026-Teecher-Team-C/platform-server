@@ -69,6 +69,25 @@ class CheckHashGrpcIntegrationTest {
     // CheckHash는 블룸 → 화이트 → 블랙 순서라 블룸 miss면 목록을 읽지 않는다. 아래 두 테스트는 목록 쓰기
     // 직후의 블룸 add가 없으면 FAIL한다(Task 4에서 add를 끄고 FAIL→PASS를 다시 확인했다).
     @Test
+    void addAll_puts_every_hash_in_one_call() {
+        bloomFilterPort.rebuild(java.util.List.of());
+        java.util.List<String> hashes = java.util.List.of("a1".repeat(32), "a2".repeat(32), "a3".repeat(32));
+
+        bloomFilterPort.addAll(hashes);
+
+        assertThat(hashes).allMatch(bloomFilterPort::mightContain);
+    }
+
+    @Test
+    void addAll_with_no_hashes_does_nothing() {
+        bloomFilterPort.rebuild(java.util.List.of());
+
+        bloomFilterPort.addAll(java.util.List.of());
+
+        assertThat(bloomFilterPort.mightContain("a4".repeat(32))).isFalse();
+    }
+
+    @Test
     void added_blacklist_hash_is_blocked_before_rebuild() {
         String sha256 = "b1".repeat(32);
         bloomFilterPort.rebuild(java.util.List.of());

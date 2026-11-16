@@ -4,6 +4,7 @@ import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
@@ -105,6 +106,28 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     private <T> T execute(Function<RedisConnection, T> action) {
         try (RedisConnection connection = connectionFactory.getConnection()) {
             return action.apply(connection);
+        }
+    }
+
+    @Override
+    public void addAll(Collection<String> sha256s) {
+        if (sha256s.isEmpty()) {
+            return;
+        }
+        try {
+            List<long[]> positions = sha256s.stream().map(this::positions).toList();
+            execute(connection -> {
+                connection.openPipeline();
+                for (long[] each : positions) {
+                    for (long position : each) {
+                        connection.setBit(KEY, position, true);
+                    }
+                }
+                connection.closePipeline();
+                return null;
+            });
+        } catch (RuntimeException e) {
+            log.warn("블룸 필터 일괄 추가 실패 {}건(다음 재구축에서 반영): {}", sha256s.size(), e.toString());
         }
     }
 
