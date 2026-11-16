@@ -4,7 +4,7 @@ import grpc
 import pytest
 
 from detection_engine import server as engine_server
-from detection_engine.analyzer import Analyzer
+from detection_engine.analyzer import MAX_SOURCE_BYTES, Analyzer
 from detection_engine.server import create_server
 from teecher.engine.v1 import engine_pb2, engine_pb2_grpc
 
@@ -62,17 +62,30 @@ def test_include는_거부한다(stub):
     assert not response.ok
 
 
-def test_1MiB를_넘는_원문은_거부한다(stub):
-    response = stub.CompileRules(engine_pb2.CompileRulesRequest(source="//" + "x" * (1024 * 1024)))
+def test_상한을_넘는_원문은_거부한다(stub):
+    response = stub.CompileRules(engine_pb2.CompileRulesRequest(source="//" + "x" * MAX_SOURCE_BYTES))
 
     assert not response.ok
 
 
-def test_1MiB를_넘는_원문은_적재도_거부한다(stub):
+def test_상한을_넘는_원문은_적재도_거부한다(stub):
     with pytest.raises(grpc.RpcError) as error:
-        load(stub, 1, "1:k", "//" + "x" * (1024 * 1024))
+        load(stub, 1, "1:k", "//" + "x" * MAX_SOURCE_BYTES)
 
     assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+
+
+def test_원문_상한은_32MiB다():
+    assert MAX_SOURCE_BYTES == 32 * 1024 * 1024
+
+
+def test_5MiB_원문도_gRPC로_받아_컴파일한다(stub):
+    source = "rule Big { condition: true }\n//" + "x" * (5 * 1024 * 1024)
+
+    response = stub.CompileRules(engine_pb2.CompileRulesRequest(source=source))
+
+    assert response.ok
+    assert [rule.name for rule in response.rules] == ["Big"]
 
 
 def test_컴파일_실패한_원문은_적재하지_않는다(stub):

@@ -1,3 +1,4 @@
+import os
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -7,8 +8,9 @@ import yara
 
 ENGINE_VERSION = "0.1.0"
 MAX_MATCHED_STRINGS = 20
-# 업로드 룰 원문의 상한(바이트). 컴파일 비용과 메모리를 묶는다.
-MAX_SOURCE_BYTES = 1024 * 1024
+# 업로드 룰 원문의 상한(바이트). 컴파일 비용과 메모리를 묶는다. api-server의 ruleset.max-source-bytes와 맞춘다.
+# 기본 32MiB: YARA Forge full(약 19MB)까지 들어간다.
+MAX_SOURCE_BYTES = int(os.environ.get("ENGINE_MAX_RULES_BYTES", str(32 * 1024 * 1024)))
 
 
 @dataclass(frozen=True)
