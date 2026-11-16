@@ -23,9 +23,9 @@ spring:
     enabled: true
   servlet:
     multipart:
-      # 룰셋(.yar) 업로드 상한. 파일 1MiB, 요청 전체 2MiB.
-      max-file-size: 1MB
-      max-request-size: 2MB
+      # 룰셋(.yar) 업로드 상한. 파일은 ruleset.max-source-bytes(32MiB)와 같게, 요청 전체는 multipart 여유분 1MiB를 더한다.
+      max-file-size: 32MB
+      max-request-size: 33MB
   grpc:
     client:
       channel:
@@ -36,6 +36,18 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+
+# Tomcat은 거절한 요청 본문을 기본 2MB까지만 읽고 연결을 끊는다. 그러면 32MiB 근처 업로드를 거절할 때
+# 클라이언트가 400 대신 연결 끊김을 받는다. multipart 요청 상한까지는 읽고 400을 돌려준다.
+server:
+  tomcat:
+    max-swallow-size: 33MB
+
+ruleset:
+  # 룰셋 원문 상한(바이트). 엔진의 ENGINE_MAX_RULES_BYTES와 같게 둔다. 기본 32MiB(YARA Forge full 약 19MB).
+  max-source-bytes: 33554432
+  # 엔진 CompileRules/LoadRuleset 호출 시간 제한. 큰 룰셋은 1CPU에서 컴파일에 수 초 걸린다(full 약 4초).
+  engine-timeout: 60s
 
 lookup:
   bloom-filter:

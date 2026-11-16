@@ -11,25 +11,28 @@ import com.teecherteamc.platform.ruleset.domain.EngineRulesetUnavailableExceptio
 import com.teecherteamc.platform.ruleset.domain.RulesetSnapshot;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /** 탐지 엔진의 CompileRules/LoadRuleset(단발 unary)를 블로킹 스텁으로 호출한다. */
 @Component
 class GrpcEngineRulesetPortImpl implements EngineRulesetPort {
 
-    private static final long TIMEOUT_SECONDS = 10;
-
     private final DetectionEngineGrpc.DetectionEngineBlockingStub stub;
+    private final Duration timeout;
 
-    GrpcEngineRulesetPortImpl(DetectionEngineGrpc.DetectionEngineBlockingStub stub) {
+    GrpcEngineRulesetPortImpl(DetectionEngineGrpc.DetectionEngineBlockingStub stub,
+            @Value("${ruleset.engine-timeout}") Duration timeout) {
         this.stub = stub;
+        this.timeout = timeout;
     }
 
     @Override
     public CompileResult compile(String source) {
         try {
-            CompileRulesResponse response = stub.withDeadlineAfter(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            CompileRulesResponse response = stub.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
                     .compileRules(CompileRulesRequest.newBuilder().setSource(source).build());
             return new CompileResult(
                     response.getOk(),
@@ -45,7 +48,7 @@ class GrpcEngineRulesetPortImpl implements EngineRulesetPort {
     @Override
     public void load(RulesetSnapshot snapshot) {
         try {
-            stub.withDeadlineAfter(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            stub.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
                     .loadRuleset(LoadRulesetRequest.newBuilder()
                             .setRulesetsVersion(snapshot.version())
                             .setRulesetKey(snapshot.key())

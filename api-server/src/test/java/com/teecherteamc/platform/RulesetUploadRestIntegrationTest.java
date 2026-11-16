@@ -176,15 +176,43 @@ class RulesetUploadRestIntegrationTest {
     }
 
     @Test
-    void 일_MiB를_넘으면_400() {
+    void 이_MiB_룰셋도_올라간다() {
         int before = rulesetCount();
-        byte[] big = new byte[1_048_577];
-        java.util.Arrays.fill(big, (byte) ' ');
 
-        ResponseEntity<Map<String, Object>> response = upload("big.yar", big);
+        ResponseEntity<Map<String, Object>> response = upload("two-mib.yar", ruleOfSize(2 * 1024 * 1024));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(rulesetCount()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void 상한_32MiB는_통과한다() {
+        int before = rulesetCount();
+
+        ResponseEntity<Map<String, Object>> response = upload("limit.yar", ruleOfSize(33_554_432));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(rulesetCount()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void 상한_32MiB를_넘으면_400() {
+        int before = rulesetCount();
+
+        ResponseEntity<Map<String, Object>> response = upload("big.yar", ruleOfSize(33_554_433));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("message")).isEqualTo("파일은 32MiB 이하여야 합니다.");
         assertThat(rulesetCount()).isEqualTo(before);
+    }
+
+    /** 룰 하나 뒤를 공백으로 채워 정확히 size 바이트로 만든다. */
+    private static byte[] ruleOfSize(int size) {
+        byte[] rule = "rule Big_Rule { condition: true }\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] content = new byte[size];
+        java.util.Arrays.fill(content, (byte) ' ');
+        System.arraycopy(rule, 0, content, 0, rule.length);
+        return content;
     }
 
     @Test
