@@ -3,6 +3,7 @@ package com.teecherteamc.platform.ruleset.application;
 import com.teecherteamc.platform.audit.application.AuditLogRecorder;
 import com.teecherteamc.platform.audit.domain.AuditAction;
 import com.teecherteamc.platform.audit.domain.AuditTargetType;
+import com.teecherteamc.platform.common.FileSizeMessages;
 import com.teecherteamc.platform.ruleset.domain.CompileResult;
 import com.teecherteamc.platform.ruleset.domain.CompiledRule;
 import com.teecherteamc.platform.ruleset.domain.EngineRulesetPort;
@@ -21,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -37,7 +39,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class UploadRulesetUseCase {
 
-    static final int MAX_BYTES = 1024 * 1024;
     private static final Set<String> SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final String DEFAULT_SEVERITY = "MEDIUM";
 
@@ -47,16 +48,19 @@ public class UploadRulesetUseCase {
     private final AuditLogRecorder auditLogRecorder;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
+    private final long maxSourceBytes;
 
     public UploadRulesetUseCase(RulesetRepository rulesetRepository, YaraRuleRepository yaraRuleRepository,
                                 EngineRulesetPort engine, AuditLogRecorder auditLogRecorder,
-                                PlatformTransactionManager transactionManager, Clock clock) {
+                                PlatformTransactionManager transactionManager, Clock clock,
+                                @Value("${ruleset.max-source-bytes}") long maxSourceBytes) {
         this.rulesetRepository = rulesetRepository;
         this.yaraRuleRepository = yaraRuleRepository;
         this.engine = engine;
         this.auditLogRecorder = auditLogRecorder;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.clock = clock;
+        this.maxSourceBytes = maxSourceBytes;
     }
 
     public record Command(String filename, byte[] content, UUID adminId, String ipAddress) {
@@ -71,8 +75,9 @@ public class UploadRulesetUseCase {
         if (content == null || content.length == 0) {
             throw new InvalidRulesetException(InvalidRulesetException.Kind.BAD_INPUT, "빈 파일입니다.");
         }
-        if (content.length > MAX_BYTES) {
-            throw new InvalidRulesetException(InvalidRulesetException.Kind.BAD_INPUT, "파일은 1MiB 이하여야 합니다.");
+        if (content.length > maxSourceBytes) {
+            throw new InvalidRulesetException(InvalidRulesetException.Kind.BAD_INPUT,
+                    FileSizeMessages.tooLarge(maxSourceBytes));
         }
         String source = decodeUtf8(content);
 

@@ -14,6 +14,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -27,6 +28,12 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    private final long maxRulesetBytes;
+
+    public GlobalExceptionHandler(@Value("${ruleset.max-source-bytes}") long maxRulesetBytes) {
+        this.maxRulesetBytes = maxRulesetBytes;
+    }
 
     /**
      * 우리가 의도해서 던진 예외. ErrorCode의 상태대로 내려간다.
@@ -69,7 +76,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleUploadTooLarge(MaxUploadSizeExceededException ex,
                                                               HttpServletRequest req) {
-        return build(ErrorCode.INVALID_INPUT, "파일은 1MiB 이하여야 합니다.", req);
+        // multipart 업로드는 룰셋 업로드뿐이다. 한도는 ruleset.max-source-bytes와 같게 맞춰 둔다.
+        return build(ErrorCode.INVALID_INPUT, FileSizeMessages.tooLarge(maxRulesetBytes), req);
     }
 
     /**

@@ -1,10 +1,12 @@
+import threading
+import time
 from pathlib import Path
 
 import grpc
 import pytest
 
 from detection_engine import server as engine_server
-from detection_engine.analyzer import Analyzer
+from detection_engine.analyzer import MAX_SOURCE_BYTES, Analyzer
 from detection_engine.server import create_server
 from teecher.engine.v1 import engine_pb2, engine_pb2_grpc
 
@@ -62,17 +64,30 @@ def test_include는_거부한다(stub):
     assert not response.ok
 
 
-def test_1MiB를_넘는_원문은_거부한다(stub):
-    response = stub.CompileRules(engine_pb2.CompileRulesRequest(source="//" + "x" * (1024 * 1024)))
+def test_상한을_넘는_원문은_거부한다(stub):
+    response = stub.CompileRules(engine_pb2.CompileRulesRequest(source="//" + "x" * MAX_SOURCE_BYTES))
 
     assert not response.ok
 
 
-def test_1MiB를_넘는_원문은_적재도_거부한다(stub):
+def test_상한을_넘는_원문은_적재도_거부한다(stub):
     with pytest.raises(grpc.RpcError) as error:
-        load(stub, 1, "1:k", "//" + "x" * (1024 * 1024))
+        load(stub, 1, "1:k", "//" + "x" * MAX_SOURCE_BYTES)
 
     assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+
+
+def test_원문_상한은_32MiB다():
+    assert MAX_SOURCE_BYTES == 32 * 1024 * 1024
+
+
+def test_5MiB_원문도_gRPC로_받아_컴파일한다(stub):
+    source = "rule Big { condition: true }\n//" + "x" * (5 * 1024 * 1024)
+
+    response = stub.CompileRules(engine_pb2.CompileRulesRequest(source=source))
+
+    assert response.ok
+    assert [rule.name for rule in response.rules] == ["Big"]
 
 
 def test_컴파일_실패한_원문은_적재하지_않는다(stub):
@@ -185,3 +200,27 @@ def test_이미_적재된_키면_다시_컴파일하지_않고_OK(stub):
     load(stub, 8, "8:k", "rule { }")
 
     assert stub.Analyze(stream(b"ONLY-MARK", ruleset_key="8:k")).verdict == engine_pb2.ENGINE_VERDICT_MALICIOUS
+
+
+def test_같은_키를_동시에_적재해도_한_번만_컴파일한다(monkeypatch):
+    # 엔진 재시작 직후 판정 요청들이 같은 활성 룰셋을 동시에 적재하러 오는 상황.
+    analyzer = Analyzer(RULES_DIR)
+    calls = []
+    real_compile = Analyzer._compile
+
+    def slow_compile(source):
+        calls.append(source)
+        time.sleep(0.2)
+        return real_compile(source)
+
+    monkeypatch.setattr(Analyzer, "_compile", staticmethod(slow_compile))
+    threads = [
+        threading.Thread(target=analyzer.load, args=(7, "7:k", "rule A { condition: true }", ())) for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(calls) == 1
+    assert analyzer.loaded() == (7, "7:k")

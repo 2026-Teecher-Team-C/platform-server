@@ -1,8 +1,8 @@
 import { ApiError } from './api/client'
 import type { RulesetItem, YaraRuleItem } from './api/rulesets'
 
-// 서버 업로드 상한(1MiB)과 같다.
-const MAX_RULESET_BYTES = 1_048_576
+// 서버 업로드 상한(ruleset.max-source-bytes, 32MiB)과 같다.
+const MAX_RULESET_BYTES = 33_554_432
 
 // 활성 이력이 있는 비활성 버전은 이전, 한 번도 적용된 적 없으면 대기다.
 export function rulesetStatus(item: RulesetItem): '적용 중' | '대기' | '이전' {
@@ -14,7 +14,7 @@ export function rulesetStatus(item: RulesetItem): '적용 중' | '대기' | '이
 export function validateRulesetFile(file: { name: string, size: number }) {
   if (!file.name.toLowerCase().endsWith('.yar')) return '.yar 파일만 업로드할 수 있습니다.'
   if (file.size === 0) return '빈 파일은 업로드할 수 없습니다.'
-  if (file.size > MAX_RULESET_BYTES) return '파일이 너무 큽니다. 1MB 이하의 룰셋만 올릴 수 있습니다.'
+  if (file.size > MAX_RULESET_BYTES) return '파일이 너무 큽니다. 32MB 이하의 룰셋만 올릴 수 있습니다.'
   return ''
 }
 
