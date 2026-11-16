@@ -170,6 +170,8 @@ class RolePermissionRestIntegrationTest {
             new Row("GET", "/api/admin/events/stream", true, true, false),
             new Row("POST", "/api/admin/download-events/" + SOME_UUID + "/acknowledge", true, false, false),
             new Row("GET", "/api/admin/dashboard/unacknowledged-blocks", true, true, false),
+            new Row("GET", "/api/admin/dashboard/summary", true, true, false),
+            new Row("GET", "/api/admin/dashboard/engine-status", true, true, false),
             new Row("GET", "/api/admin/dashboard/threats", true, true, false),
             new Row("GET", "/api/admin/dashboard/daily-blocks", true, true, false),
             new Row("GET", "/api/admin/dashboard/top-sources", true, true, false),

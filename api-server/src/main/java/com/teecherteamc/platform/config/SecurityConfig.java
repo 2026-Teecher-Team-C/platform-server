@@ -98,6 +98,8 @@ public class SecurityConfig {
                         "/api/admin/bypass-domains",
                         "/api/admin/rulesets", "/api/admin/rulesets/*/rules",
                         "/api/admin/agents",
+                        "/api/admin/dashboard/summary",
+                        "/api/admin/dashboard/engine-status",
                         "/api/admin/dashboard/unacknowledged-blocks",
                         "/api/admin/dashboard/threats",
                         "/api/admin/dashboard/daily-blocks",

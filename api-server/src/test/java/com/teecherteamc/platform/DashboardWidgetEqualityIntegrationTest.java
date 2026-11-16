@@ -20,7 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * 위젯끼리 숫자가 맞는지(이슈 #82 완료 기준). 고정 시드로 이벤트 수백 건을 만들고, 같은 기간에서
  * 일별 차단(SOURCE·RULE)의 합, 차단 상위 PC의 합, 시드로 센 차단 수가 모두 같은지 본다.
- * summary(#79)는 아직 없어 시드에서 직접 센 값과 비교한다.
+ * summary(#79)도 같은 숫자를 내는지 함께 본다.
  */
 @SuppressWarnings("unchecked")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -116,6 +116,18 @@ class DashboardWidgetEqualityIntegrationTest {
                         .get("content");
         List<Map<String, Object>> threats =
                 (List<Map<String, Object>>) get("/api/admin/dashboard/threats?size=100&" + period).get("content");
+
+        Map<String, Object> summary = get("/api/admin/dashboard/summary?" + period);
+        Map<String, Object> summaryMalicious = (Map<String, Object>) summary.get("malicious");
+        assertThat(((Number) summary.get("blocked")).longValue()).isEqualTo(blocked);
+        assertThat(((Number) summary.get("failClose")).longValue()).isEqualTo(failClose);
+        assertThat(((Number) summaryMalicious.get("total")).longValue()).isEqualTo(malicious);
+        assertThat(((Number) summaryMalicious.get("blacklist")).longValue()).isEqualTo(blacklist);
+        assertThat(((Number) summaryMalicious.get("engine")).longValue())
+                .isEqualTo(sumDaily(bySource, List.of("ENGINE")));
+        assertThat(((Number) summaryMalicious.get("cache")).longValue())
+                .isEqualTo(sumDaily(bySource, List.of("CACHE")));
+        assertThat(((Number) summary.get("affectedAgents")).longValue()).isEqualTo(topAgents.size());
 
         assertThat(sumDaily(bySource, (List<String>) bySource.get("keys"))).isEqualTo(blocked);
         assertThat(sumDaily(byRule, (List<String>) byRule.get("keys"))).isEqualTo(blocked);

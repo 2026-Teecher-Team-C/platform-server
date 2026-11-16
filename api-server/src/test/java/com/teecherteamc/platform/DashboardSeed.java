@@ -53,9 +53,10 @@ final class DashboardSeed {
                 INSERT INTO download_events
                     (event_id, agent_id, sha256, request_host, url, filename, pipeline_status,
                      decision, decision_source, held_at, decided_at, created_at)
-                VALUES (?, ?, ?, ?, 'https://example.com/f', 'f.exe', 'COMPLETED', ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 'https://example.com/f', 'f.exe', ?, ?, ?, ?, ?, ?)
                 """,
-                eventId, agentId, sha256, host, decision, source,
+                // 판정 전 이벤트는 COMPLETED일 수 없다(ck_download_events_completed).
+                eventId, agentId, sha256, host, decision == null ? "HELD" : "COMPLETED", decision, source,
                 Timestamp.from(createdAt), Timestamp.from(createdAt), Timestamp.from(createdAt));
         return eventId;
     }
@@ -75,6 +76,21 @@ final class DashboardSeed {
             jdbc.update("INSERT INTO analysis_matches (match_id, analysis_id, rule_name, severity) VALUES (?, ?, ?, ?)",
                     UUID.randomUUID(), analysisId, rule[0], rule[1]);
         }
+    }
+
+    /** 룰 매칭 없는 분석 1건을 지정한 시각에 남긴다(엔진 상태 판단용). */
+    void analysisAt(String status, Instant analyzedAt) {
+        String sha256 = randomSha256();
+        jdbc.update("INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'ENGINE')",
+                sha256);
+        jdbc.update(
+                """
+                INSERT INTO analyses (analysis_id, sha256, rulesets_version, engine_version, status, verdict,
+                                      duration_ms, analyzed_at)
+                VALUES (?, ?, 0, '1.0.0', ?, ?, 100, ?)
+                """,
+                UUID.randomUUID(), sha256, status, "SUCCESS".equals(status) ? "CLEAN" : "ERROR",
+                Timestamp.from(analyzedAt));
     }
 
     UUID engineBlock(UUID agentId, String host, Instant createdAt, String[]... rules) {
