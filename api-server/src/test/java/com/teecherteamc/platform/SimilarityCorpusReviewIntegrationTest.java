@@ -54,7 +54,8 @@ class SimilarityCorpusReviewIntegrationTest {
             writer.setAutoCommit(false);
             writer.createStatement().execute("SELECT pg_advisory_xact_lock(74190321)");
             long start = System.nanoTime();
-            var result = java.util.concurrent.CompletableFuture.supplyAsync(() -> checkHash.checkHash("ab".repeat(32)));
+            var result = java.util.concurrent.CompletableFuture.supplyAsync(() -> checkHash.checkHash(
+                    new com.teecherteamc.platform.lookup.application.CheckHashQuery("ab".repeat(32), 0, null, null, null)));
             try {
                 assertThat(result.get(2, java.util.concurrent.TimeUnit.SECONDS).decision()).isEqualTo("UNKNOWN");
                 assertThat((System.nanoTime() - start) / 1_000_000).isLessThan(1500);
