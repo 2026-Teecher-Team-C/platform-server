@@ -12,7 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: compose 파일 검증 (운영 + 개발)
+      - name: compose 파일 검증 (개발)
         run: docker compose --env-file infra/dev.env -f infra/compose.yml -f infra/compose.dev.yml config -q
+      - name: compose 파일 검증 (운영 — deploy.yml과 같은 조합)
+        run: docker compose --env-file infra/dev.env -f infra/compose.yml -f infra/compose.temp-db.yml -f infra/compose.prod.yml config -q
+      - name: nginx 설정 검사 (로컬 + 운영)
+        run: infra/scripts/check-nginx.sh
       - name: 운영 이미지 빌드
         run: docker compose --env-file infra/dev.env -f infra/compose.yml build api-server detection-engine

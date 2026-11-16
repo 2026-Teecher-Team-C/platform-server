@@ -1,0 +1,24 @@
+# 운영(EC2) 덮어쓰기. deploy.yml이 compose.yml + compose.temp-db.yml + 이 파일로 띄운다.
+# 2026-11-16까지 EC2에만 있던 파일이다. 레포로 옮겨 배포 때 함께 갱신되게 했다(비밀값 없음, 값은 infra/.env).
+services:
+  nginx:
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      # 같은 대상 경로라 compose.yml의 nginx.conf 마운트를 대신한다. locations.conf 마운트는 그대로 남는다.
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+  redis:
+    restart: unless-stopped
+  postgres:
+    restart: unless-stopped
+  api-server:
+    restart: unless-stopped
+    environment:
+      # MalwareBazaar 전체 덤프(117만 건)용. 기본 100,000이면 블룸 오탐률이 크게 오른다(2026-11-16).
+      LOOKUP_BLOOMFILTER_EXPECTEDHASHCOUNT: "1500000"
+  detection-engine:
+    restart: unless-stopped
+  prometheus:
+    restart: unless-stopped
