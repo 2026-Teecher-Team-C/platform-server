@@ -55,4 +55,9 @@ jobs:
               $C logs --tail 30 api-server < /dev/null || true
               exit 1
             fi
+            # 배포마다 --build 중간 산출물이 쌓여 디스크(19GB)를 채운다(2026-11-16 빌드 캐시 8.2GB, 사용률 77%).
+            # 최근 3일 캐시만 남겨 다음 빌드 속도는 유지하고, 태그 없는 옛 이미지도 지운다. 실패해도 배포는 성공으로 둔다.
+            docker builder prune -f --filter until=72h < /dev/null || true
+            docker image prune -f < /dev/null || true
+            df -h / < /dev/null || true
           EOF
