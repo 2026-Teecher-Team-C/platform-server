@@ -78,6 +78,38 @@ class TlshSimilarityGrpcIntegrationTest {
                 .containsEntry("severity", "MEDIUM").containsEntry("severity_rank", 2).containsEntry("reason_type", "SIMILARITY");
     }
 
+    @Test
+    void claimed_tlsh_compare_uses_same_policy_as_verified() throws Exception {
+        byte[] original = getClass().getResourceAsStream("/tlsh/reference.txt").readAllBytes();
+        byte[] padded = Arrays.copyOf(original, original.length + 64);
+        Arrays.fill(padded, original.length, padded.length, (byte)' ');
+        String baseline = TlshFingerprintGrpcIntegrationTest.sha(original);
+        String sha = TlshFingerprintGrpcIntegrationTest.sha(padded);
+        upload(original, UUID.randomUUID());
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", baseline);
+        // 업로드 경로로 변종의 검증된 TLSH를 file_fingerprints에 남긴다.
+        upload(padded, UUID.randomUUID());
+        String claimed = jdbc.queryForObject("SELECT tlsh FROM file_fingerprints WHERE sha256=?", String.class, sha);
+        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        var verified = tx.execute(s -> similarity.compare(sha));
+        var fromClaim = tx.execute(s -> similarity.compareClaimed(claimed));
+        assertThat(fromClaim.distance()).isEqualTo(verified.distance()).isEqualTo(17);
+        assertThat(fromClaim.classification()).isEqualTo(verified.classification()).isEqualTo("BLOCK");
+        assertThat(fromClaim.sample()).isEqualTo(baseline);
+        assertThat(tx.execute(s -> similarity.compareClaimed("not-a-tlsh")).classification()).isEqualTo("UNAVAILABLE");
+        assertThat(tx.execute(s -> similarity.compareClaimed("not-a-tlsh")).distance()).isNull();
+        // 주장 TLSH 근거는 evidence에만 남고 캐시와 verdict는 건드리지 않는다.
+        UUID event = UUID.randomUUID();
+        String forged = FingerprintImportRestIntegrationTest.randomSha();
+        jdbc.update("INSERT INTO event_decision_evidence(event_id, agent_id, sha256) VALUES (?, ?, ?)", event, authenticatedAgent, forged);
+        tx.executeWithoutResult(s -> similarity.saveClaimed(forged, event, fromClaim));
+        var row = jdbc.queryForMap("SELECT * FROM similarity_assessments WHERE assessment_id=(SELECT assessment_id FROM event_decision_evidence WHERE event_id=?)", event);
+        assertThat(row).containsEntry("input_source", "AGENT_CLAIMED").containsEntry("classification", "BLOCK").containsEntry("distance", 17);
+        assertThat(row.get("analysis_id")).isNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM similarity_cache WHERE sha256=?", Integer.class, forged)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, forged)).isZero();
+    }
+
     @org.junit.jupiter.api.AfterEach
     void removeBaseline() {
         jdbc.update("DELETE FROM hash_blacklist WHERE reason = 'harmless baseline fixture'");

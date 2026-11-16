@@ -45,11 +45,14 @@ public class SimilarityDecisions {
     public void clearPending(UUID event) { store.clearPending(event); }
     public void clearCache(String sha) { store.clearCache(sha); }
     /** 거리 경계는 보조 정책이며 WARN을 차단 값 SUSPICIOUS로 바꾸지 않는다. */
-    public Assessment compare(String sha) {
-        Assessment nearest = store.compare(sha);
+    public Assessment compare(String sha) { return classify(store.compare(sha)); }
+    /** 에이전트가 계산해 보낸 미검증 TLSH 비교. 형식 오류는 UNAVAILABLE이며 분류 규칙은 compare와 같다. */
+    public Assessment compareClaimed(String tlsh) { return classify(store.compareTlsh(tlsh)); }
+    private static Assessment classify(Assessment nearest) {
         if (nearest.distance() == null) return nearest;
         String classification = nearest.distance() <= 30 ? "BLOCK" : nearest.distance() <= 70 ? "WARN" : "NONE";
         return new Assessment(nearest.sample(), nearest.tlsh(), nearest.distance(), classification, nearest.token());
     }
     public void save(String sha, UUID event, UUID analysis, Assessment assessment) { store.save(sha, event, analysis, assessment); }
+    public void saveClaimed(String sha, UUID event, Assessment assessment) { store.saveClaimed(sha, event, assessment); }
 }
