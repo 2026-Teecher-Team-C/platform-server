@@ -151,6 +151,17 @@ class BlacklistImportRestIntegrationTest {
         assertThat(fingerprint(a)).isEmpty();
     }
 
+    // MalwareBazaar 전체 덤프의 36만 건은 T1 없이 70자인 예전 형식이다. 한 건짜리 가져오기와 같이 T1을 붙여 받는다.
+    @Test
+    void T1이_없는_예전_형식_TLSH는_T1을_붙여_넣는다() {
+        String a = randomSha256();
+
+        ResponseEntity<Map<String, Object>> response = importBatch(List.of(entry(a, TLSH_A.substring(2), "Mirai")));
+
+        assertThat(response.getBody()).containsEntry("fingerprintsAdded", 1).containsEntry("fingerprintsSkipped", 0);
+        assertThat(fingerprint(a)).singleElement().satisfies(row -> assertThat(row).containsEntry("tlsh", TLSH_A));
+    }
+
     @Test
     void 대문자_SHA는_소문자로_바꿔_넣는다() {
         String a = randomSha256();

@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ImportFileFingerprints {
 
     private static final Pattern TLSH_FORMAT = Pattern.compile("T1[0-9A-F]{70}");
+    private static final Pattern LEGACY_FORMAT = Pattern.compile("[0-9A-F]{70}");
 
     private final FileFingerprintStore store;
 
@@ -39,13 +40,22 @@ public class ImportFileFingerprints {
         Map<String, String> valid = new LinkedHashMap<>();
         int rejected = 0;
         for (Map.Entry<String, String> entry : tlshBySha.entrySet()) {
-            if (isParsable(entry.getValue())) {
-                valid.put(entry.getKey(), entry.getValue());
+            String canonical = canonical(entry.getValue());
+            if (isParsable(canonical)) {
+                valid.put(entry.getKey(), canonical);
             } else {
                 rejected++;
             }
         }
         return new BatchResult(store.saveImportedBatch(valid, provenance, actor), rejected);
+    }
+
+    // T1 없이 70자인 예전 형식은 T1을 붙인다. 한 건짜리 가져오기(ImportFileFingerprint)와 같은 규칙이다.
+    private static String canonical(String tlsh) {
+        if (tlsh != null && LEGACY_FORMAT.matcher(tlsh).matches()) {
+            return "T1" + tlsh;
+        }
+        return tlsh;
     }
 
     // 비교 경로가 공식 파서로 다시 읽으므로, 형식뿐 아니라 구조까지 읽히는 값만 받는다.
