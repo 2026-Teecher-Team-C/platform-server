@@ -11,5 +11,6 @@ public record EventSimilarity(
         String classification,
         String matchedSampleSha256,
         Integer distance,
-        Instant assessedAt) {
+        Instant assessedAt,
+        String policyVersion) {
 }

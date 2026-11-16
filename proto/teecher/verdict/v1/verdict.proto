@@ -49,6 +49,10 @@ message CheckHashRequest {
   // 소문자 16진수 64자.
   string sha256 = 1;
   int64 file_size = 2;
+  // 에이전트가 계산한 TLSH(T1 접두 포함). 50바이트 미만·계산 불가면 빈 문자열. 서버는 검증하지 않은 값으로 다룬다.
+  string tlsh = 3;
+  // ReportEvent/SubmitFile과 같은 값. TLSH 판정 근거를 이벤트에 연결한다. 비어 있으면 연결하지 않는다.
+  string event_id = 4;
 }
 
 message CheckHashResponse {

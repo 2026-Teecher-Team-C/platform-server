@@ -14,11 +14,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.grpc.client.ImportGrpcClients;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate
 @AutoConfigureTestGrpcTransport
 @ImportGrpcClients(types = {VerdictServiceGrpc.VerdictServiceStub.class, VerdictServiceGrpc.VerdictServiceBlockingStub.class})
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class TlshSimilarityGrpcIntegrationTest {
+    @Autowired AdminApiClient adminClient;
     @Autowired VerdictServiceGrpc.VerdictServiceStub stub;
     @Autowired VerdictServiceGrpc.VerdictServiceBlockingStub blocking;
     @Autowired JdbcTemplate jdbc;
@@ -76,6 +78,38 @@ class TlshSimilarityGrpcIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT similarity_assessment_id FROM download_events WHERE event_id=?", UUID.class, event)).isEqualTo(evidence.get("assessment_id"));
         assertThat(jdbc.queryForMap("SELECT severity, severity_rank, reason_type FROM download_event_threats WHERE event_id=?", event))
                 .containsEntry("severity", "MEDIUM").containsEntry("severity_rank", 2).containsEntry("reason_type", "SIMILARITY");
+    }
+
+    @Test
+    void claimed_tlsh_compare_uses_same_policy_as_verified() throws Exception {
+        byte[] original = getClass().getResourceAsStream("/tlsh/reference.txt").readAllBytes();
+        byte[] padded = Arrays.copyOf(original, original.length + 64);
+        Arrays.fill(padded, original.length, padded.length, (byte)' ');
+        String baseline = TlshFingerprintGrpcIntegrationTest.sha(original);
+        String sha = TlshFingerprintGrpcIntegrationTest.sha(padded);
+        upload(original, UUID.randomUUID());
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", baseline);
+        // 업로드 경로로 변종의 검증된 TLSH를 file_fingerprints에 남긴다.
+        upload(padded, UUID.randomUUID());
+        String claimed = jdbc.queryForObject("SELECT tlsh FROM file_fingerprints WHERE sha256=?", String.class, sha);
+        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        var verified = tx.execute(s -> similarity.compare(sha));
+        var fromClaim = tx.execute(s -> similarity.compareClaimed(claimed));
+        assertThat(fromClaim.distance()).isEqualTo(verified.distance()).isEqualTo(17);
+        assertThat(fromClaim.classification()).isEqualTo(verified.classification()).isEqualTo("BLOCK");
+        assertThat(fromClaim.sample()).isEqualTo(baseline);
+        assertThat(tx.execute(s -> similarity.compareClaimed("not-a-tlsh")).classification()).isEqualTo("UNAVAILABLE");
+        assertThat(tx.execute(s -> similarity.compareClaimed("not-a-tlsh")).distance()).isNull();
+        // 주장 TLSH 근거는 evidence에만 남고 캐시와 verdict는 건드리지 않는다.
+        UUID event = UUID.randomUUID();
+        String forged = FingerprintImportRestIntegrationTest.randomSha();
+        jdbc.update("INSERT INTO event_decision_evidence(event_id, agent_id, sha256) VALUES (?, ?, ?)", event, authenticatedAgent, forged);
+        tx.executeWithoutResult(s -> similarity.saveClaimed(forged, event, fromClaim));
+        var row = jdbc.queryForMap("SELECT * FROM similarity_assessments WHERE assessment_id=(SELECT assessment_id FROM event_decision_evidence WHERE event_id=?)", event);
+        assertThat(row).containsEntry("input_source", "AGENT_CLAIMED").containsEntry("classification", "BLOCK").containsEntry("distance", 17);
+        assertThat(row.get("analysis_id")).isNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM similarity_cache WHERE sha256=?", Integer.class, forged)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, forged)).isZero();
     }
 
     @org.junit.jupiter.api.AfterEach
@@ -680,6 +714,274 @@ class TlshSimilarityGrpcIntegrationTest {
         report(event, sha, true);
         assertThat(jdbc.queryForObject("SELECT agent_id FROM quarantine_files WHERE event_id=?", UUID.class, event)).isEqualTo(authenticatedAgent);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pending_quarantine_uploads WHERE event_id=?", Integer.class, event)).isZero();
+    }
+
+    // ---- CheckHash TLSH 사전 차단 (Task 4) ----
+
+    CheckHashResponse check(VerdictServiceGrpc.VerdictServiceBlockingStub client, String sha, String tlsh, UUID event) {
+        var request = CheckHashRequest.newBuilder().setSha256(sha);
+        if (tlsh != null) request.setTlsh(tlsh);
+        if (event != null) request.setEventId(event.toString());
+        return client.checkHash(request.build());
+    }
+
+    Integer claimedRows(String sha) {
+        return jdbc.queryForObject("SELECT count(*) FROM similarity_assessments WHERE sha256=? AND input_source='AGENT_CLAIMED'", Integer.class, sha);
+    }
+
+    String tlshOf(byte[] bytes) throws Exception {
+        java.nio.file.Path file = java.nio.file.Files.createTempFile("checkhash-tlsh", ".bin");
+        try {
+            java.nio.file.Files.write(file, bytes);
+            return calculator.calculate(file).tlsh();
+        } finally { java.nio.file.Files.deleteIfExists(file); }
+    }
+
+    String whitelist(String sha) {
+        UUID admin = UUID.randomUUID();
+        jdbc.update("INSERT INTO admin_users(admin_id, username, password_hash) VALUES (?, ?, 'unused')", admin, "tlsh-" + admin);
+        jdbc.update("INSERT INTO hash_whitelist(hash_value, reason, added_by) VALUES (?, 'exact exception', ?)", sha, admin);
+        return sha;
+    }
+
+    @Test
+    void padding_variant_is_blocked_at_checkhash_without_upload() throws Exception {
+        byte[] original = getClass().getResourceAsStream("/tlsh/reference.txt").readAllBytes();
+        byte[] padded = Arrays.copyOf(original, original.length + 64);
+        Arrays.fill(padded, original.length, padded.length, (byte)' ');
+        String baseline = TlshFingerprintGrpcIntegrationTest.sha(original);
+        String sha = TlshFingerprintGrpcIntegrationTest.sha(padded);
+        upload(original, UUID.randomUUID());
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", baseline);
+        Integer analyses = jdbc.queryForObject("SELECT count(*) FROM analyses", Integer.class);
+        // 같은 DB를 쓰는 다른 테스트가 이 변종을 업로드했을 수 있으므로 "행 없음" 대신 "그대로"를 본다.
+        String verdictsSql = "SELECT * FROM file_verdicts WHERE sha256=?";
+        var verdictsBefore = jdbc.queryForList(verdictsSql, sha);
+        UUID event = UUID.randomUUID();
+
+        var response = check(blocking, sha, tlshOf(padded), event);
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_SIMILARITY);
+        assertThat(response.getReason()).startsWith("TLSH distance: ").isEqualTo("TLSH distance: 17");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM analyses", Integer.class)).isEqualTo(analyses);
+        var row = jdbc.queryForMap("SELECT a.* FROM similarity_assessments a JOIN event_decision_evidence e USING(assessment_id) WHERE e.event_id=?", event);
+        assertThat(row).containsEntry("input_source", "AGENT_CLAIMED").containsEntry("classification", "BLOCK")
+                .containsEntry("distance", 17).containsEntry("matched_sample_sha256", baseline).containsEntry("sha256", sha);
+        assertThat(jdbc.queryForObject("SELECT agent_id FROM event_decision_evidence WHERE event_id=?", UUID.class, event)).isEqualTo(authenticatedAgent);
+        assertThat(jdbc.queryForList(verdictsSql, sha)).isEqualTo(verdictsBefore);
+    }
+
+    @Test
+    void checkhash_similarity_block_shows_evidence_in_event_detail() throws Exception {
+        byte[] original = getClass().getResourceAsStream("/tlsh/reference.txt").readAllBytes();
+        byte[] padded = Arrays.copyOf(original, original.length + 64);
+        Arrays.fill(padded, original.length, padded.length, (byte)' ');
+        String baseline = TlshFingerprintGrpcIntegrationTest.sha(original);
+        String sha = TlshFingerprintGrpcIntegrationTest.sha(padded);
+        upload(original, UUID.randomUUID());
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", baseline);
+        UUID event = UUID.randomUUID();
+        assertThat(check(blocking, sha, tlshOf(padded), event).getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        // 에이전트는 업로드 없이 SIMILARITY 차단을 보고한다.
+        blocking.reportEvent(ReportEventRequest.newBuilder().setEventId(event.toString()).setSha256(sha)
+                .setUrl("https://fixture.invalid/file").setRequestHost("fixture.invalid").setFilename("padded.txt")
+                .setDecision(FinalDecision.FINAL_DECISION_BLOCKED).setDecisionSourceValue(6).setBytesUploaded(0)
+                .setHeldAt(com.google.protobuf.Timestamp.newBuilder().setSeconds(java.time.Instant.now().getEpochSecond())).build());
+
+        // file_verdicts 행도 격리 파일도 없는 상태에서 상세가 근거를 보여야 한다.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, sha)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM quarantine_files WHERE event_id=?", Integer.class, event)).isZero();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> detail = adminClient.getForEntity("/api/admin/download-events/" + event, Map.class).getBody();
+        assertThat(detail).containsEntry("decision", "BLOCKED").containsEntry("decisionSource", "SIMILARITY")
+                .containsEntry("bytesUploaded", 0).containsEntry("sha256", sha);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> similarity = (Map<String, Object>) detail.get("similarity");
+        assertThat(similarity).containsEntry("classification", "BLOCK").containsEntry("matchedSampleSha256", baseline)
+                .containsEntry("distance", 17).containsEntry("policyVersion", "tlsh-30-70-v1");
+        assertThat(detail).containsEntry("quarantined", false);
+
+        // 위협 대시보드 뷰와 이벤트 목록에 이 이벤트가 나온다.
+        var threat = jdbc.queryForMap("SELECT severity, reason_type FROM download_event_threats WHERE event_id=?", event);
+        assertThat(threat).containsEntry("severity", "MEDIUM").containsEntry("reason_type", "SIMILARITY");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> page = adminClient.getForEntity("/api/admin/download-events?agentId=" + authenticatedAgent, Map.class).getBody();
+        @SuppressWarnings("unchecked")
+        var items = (List<Map<String, Object>>) page.get("content");
+        assertThat(items).anySatisfy(i -> assertThat(i).containsEntry("eventId", event.toString())
+                .containsEntry("decision", "BLOCKED").containsEntry("decisionSource", "SIMILARITY")
+                .containsEntry("similarityClassification", "BLOCK"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> quarantineList = adminClient.getForEntity("/api/admin/quarantine?agentId=" + authenticatedAgent + "&size=200", Map.class).getBody();
+        assertThat((List<Map<String, Object>>) quarantineList.get("content")).noneMatch(q -> sha.equals(q.get("sha256")));
+    }
+
+    @Test
+    void warn_distance_continues_to_upload() {
+        baseline(digestAt(45));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+        UUID event = UUID.randomUUID();
+
+        var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, event);
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_UNSPECIFIED);
+        var rows = jdbc.queryForList("SELECT a.classification, a.input_source, a.distance FROM similarity_assessments a JOIN event_decision_evidence e USING(assessment_id) WHERE e.event_id=?", event);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.getFirst()).containsEntry("classification", "WARN").containsEntry("input_source", "AGENT_CLAIMED").containsEntry("distance", 45);
+        assertThat(claimedRows(sha)).isEqualTo(1);
+    }
+
+    @Test
+    void distant_or_unavailable_claim_is_unknown_without_saving() {
+        baseline(digestAt(71));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+        UUID event = UUID.randomUUID();
+        assertThat(check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, event).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        assertThat(claimedRows(sha)).isZero();
+    }
+
+    @Test
+    void whitelist_beats_claimed_tlsh() {
+        baseline(digestAt(10));
+        String sha = whitelist(FingerprintImportRestIntegrationTest.randomSha());
+        bloom.rebuild();
+        UUID event = UUID.randomUUID();
+        try {
+            var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, event);
+            assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+            assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+            assertThat(claimedRows(sha)).isZero();
+        } finally { jdbc.update("DELETE FROM hash_whitelist WHERE hash_value=?", sha); }
+    }
+
+    // 블룸이 목록 해시를 놓친 경우(예: Redis 초기화 뒤 재구축 전)에도 TLSH가 정확 목록을 이기지 못한다.
+    @Test
+    void whitelist_beats_claimed_tlsh_even_when_bloom_misses() {
+        baseline(digestAt(10));
+        String sha = whitelist(FingerprintImportRestIntegrationTest.randomSha());
+        try {
+            var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, UUID.randomUUID());
+            assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+            assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+            assertThat(claimedRows(sha)).isZero();
+        } finally { jdbc.update("DELETE FROM hash_whitelist WHERE hash_value=?", sha); }
+    }
+
+    @Test
+    void blacklist_beats_claimed_tlsh() {
+        baseline(digestAt(45));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", sha);
+        bloom.rebuild();
+
+        var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, UUID.randomUUID());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+        assertThat(claimedRows(sha)).isZero();
+    }
+
+    @Test
+    void claimed_tlsh_block_is_not_cached_for_other_agents() {
+        baseline(digestAt(10));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+
+        var forged = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, UUID.randomUUID());
+        assertThat(forged.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(forged.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_SIMILARITY);
+
+        var other = VerdictTestClient.withToken(rawBlocking, VerdictTestClient.seed(jdbc).token());
+        assertThat(check(other, sha, null, UUID.randomUUID()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        bloom.rebuild();
+        assertThat(check(other, sha, null, null).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, sha)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM similarity_cache WHERE sha256=?", Integer.class, sha)).isZero();
+    }
+
+    @Test
+    void old_agent_without_tlsh_behaves_as_before() {
+        baseline(digestAt(10));
+        String unknown = FingerprintImportRestIntegrationTest.randomSha();
+        var response = check(blocking, unknown, null, null);
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_UNSPECIFIED);
+        assertThat(response.getReason()).isEmpty();
+        assertThat(claimedRows(unknown)).isZero();
+        String listed = FingerprintImportRestIntegrationTest.randomSha();
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", listed);
+        bloom.rebuild();
+        assertThat(check(blocking, listed, null, null).getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+    }
+
+    @Test
+    void claimed_block_without_event_id_still_blocks_and_saves_nothing() {
+        baseline(digestAt(10));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+
+        var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, null);
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_SIMILARITY);
+        assertThat(response.getReason()).isEqualTo("TLSH distance: 10");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM similarity_assessments WHERE sha256=?", Integer.class, sha)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM event_decision_evidence WHERE sha256=?", Integer.class, sha)).isZero();
+    }
+
+    // saveClaimed의 미연결 분기: 이미 보고된 이벤트에는 근거를 붙이지 않고, 매달린 평가 행도 남기지 않는다.
+    @Test
+    void claim_for_already_reported_event_blocks_without_dangling_assessment() {
+        baseline(digestAt(10));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+        UUID event = UUID.randomUUID();
+        report(event, sha, true);
+
+        var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, event);
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM similarity_assessments WHERE sha256=?", Integer.class, sha)).isZero();
+        assertThat(jdbc.queryForObject("SELECT similarity_assessment_id FROM download_events WHERE event_id=?", UUID.class, event)).isNull();
+    }
+
+    @Test
+    void claim_for_another_agents_event_is_permission_denied() {
+        baseline(digestAt(10));
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+        UUID event = UUID.randomUUID();
+        jdbc.update("INSERT INTO event_decision_evidence(event_id, agent_id, sha256) VALUES (?, ?, ?)", event, VerdictTestClient.seed(jdbc).id(), sha);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, event))
+                .isInstanceOfSatisfying(io.grpc.StatusRuntimeException.class,
+                        e -> assertThat(e.getStatus().getCode()).isEqualTo(io.grpc.Status.Code.PERMISSION_DENIED));
+        assertThat(claimedRows(sha)).isZero();
+    }
+
+    @Test
+    void malformed_event_id_is_invalid_argument() {
+        String sha = FingerprintImportRestIntegrationTest.randomSha();
+        for (String bad : List.of("not-a-uuid", "1-1-1-1-1")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> blocking.checkHash(CheckHashRequest.newBuilder()
+                            .setSha256(sha).setTlsh(FingerprintImportRestIntegrationTest.TLSH).setEventId(bad).build()))
+                    .as(bad)
+                    .isInstanceOfSatisfying(io.grpc.StatusRuntimeException.class,
+                            e -> assertThat(e.getStatus().getCode()).isEqualTo(io.grpc.Status.Code.INVALID_ARGUMENT));
+        }
+    }
+
+    @Test
+    void malformed_tlsh_is_ignored() {
+        baseline(digestAt(10));
+        String tlsh = FingerprintImportRestIntegrationTest.TLSH;
+        // T1 접두어 없는 구형 문자열은 Tlsh.fromTlshStr가 받아들이지만 경계에서 거부한다.
+        for (String bad : List.of(tlsh.substring(2), tlsh.toLowerCase(), "T1" + tlsh.substring(2).toLowerCase(), "not-a-tlsh", tlsh + "00")) {
+            String sha = FingerprintImportRestIntegrationTest.randomSha();
+            UUID event = UUID.randomUUID();
+            var response = check(blocking, sha, bad, event);
+            assertThat(response.getDecision()).as(bad).isEqualTo(Decision.DECISION_UNKNOWN);
+            assertThat(claimedRows(sha)).as(bad).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM event_decision_evidence WHERE event_id=?", Integer.class, event)).as(bad).isZero();
+        }
     }
 
     String baseline(String tlsh) {

@@ -25,6 +25,7 @@ import org.springframework.stereotype.Component;
 @Component
 class RedisBloomFilterPortImpl implements BloomFilterPort {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RedisBloomFilterPortImpl.class);
     private static final byte[] KEY = "bloom:file_verdicts".getBytes(StandardCharsets.UTF_8);
     private static final String REBUILDING_KEY_PREFIX = "bloom:file_verdicts:rebuilding:";
 
@@ -60,6 +61,24 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
             }
             return true;
         });
+    }
+
+    @Override
+    public void add(String sha256) {
+        try {
+            long[] positions = positions(sha256);
+            execute(connection -> {
+                connection.openPipeline();
+                for (long position : positions) {
+                    connection.setBit(KEY, position, true);
+                }
+                connection.closePipeline();
+                return null;
+            });
+        } catch (RuntimeException e) {
+            // 블룸 누락은 다음 재구축이 메운다 — 호출한 쓰기(목록 등록/업로드)를 실패시키지 않는다.
+            log.warn("블룸 필터 즉시 추가 실패(다음 재구축에서 반영): {}", e.toString());
+        }
     }
 
     @Override

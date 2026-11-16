@@ -3,7 +3,10 @@ package com.teecherteamc.platform;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.teecherteamc.platform.hashlist.application.AddBlacklistEntryUseCase;
+import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import com.teecherteamc.platform.lookup.application.BloomFilterRebuildService;
+import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.WhitelistLookupPort;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse;
@@ -51,12 +54,130 @@ class CheckHashGrpcIntegrationTest {
     @Autowired
     private WhitelistLookupPort whitelistLookupPort;
 
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private BloomFilterPort bloomFilterPort;
+
+    @Autowired
+    private com.teecherteamc.platform.lookup.domain.CachedHashSourcePort cachedHashSourcePort;
+
+    @Autowired
+    private AddBlacklistEntryUseCase addBlacklistEntryUseCase;
+
+    @Autowired
+    private AddWhitelistEntryUseCase addWhitelistEntryUseCase;
+
+    // CheckHash는 블룸 → 화이트 → 블랙 순서라 블룸 miss면 목록을 읽지 않는다. 아래 두 테스트는 목록 쓰기
+    // 직후의 블룸 add가 없으면 FAIL한다(Task 4에서 add를 끄고 FAIL→PASS를 다시 확인했다).
+    @Test
+    void added_blacklist_hash_is_blocked_before_rebuild() {
+        String sha256 = "b1".repeat(32);
+        bloomFilterPort.rebuild(java.util.List.of());
+        UUID adminId = seedAdmin();
+
+        addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(sha256, "known bad", adminId, null));
+
+        assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+    }
+
+    @Test
+    void added_whitelist_hash_is_allowed_before_rebuild() {
+        String sha256 = "c2".repeat(32);
+        bloomFilterPort.rebuild(java.util.List.of());
+        UUID adminId = seedAdmin();
+
+        addWhitelistEntryUseCase.add(
+                new AddWhitelistEntryUseCase.Command(sha256, "exception", null, adminId, null));
+
+        assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    // Redis(블룸) 장애에도 목록 판정은 Postgres만으로 나와야 한다 — 블룸 예외는 "있을 수 있음"으로 취급한다.
+    @Test
+    void whitelisted_and_blacklisted_hashes_are_decided_while_bloom_throws() {
+        String white = "a7".repeat(32);
+        String black = "a8".repeat(32);
+        UUID adminId = seedAdmin();
+        addWhitelistEntryUseCase.add(new AddWhitelistEntryUseCase.Command(white, "exception", null, adminId, null));
+        addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(black, "known bad", adminId, null));
+        org.mockito.Mockito.doThrow(new IllegalStateException("redis down"))
+                .when(bloomFilterPort).mightContain(org.mockito.ArgumentMatchers.anyString());
+
+        CheckHashResponse allowed = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(white).build());
+        CheckHashResponse blocked = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(black).build());
+
+        assertThat(allowed.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(allowed.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+        assertThat(blocked.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(blocked.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+    }
+
+    @Test
+    void rebuild_includes_list_entries() {
+        String black = "d3".repeat(32);
+        String white = "e4".repeat(32);
+        seedBlacklist(black);
+        seedWhitelist(white, true, null);
+        bloomFilterPort.rebuild(java.util.List.of());
+        assertThat(bloomFilterPort.mightContain(black)).isFalse();
+        assertThat(bloomFilterPort.mightContain(white)).isFalse();
+
+        bloomFilterRebuildService.rebuild();
+
+        assertThat(bloomFilterPort.mightContain(black)).isTrue();
+        assertThat(bloomFilterPort.mightContain(white)).isTrue();
+    }
+
+    // 재구축 스냅샷 읽기 직후, RENAME 전에 목록 쓰기가 커밋·add되는 레이스를 결정적으로 재현한다.
+    // 재구축 뒤 목록 재조회가 없으면 이 해시가 블룸에서 사라진다.
+    @Test
+    void list_entry_committed_between_snapshot_and_rename_survives_rebuild() {
+        String sha256 = "f5".repeat(32);
+        UUID adminId = seedAdmin();
+        com.teecherteamc.platform.lookup.domain.CachedHashSourcePort real = cachedHashSourcePort;
+        com.teecherteamc.platform.lookup.domain.CachedHashSourcePort racing =
+                new com.teecherteamc.platform.lookup.domain.CachedHashSourcePort() {
+                    @Override
+                    public java.util.List<String> findAllCachedHashes() {
+                        java.util.List<String> snapshot = real.findAllCachedHashes();
+                        addBlacklistEntryUseCase.add(
+                                new AddBlacklistEntryUseCase.Command(sha256, "race", adminId, null));
+                        return snapshot;
+                    }
+
+                    @Override
+                    public java.util.List<String> findAllListHashes() {
+                        return real.findAllListHashes();
+                    }
+                };
+
+        new BloomFilterRebuildService(racing, bloomFilterPort).rebuild();
+
+        assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+    }
+
+    private UUID seedAdmin() {
+        UUID adminId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO admin_users (admin_id, username, password_hash) VALUES (?, ?, 'unused')",
+                adminId, "bloom-seed-" + adminId);
+        return adminId;
+    }
+
     @Test
     void 블랙리스트에_있으면_BLOCK을_반환한다() {
         String sha256 = "a".repeat(64);
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'EICAR test string')",
                 sha256);
+        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -75,6 +196,7 @@ class CheckHashGrpcIntegrationTest {
                 VALUES ('SHA256', ?, 'revoked', false, now())
                 """,
                 sha256);
+        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -158,6 +280,7 @@ class CheckHashGrpcIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'normalized match')",
                 sha256Lower);
+        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256Lower.toUpperCase()).build());
@@ -260,11 +383,13 @@ class CheckHashGrpcIntegrationTest {
                 VALUES ('SHA256', ?, 'test exception', ?, ?, ?)
                 """,
                 sha256, adminId, active, expiresAt == null ? null : Timestamp.from(expiresAt));
+        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
     }
 
     private void seedBlacklist(String sha256) {
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'known bad')",
                 sha256);
+        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
     }
 }

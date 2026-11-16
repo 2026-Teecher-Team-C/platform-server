@@ -122,6 +122,7 @@ class DownloadEventDetailRestIntegrationTest {
         expected.put("matchedSampleSha256", distance == null ? null : sample);
         expected.put("distance", distance);
         expected.put("assessedAt", assessedAt.toString());
+        expected.put("policyVersion", "v1");
         assertThat(before.get("similarity")).isEqualTo(expected);
         // 최신 SHA 평가와 기준 지문을 바꿔도 과거 이벤트는 정확히 자기 FK를 읽어야 한다.
         jdbcTemplate.update("""

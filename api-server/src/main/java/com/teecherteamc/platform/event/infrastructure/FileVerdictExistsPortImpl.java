@@ -23,4 +23,12 @@ class FileVerdictExistsPortImpl implements FileVerdictExistsPort {
                 "SELECT EXISTS(SELECT 1 FROM file_verdicts WHERE sha256 = ?)", Boolean.class, sha256);
         return Boolean.TRUE.equals(result);
     }
+
+    @Override
+    public boolean hasEvidenceAssessment(java.util.UUID eventId, java.util.UUID agentId, String sha256) {
+        Boolean result = jdbcTemplate.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM event_decision_evidence WHERE event_id = ? AND agent_id = ? AND sha256 = ? AND assessment_id IS NOT NULL)",
+                Boolean.class, eventId, agentId, sha256);
+        return Boolean.TRUE.equals(result);
+    }
 }

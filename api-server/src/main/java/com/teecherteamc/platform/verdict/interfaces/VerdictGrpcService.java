@@ -7,6 +7,7 @@ import com.teecherteamc.platform.event.application.ReportEventCommand;
 import com.teecherteamc.platform.event.application.ReportEventUseCase;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
 import com.teecherteamc.platform.hashlist.domain.InvalidHashException;
+import com.teecherteamc.platform.lookup.application.CheckHashQuery;
 import com.teecherteamc.platform.lookup.application.CheckHashResult;
 import com.teecherteamc.platform.lookup.application.CheckHashUseCase;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
@@ -87,18 +88,40 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                     Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException());
             return;
         }
+        UUID eventId;
         try {
-            CheckHashResult result = checkHashUseCase.checkHash(hashKey.getHashValue());
+            eventId = optionalEventId(request.getEventId());
+        } catch (IllegalArgumentException e) {
+            responseObserver.onError(
+                    Status.INVALID_ARGUMENT.withDescription("event_id must be a valid UUID").asRuntimeException());
+            return;
+        }
+        // 형식이 다른 TLSH는 없는 것으로 본다. 업로드되면 서버가 직접 계산한 TLSH로 다시 비교한다.
+        CheckHashQuery query = new CheckHashQuery(hashKey.getHashValue(), request.getFileSize(),
+                CheckHashQuery.claimedTlsh(request.getTlsh()), eventId, AgentAuthContext.AGENT_ID.get());
+        try {
+            CheckHashResult result = checkHashUseCase.checkHash(query);
             responseObserver.onNext(CheckHashResponse.newBuilder()
                     .setDecision(toProtoDecision(result.decision()))
                     .setSource(toProtoDecisionSource(result.source()))
                     .setReason(result.reason() == null ? "" : result.reason())
                     .build());
             responseObserver.onCompleted();
+        } catch (SecurityException e) {
+            responseObserver.onError(
+                    Status.PERMISSION_DENIED.withDescription("event owner or SHA conflict").asRuntimeException());
         } catch (RuntimeException e) {
             log.error("CheckHash failed sha256={}", hashKey.getHashValue(), e);
             responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());
         }
+    }
+
+    /** 빈 문자열은 구버전 에이전트(없음). 그 밖에는 UUID.fromString이 받는 축약형("1-1-1-1-1")도 거부한다. */
+    private static UUID optionalEventId(String raw) {
+        if (raw.isEmpty()) return null;
+        UUID parsed = UUID.fromString(raw);
+        if (!parsed.toString().equalsIgnoreCase(raw)) throw new IllegalArgumentException("non-canonical UUID");
+        return parsed;
     }
 
     private static Decision toProtoDecision(String decision) {

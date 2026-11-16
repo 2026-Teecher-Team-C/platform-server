@@ -24,13 +24,14 @@ public record DownloadEventDetail(
         long bytesUploaded,
         Instant heldAt,
         Instant decidedAt,
-        EventSimilarity similarity) {
+        EventSimilarity similarity,
+        boolean quarantined) {
 
     static DownloadEventDetail from(DownloadEventDetailRow row) {
         return new DownloadEventDetail(
                 row.eventId(), row.agentId(), row.hostname(), row.sha256(), row.filename(),
                 row.mimeType(), row.fileSize(), row.decision(), row.decisionSource(),
                 row.cacheHit(), row.holdDurationMs(), row.createdAt(), row.requestHost(),
-                row.url(), row.bytesUploaded(), row.heldAt(), row.decidedAt(), row.similarity());
+                row.url(), row.bytesUploaded(), row.heldAt(), row.decidedAt(), row.similarity(), row.quarantined());
     }
 }

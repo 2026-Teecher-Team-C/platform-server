@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * - 기존 판정이 있으면 stale로 표시한다. 화이트리스트가 해제되거나 만료된 뒤 예전 차단 판정 캐시로
  *   다시 막히지 않고 재검사되게 하려는 것이다.
  * - 판정 행이 아예 없으면(엔진이 한 번도 분석한 적 없는 해시를 관리자가 직접 화이트리스트에 등록한
- *   경우) CLEAN/WHITELIST로 새로 만든다. 이게 없으면 download_events.sha256 FK가 안 맞아서
+ *   경우) CLEAN/WHITELIST로 새로 만든다. 이게 없으면 file_verdicts 행이 없어서
  *   ReportEventUseCase.resolveSafeSha256()이 그 해시를 NULL로 저장해버리고, 그 해시로 통과된
  *   다운로드는 나중에 "누가 받았는지" 찾을 방법이 없어진다(소급 판정 전제조건 깨짐, IMP-9).
  *

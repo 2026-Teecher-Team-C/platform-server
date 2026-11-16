@@ -89,14 +89,24 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
     }
 
     public Assessment compare(String sha) {
-        String token = token();
         List<String> values = jdbc.queryForList("""
                 SELECT tlsh FROM file_fingerprints WHERE sha256=? AND calculation_status='CALCULATED'
                 """, String.class, sha);
         if (values.isEmpty()) {
+            return new Assessment(null, null, null, "UNAVAILABLE", token());
+        }
+        return compareTlsh(values.getFirst());
+    }
+
+    /** 검증된 지문이든 에이전트가 보낸 문자열이든 같은 후보 corpus와 같은 동률 규칙으로 비교한다. */
+    public Assessment compareTlsh(String claimed) {
+        String token = token();
+        Tlsh input;
+        try {
+            input = Tlsh.fromTlshStr(claimed);
+        } catch (RuntimeException e) {
             return new Assessment(null, null, null, "UNAVAILABLE", token);
         }
-        Tlsh input = Tlsh.fromTlshStr(values.getFirst());
         Assessment[] best = {new Assessment(null, null, null, "NONE", token)};
         // PostgreSQL 커서로 전 후보를 읽는다. fetchSize는 전송 묶음이지 후보 수 상한이 아니다.
         // 거리 동률이면 SHA가 작은 샘플을 선택하여 실행 순서나 DB 계획이 달라도 근거가 같다.
@@ -137,5 +147,25 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
                       AND NOT EXISTS(SELECT 1 FROM download_events d WHERE d.event_id=e.event_id)
                     """, id, event, sha);
         }
+    }
+
+    /**
+     * 에이전트 주장 근거. 검증되지 않았으므로 캐시/판정 테이블은 건드리지 않고, 아직 보고되지 않은 요청에만 연결한다.
+     * 연결할 요청이 없으면 매달린 평가 행을 남기지 않는다.
+     */
+    public void saveClaimed(String sha, UUID event, Assessment assessment) {
+        if (event == null) return;
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO similarity_assessments(assessment_id, sha256, analysis_id, corpus_token, policy_version,
+                    matched_sample_sha256, matched_sample_tlsh, distance, classification, input_source)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'AGENT_CLAIMED')
+                """, id, sha, assessment.token(), SimilarityDecisions.POLICY, assessment.sample(), assessment.tlsh(),
+                assessment.distance(), assessment.classification());
+        int linked = jdbc.update("""
+                UPDATE event_decision_evidence e SET assessment_id=? WHERE event_id=? AND sha256=?
+                  AND NOT EXISTS(SELECT 1 FROM download_events d WHERE d.event_id=e.event_id)
+                """, id, event, sha);
+        if (linked == 0) jdbc.update("DELETE FROM similarity_assessments WHERE assessment_id=?", id);
     }
 }

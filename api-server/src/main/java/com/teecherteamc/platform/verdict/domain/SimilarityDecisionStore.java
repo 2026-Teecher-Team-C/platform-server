@@ -16,5 +16,9 @@ public interface SimilarityDecisionStore {
     void clearPending(UUID event);
     void clearCache(String sha);
     Assessment compare(String sha);
+    /** 형식이 잘못된 TLSH는 예외 대신 UNAVAILABLE을 돌려준다. */
+    Assessment compareTlsh(String tlsh);
     void save(String sha, UUID event, UUID analysis, Assessment assessment);
+    /** 에이전트가 주장한 TLSH의 근거만 남긴다. similarity_cache와 file_verdicts에는 쓰지 않는다. */
+    void saveClaimed(String sha, UUID event, Assessment assessment);
 }
