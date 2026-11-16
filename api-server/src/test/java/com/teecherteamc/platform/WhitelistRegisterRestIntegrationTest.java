@@ -208,7 +208,7 @@ class WhitelistRegisterRestIntegrationTest {
     }
 
     // IMP-9: 엔진이 한 번도 분석한 적 없는 해시를 관리자가 직접 화이트리스트에 등록하는 경우.
-    // 이게 없으면 download_events.sha256 FK가 안 맞아서 ReportEvent가 그 해시를 NULL로 저장해버린다.
+    // 이게 없으면 file_verdicts 행이 없어서 ReportEvent가 그 해시를 NULL로 저장해버린다.
     @Test
     void 등록하면_없던_file_verdicts에도_CLEAN_WHITELIST로_새_행이_생긴다() {
         String sha256 = randomSha256();

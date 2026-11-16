@@ -120,11 +120,11 @@ public class ReportEventUseCase {
         if (sha256 == null || sha256.isBlank()) {
             return null;
         }
-        // download_events.sha256 -> file_verdicts(sha256) FK. 화이트리스트 히트/바이패스 다운로드는
-        // file_verdicts에 행이 없을 수 있다(CheckHash가 아직 없어서 더더욱). FK 위반 대신 null로 저장한다.
-        // CheckHash가 생긴 뒤에도 이 분기가 여전히 필요한지 팀과 재확인할 것 — 지우지 말 것.
-        // 예외: 업로드 없이 TLSH로 차단된 이벤트는 file_verdicts는 없지만 연결된 평가가 있다(V14로 FK 해제).
-        // 이 경우 sha256을 남겨야 이벤트 상세가 평가 근거를 읽을 수 있다.
+        // 정책: sha256은 그 파일의 file_verdicts 행이 있거나 이벤트에 연결된 평가 근거가 있을 때만 남기고,
+        // 아니면 null로 저장한다(화이트리스트 히트/바이패스 다운로드 등). V14로 download_events.sha256 FK는
+        // 없어졌지만 이 정책은 그대로다 — 지우지 말 것.
+        // 업로드 없이 TLSH로 차단된 이벤트는 file_verdicts는 없지만 연결된 평가가 있어 sha256을 남겨야
+        // 이벤트 상세가 평가 근거를 읽을 수 있다.
         return fileVerdictExistsPort.exists(sha256)
                 || fileVerdictExistsPort.hasEvidenceAssessment(command.eventId(), command.agentId(), sha256)
                 ? sha256 : null;

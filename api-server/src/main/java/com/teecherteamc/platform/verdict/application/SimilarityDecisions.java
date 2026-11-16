@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** YARA 통과 뒤 보조 정책. DB 잠금/조회는 포트에 위임하고 정확 SHA 예외는 기존 조회 계약을 재사용한다. */
+/** TLSH 보조 정책. 업로드·YARA 뒤(검증된 지문)와 CheckHash 업로드 전(에이전트 주장 TLSH) 양쪽에서 쓴다. DB 잠금/조회는 포트에 위임하고 정확 SHA 예외는 기존 조회 계약을 재사용한다. */
 @Component
 @Transactional(propagation = Propagation.MANDATORY)
 public class SimilarityDecisions {

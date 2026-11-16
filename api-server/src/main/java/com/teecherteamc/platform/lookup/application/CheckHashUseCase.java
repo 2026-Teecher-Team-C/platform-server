@@ -26,6 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
  * BLOCK/SIMILARITY, 31~70이면 근거만 남기고 UNKNOWN(업로드·YARA로 계속), 그 밖은 저장 없이 UNKNOWN이다.
  * 이 TLSH는 검증되지 않은 주장이므로 결과를 file_verdicts·similarity_cache에 쓰지 않고 그 이벤트의 근거로만
  * 남긴다 — 다른 에이전트의 같은 SHA 다운로드를 오염시키지 않는다.
+ *
+ * <p>같은 이벤트의 SubmitFile이 진행 중이면 CheckHash는 이벤트 advisory lock을 시간 제한 없이 기다린다.
+ * 이 경우 에이전트 RPC 타임아웃이 먼저 걸려 fail-close(차단)된다.
  */
 @Service
 public class CheckHashUseCase {
