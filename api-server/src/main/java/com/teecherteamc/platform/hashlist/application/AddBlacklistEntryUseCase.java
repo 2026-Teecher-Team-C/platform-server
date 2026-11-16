@@ -81,7 +81,7 @@ public class AddBlacklistEntryUseCase {
             // 4. 해제했던 행이 있으면 새로 INSERT하지 않고 되살린다. (PK 충돌 방지)
             entry.reactivate(command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy());
             blacklist.save(entry);
-            bloomFilter.add(key.getHashValue());
+            BloomAfterCommit.add(bloomFilter, key.getHashValue());
             recordAudit(command, key);
             return entry;
         }
@@ -90,7 +90,7 @@ public class AddBlacklistEntryUseCase {
         BlacklistEntry entry = BlacklistEntry.register(
                 key, command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy(), now);
         blacklist.save(entry);
-        bloomFilter.add(key.getHashValue());
+        BloomAfterCommit.add(bloomFilter, key.getHashValue());
         recordAudit(command, key);
         return entry;
     }

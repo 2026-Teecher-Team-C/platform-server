@@ -58,6 +58,9 @@ class CheckHashGrpcIntegrationTest {
     private BloomFilterPort bloomFilterPort;
 
     @Autowired
+    private com.teecherteamc.platform.lookup.domain.CachedHashSourcePort cachedHashSourcePort;
+
+    @Autowired
     private AddBlacklistEntryUseCase addBlacklistEntryUseCase;
 
     @Autowired
@@ -111,6 +114,34 @@ class CheckHashGrpcIntegrationTest {
 
         assertThat(bloomFilterPort.mightContain(black)).isTrue();
         assertThat(bloomFilterPort.mightContain(white)).isTrue();
+    }
+
+    // 재구축 스냅샷 읽기 직후, RENAME 전에 목록 쓰기가 커밋·add되는 레이스를 결정적으로 재현한다.
+    // 재구축 뒤 목록 재조회가 없으면 이 해시가 블룸에서 사라진다.
+    @Test
+    void list_entry_committed_between_snapshot_and_rename_survives_rebuild() {
+        String sha256 = "f5".repeat(32);
+        UUID adminId = seedAdmin();
+        com.teecherteamc.platform.lookup.domain.CachedHashSourcePort real = cachedHashSourcePort;
+        com.teecherteamc.platform.lookup.domain.CachedHashSourcePort racing =
+                new com.teecherteamc.platform.lookup.domain.CachedHashSourcePort() {
+                    @Override
+                    public java.util.List<String> findAllCachedHashes() {
+                        java.util.List<String> snapshot = real.findAllCachedHashes();
+                        addBlacklistEntryUseCase.add(
+                                new AddBlacklistEntryUseCase.Command(sha256, "race", adminId, null));
+                        return snapshot;
+                    }
+
+                    @Override
+                    public java.util.List<String> findAllListHashes() {
+                        return real.findAllListHashes();
+                    }
+                };
+
+        new BloomFilterRebuildService(racing, bloomFilterPort).rebuild();
+
+        assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
     }
 
     private UUID seedAdmin() {

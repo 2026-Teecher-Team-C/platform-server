@@ -94,7 +94,7 @@ public class AddWhitelistEntryUseCase {
                     command.expiresAt(), now);
         }
         whitelist.save(entry);
-        bloomFilter.add(key.getHashValue());
+        BloomAfterCommit.add(bloomFilter, key.getHashValue());
 
         // 6. 이전 차단 판정을 쓰지 않게 한다. file_verdicts는 verdict 컨텍스트 소유라 이벤트로 알린다
         eventPublisher.publishEvent(new WhitelistEntryRegistered(key.getHashValue()));

@@ -102,7 +102,7 @@ class QuarantineFileRestoredListener {
         }
 
         if (whitelistChanged) {
-            bloomFilter.add(key.getHashValue());
+            BloomAfterCommit.add(bloomFilter, key.getHashValue());
             // file_verdicts는 verdict 컨텍스트 소유라 직접 안 고치고 이벤트로 알린다(기존 리스너 재사용)
             eventPublisher.publishEvent(new WhitelistEntryRegistered(key.getHashValue()));
             auditLogRecorder.record(event.adminId(), AuditAction.ADD_WHITELIST, AuditTargetType.WHITELIST,

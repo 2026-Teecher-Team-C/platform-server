@@ -27,4 +27,15 @@ class CachedHashSourcePortImpl implements CachedHashSourcePort {
                 """,
                 String.class);
     }
+
+    @Override
+    public List<String> findAllListHashes() {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT hash_value FROM hash_blacklist WHERE hash_type = 'SHA256'
+                UNION
+                SELECT hash_value FROM hash_whitelist WHERE hash_type = 'SHA256'
+                """,
+                String.class);
+    }
 }
