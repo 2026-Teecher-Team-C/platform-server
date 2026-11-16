@@ -1,0 +1,24 @@
+# 운영(EC2)의 임시 DB. RDS로 옮기기 전까지 Postgres를 같은 EC2 컨테이너로 띄운다.
+# 2026-11-16까지 EC2에만 있던 파일이다. 비밀번호는 값 대신 infra/.env의 DB_PASSWORD를 쓴다
+# (POSTGRES_PASSWORD는 데이터 디렉터리를 처음 만들 때만 쓰여서, 이미 초기화된 운영 DB에는 영향이 없다).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  api-server:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
