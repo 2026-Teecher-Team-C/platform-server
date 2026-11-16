@@ -1,6 +1,8 @@
 package com.teecherteamc.platform.hashlist.application;
 
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
+import java.util.Collection;
+import java.util.List;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -11,6 +13,20 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 final class BloomAfterCommit {
 
     private BloomAfterCommit() {
+    }
+
+    static void addAll(BloomFilterPort bloomFilter, Collection<String> sha256s) {
+        List<String> copy = List.copyOf(sha256s);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    bloomFilter.addAll(copy);
+                }
+            });
+        } else {
+            bloomFilter.addAll(copy);
+        }
     }
 
     static void add(BloomFilterPort bloomFilter, String sha256) {

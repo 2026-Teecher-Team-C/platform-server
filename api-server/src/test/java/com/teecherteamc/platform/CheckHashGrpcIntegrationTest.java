@@ -69,6 +69,52 @@ class CheckHashGrpcIntegrationTest {
     // CheckHash는 블룸 → 화이트 → 블랙 순서라 블룸 miss면 목록을 읽지 않는다. 아래 두 테스트는 목록 쓰기
     // 직후의 블룸 add가 없으면 FAIL한다(Task 4에서 add를 끄고 FAIL→PASS를 다시 확인했다).
     @Test
+    void addAll_puts_every_hash_in_one_call() {
+        bloomFilterPort.rebuild(java.util.List.of());
+        java.util.List<String> hashes = java.util.List.of("a1".repeat(32), "a2".repeat(32), "a3".repeat(32));
+
+        bloomFilterPort.addAll(hashes);
+
+        assertThat(hashes).allMatch(bloomFilterPort::mightContain);
+    }
+
+    // 블랙리스트 60만 건에서 SETBIT 수백만 개를 파이프라인 하나로 보내던 재구축이 Redis 시간 초과와 힙 고갈로
+    // api-server를 멈췄다(일괄 가져오기 리허설). 비트 배열을 메모리에서 만들어 한 번에 쓰면 몇 초 안에 끝난다.
+    @Test
+    void rebuild_of_many_hashes_finishes_quickly_and_keeps_every_hash() {
+        java.util.List<String> hashes = java.util.stream.IntStream.range(0, 300_000)
+                .mapToObj(i -> String.format("%064x", i)).toList();
+
+        long started = System.nanoTime();
+        bloomFilterPort.rebuild(hashes);
+        long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(elapsedMs).isLessThan(10_000);
+        assertThat(hashes.stream().filter(h -> h.endsWith("7")).limit(2_000)).allMatch(bloomFilterPort::mightContain);
+        assertThat(bloomFilterPort.mightContain(hashes.getLast())).isTrue();
+    }
+
+    @Test
+    void rebuild_reapplies_list_hashes_in_bulk_not_one_by_one() {
+        org.mockito.Mockito.clearInvocations(bloomFilterPort);
+
+        bloomFilterRebuildService.rebuild();
+
+        org.mockito.Mockito.verify(bloomFilterPort, org.mockito.Mockito.never())
+                .add(org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.verify(bloomFilterPort).addAll(org.mockito.ArgumentMatchers.anyCollection());
+    }
+
+    @Test
+    void addAll_with_no_hashes_does_nothing() {
+        bloomFilterPort.rebuild(java.util.List.of());
+
+        bloomFilterPort.addAll(java.util.List.of());
+
+        assertThat(bloomFilterPort.mightContain("a4".repeat(32))).isFalse();
+    }
+
+    @Test
     void added_blacklist_hash_is_blocked_before_rebuild() {
         String sha256 = "b1".repeat(32);
         bloomFilterPort.rebuild(java.util.List.of());

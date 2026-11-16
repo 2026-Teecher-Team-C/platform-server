@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.lookup.domain;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -17,6 +18,9 @@ public interface BloomFilterPort {
      * 한다. Redis 장애는 로그만 남기고 삼킨다 — 누락은 다음 재구축이 메우고, 호출한 쓰기를 실패시키지 않는다.
      */
     void add(String sha256);
+
+    /** 여러 건을 Redis 왕복 한 번(파이프라인)으로 추가한다. 일괄 가져오기용. 실패 처리는 add와 같다. */
+    void addAll(Collection<String> sha256s);
 
     /** 주기적으로 전체를 다시 쓴다 — 블룸 필터는 항목을 삭제할 수 없어서 증분 삭제가 불가능하다. */
     void rebuild(List<String> cachedHashes);

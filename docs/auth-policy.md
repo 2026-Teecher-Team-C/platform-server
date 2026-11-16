@@ -98,6 +98,7 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 | 격리 해제(오탐 복구) | `POST /api/admin/quarantine/{quarantineId}/restore` | ✅ | ❌ | ❌ |
 | 블랙리스트 조회 | `GET /api/admin/blacklist` | ✅ | ✅ | ❌ |
 | 블랙리스트 변경 | `POST`·`PATCH`·`DELETE /api/admin/blacklist...` | ✅ | ❌ | ❌ |
+| 블랙리스트 일괄 가져오기 | `POST /api/admin/blacklist/import` | ✅ | ❌ | ❌ |
 | 화이트리스트 전부 | `/api/admin/whitelist...` | ✅ | ❌ | ❌ |
 | 우회 도메인 조회 | `GET /api/admin/bypass-domains` | ✅ | ✅ | ❌ |
 | 우회 도메인 변경 | `POST`·`DELETE /api/admin/bypass-domains...` | ✅ | ❌ | ❌ |

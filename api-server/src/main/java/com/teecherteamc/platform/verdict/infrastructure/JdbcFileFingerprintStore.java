@@ -2,6 +2,9 @@ package com.teecherteamc.platform.verdict.infrastructure;
 
 import com.teecherteamc.platform.verdict.domain.FileFingerprintStore;
 import com.teecherteamc.platform.verdict.domain.FingerprintCalculation;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -63,5 +66,30 @@ public class JdbcFileFingerprintStore implements FileFingerprintStore {
                 WHERE file_fingerprints.provenance = 'ADMIN_IMPORT'
                     OR file_fingerprints.calculation_status <> 'CALCULATED'
                 """, sha256, tlsh, FingerprintCalculation.ALGORITHM_VERSION, provenance, actor) > 0;
+    }
+    @Override
+    public int saveImportedBatch(Map<String, String> tlshBySha, String provenance, UUID actor) {
+        if (tlshBySha.isEmpty()) {
+            return 0;
+        }
+        List<Object[]> args = tlshBySha.entrySet().stream()
+                .map(e -> new Object[] {e.getKey(), e.getValue(), FingerprintCalculation.ALGORITHM_VERSION,
+                        provenance, actor, e.getKey()})
+                .toList();
+        int[] counts = jdbc.batchUpdate("""
+                INSERT INTO file_fingerprints
+                    (sha256, tlsh, calculation_status, algorithm_version, provenance, provenance_detail, imported_by)
+                SELECT ?, ?, 'CALCULATED', ?, 'ADMIN_IMPORT', ?, ?
+                WHERE EXISTS (SELECT 1 FROM hash_blacklist WHERE hash_type = 'SHA256' AND hash_value = ? AND is_active)
+                ON CONFLICT (sha256) DO UPDATE SET
+                    tlsh = EXCLUDED.tlsh, calculation_status = EXCLUDED.calculation_status,
+                    algorithm_version = EXCLUDED.algorithm_version, calculated_at = now(),
+                    provenance = EXCLUDED.provenance, provenance_detail = EXCLUDED.provenance_detail,
+                    imported_by = EXCLUDED.imported_by
+                WHERE (file_fingerprints.provenance = 'ADMIN_IMPORT'
+                        AND file_fingerprints.tlsh IS DISTINCT FROM EXCLUDED.tlsh)
+                    OR file_fingerprints.calculation_status <> 'CALCULATED'
+                """, args);
+        return Arrays.stream(counts).map(c -> Math.max(c, 0)).sum();
     }
 }

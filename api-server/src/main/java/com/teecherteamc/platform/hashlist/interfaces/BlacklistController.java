@@ -8,6 +8,7 @@ import com.teecherteamc.platform.common.PageResponse;
 import com.teecherteamc.platform.hashlist.application.AddBlacklistEntryUseCase;
 import com.teecherteamc.platform.hashlist.application.BlacklistEntryNotFoundException;
 import com.teecherteamc.platform.hashlist.application.HashListConflictException;
+import com.teecherteamc.platform.hashlist.application.ImportBlacklistBatchUseCase;
 import com.teecherteamc.platform.hashlist.application.ListBlacklistUseCase;
 import com.teecherteamc.platform.hashlist.application.UpdateBlacklistReasonUseCase;
 import com.teecherteamc.platform.hashlist.application.RemoveBlacklistEntryUseCase;
@@ -52,15 +53,18 @@ public class BlacklistController {
     private final ListBlacklistUseCase listBlacklistUseCase;
     private final UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase;
     private final RemoveBlacklistEntryUseCase removeBlacklistEntryUseCase;
+    private final ImportBlacklistBatchUseCase importBlacklistBatchUseCase;
 
         public BlacklistController(AddBlacklistEntryUseCase addBlacklistEntryUseCase,
                                ListBlacklistUseCase listBlacklistUseCase,
                                UpdateBlacklistReasonUseCase updateBlacklistReasonUseCase,
-                             RemoveBlacklistEntryUseCase removeBlacklistEntryUseCase) {
+                             RemoveBlacklistEntryUseCase removeBlacklistEntryUseCase,
+                             ImportBlacklistBatchUseCase importBlacklistBatchUseCase) {
         this.addBlacklistEntryUseCase = addBlacklistEntryUseCase;
         this.listBlacklistUseCase = listBlacklistUseCase;
         this.updateBlacklistReasonUseCase = updateBlacklistReasonUseCase;
         this.removeBlacklistEntryUseCase = removeBlacklistEntryUseCase;
+        this.importBlacklistBatchUseCase = importBlacklistBatchUseCase;
     }
     
 
@@ -99,6 +103,22 @@ public class BlacklistController {
         return PageResponse.from(
                 listBlacklistUseCase.list(hashPrefix, severityFilter, sourceFilter, active, page, size),
                 BlacklistItem::fromRow);
+    }
+
+    /**
+     * 외부 위협 데이터의 해시(와 TLSH)를 최대 1,000건 묶음으로 넣는다. 잘못된 항목은 세고 건너뛰며 묶음 전체를
+     * 실패시키지 않는다. 스크립트가 나눠 보내는 용도라 성공은 200과 건수 요약이다.
+     */
+    @PostMapping("/api/admin/blacklist/import")
+    public ImportBlacklistResponse importBatch(@Valid @RequestBody ImportBlacklistRequest request,
+                                               @AuthenticationPrincipal AdminPrincipal principal,
+                                               HttpServletRequest httpRequest) {
+        List<ImportBlacklistBatchUseCase.Entry> entries = request.entries().stream()
+                .map(e -> new ImportBlacklistBatchUseCase.Entry(e.sha256(), e.tlsh(), e.label()))
+                .toList();
+        return ImportBlacklistResponse.from(importBlacklistBatchUseCase.importBatch(
+                new ImportBlacklistBatchUseCase.Command(request.source().trim(), entries, principal.adminId(),
+                        ClientIp.resolve(httpRequest))));
     }
 
     /** 알려진 악성 해시를 블랙리스트에 등록한다. 등록 즉시 그 파일은 차단된다. */

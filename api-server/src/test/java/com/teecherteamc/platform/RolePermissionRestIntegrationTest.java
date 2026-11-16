@@ -177,6 +177,7 @@ class RolePermissionRestIntegrationTest {
             // 블랙리스트
             new Row("GET", "/api/admin/blacklist", true, true, false),
             new Row("POST", "/api/admin/blacklist", true, false, false),
+            new Row("POST", "/api/admin/blacklist/import", true, false, false),
             new Row("PATCH", "/api/admin/blacklist/" + SOME_SHA256, true, false, false),
             new Row("DELETE", "/api/admin/blacklist/" + SOME_SHA256, true, false, false),
             // 화이트리스트 (읽기도 ADMIN만)

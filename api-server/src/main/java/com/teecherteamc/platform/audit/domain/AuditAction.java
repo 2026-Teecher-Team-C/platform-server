@@ -21,6 +21,7 @@ public enum AuditAction {
     UPDATE_WHITELIST,
     REMOVE_WHITELIST,
     ADD_BLACKLIST,
+    IMPORT_BLACKLIST,
     UPDATE_BLACKLIST,
     REMOVE_BLACKLIST,
     // 격리
