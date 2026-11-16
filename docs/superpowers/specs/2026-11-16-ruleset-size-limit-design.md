@@ -15,7 +15,8 @@
 필요한 모듈은 `pe`, `dotnet`, `hash`, `math`, `string`, `elf`, `console`이고, 모두 엔진 빌드에 들어 있다.
 
 ## 목표 / 비목표
-- 목표: 콘솔 → nginx → api-server → 엔진까지 **32MiB 이하** 룰셋이 업로드·활성화된다. 상한은 설정값 하나로 바꿀 수 있다.
+- 목표: 콘솔 → nginx → api-server → 엔진까지 **32MiB 이하** 룰셋이 업로드·활성화된다.
+- 상한을 바꾸는 법: api-server 안에서는 `ruleset.max-source-bytes` / `ruleset.max-request-bytes`만 바꾸면 multipart 한도, Tomcat swallow 한도, 안내 문구가 따라간다. 프로세스 밖의 세 곳(엔진 `ENGINE_MAX_RULES_BYTES`, nginx `/api/admin/rulesets`의 `client_max_body_size`, 콘솔 `MAX_RULESET_BYTES`)은 함께 바꿔야 한다(`application.yml` 주석에 적어 둠).
 - 목표: 32MiB를 넘으면 지금처럼 거부되고, 안내 문구가 실제 상한을 말한다.
 - 비목표: **룰셋 목록 조회가 버전마다 원문(`source`) 전체를 읽는 문제**는 이번에 고치지 않는다(사용자 결정). 측정에서 메모리 영향을 재고 고도화 후보로 다룬다.
 - 비목표: 블룸 기대 개수 조정. 이미 설정값(`lookup.bloom-filter.expected-hash-count`)이라 환경변수로 바꾼다.

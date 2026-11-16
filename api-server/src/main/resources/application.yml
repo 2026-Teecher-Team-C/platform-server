@@ -23,9 +23,9 @@ spring:
     enabled: true
   servlet:
     multipart:
-      # 룰셋(.yar) 업로드 상한. 파일은 ruleset.max-source-bytes(32MiB)와 같게, 요청 전체는 multipart 여유분 1MiB를 더한다.
-      max-file-size: 32MB
-      max-request-size: 33MB
+      # 룰셋(.yar) 업로드 상한. 아래 ruleset.* 값을 따른다(상한을 바꿀 때는 ruleset.*만 고친다).
+      max-file-size: ${ruleset.max-source-bytes}B
+      max-request-size: ${ruleset.max-request-bytes}B
   grpc:
     client:
       channel:
@@ -41,11 +41,14 @@ spring:
 # 클라이언트가 400 대신 연결 끊김을 받는다. multipart 요청 상한까지는 읽고 400을 돌려준다.
 server:
   tomcat:
-    max-swallow-size: 33MB
+    max-swallow-size: ${ruleset.max-request-bytes}B
 
 ruleset:
-  # 룰셋 원문 상한(바이트). 엔진의 ENGINE_MAX_RULES_BYTES와 같게 둔다. 기본 32MiB(YARA Forge full 약 19MB).
+  # 룰셋 원문 상한(바이트). 기본 32MiB(YARA Forge full 약 19MB). multipart 파일 한도와 크기 초과 문구가 이 값을 따른다.
+  # 바꿀 때 함께 맞출 것: 엔진 ENGINE_MAX_RULES_BYTES, nginx /api/admin/rulesets client_max_body_size, 콘솔 MAX_RULESET_BYTES.
   max-source-bytes: 33554432
+  # multipart 요청 전체 한도(원문 + 여유 1MiB). multipart 요청 한도와 Tomcat max-swallow-size가 이 값을 따른다.
+  max-request-bytes: 34603008
   # 엔진 CompileRules/LoadRuleset 호출 시간 제한. 큰 룰셋은 1CPU에서 컴파일에 수 초 걸린다(full 약 4초).
   engine-timeout: 60s
 
