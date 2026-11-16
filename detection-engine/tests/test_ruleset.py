@@ -215,8 +215,7 @@ def test_같은_키를_동시에_적재해도_한_번만_컴파일한다(monkeyp
 
     monkeypatch.setattr(Analyzer, "_compile", staticmethod(slow_compile))
     threads = [
-        threading.Thread(target=analyzer.load, args=(7, "7:k", "rule A { condition: true }", ()))
-        for _ in range(4)
+        threading.Thread(target=analyzer.load, args=(7, "7:k", "rule A { condition: true }", ())) for _ in range(4)
     ]
     for thread in threads:
         thread.start()
