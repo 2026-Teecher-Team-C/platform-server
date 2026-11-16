@@ -31,6 +31,8 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     private static final String REBUILDING_KEY_PREFIX = "bloom:file_verdicts:rebuilding:";
 
     private final RedisConnectionFactory connectionFactory;
+    private static final int PIPELINE_CHUNK = 5_000;
+
     private final long bitSize;
     private final int hashCount;
 
@@ -84,21 +86,22 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
 
     @Override
     public void rebuild(List<String> cachedHashes) {
-        // 호출마다 고유한 임시 키를 쓴다 — 고정된 키를 공유하면 기동 시 자동 1차 빌드와 수동/테스트
-        // 재구축이 동시에 겹칠 때 서로의 del/setBit을 밟을 수 있다(레이스).
+        // 비트 배열을 메모리에서 만든 뒤 SET 한 번으로 쓴다. 해시마다 SETBIT을 파이프라인에 쌓으면 100만 건에서
+        // 명령 수백만 개와 응답 대기 객체가 생겨 Redis 시간 초과와 힙 고갈로 서버가 멈췄다(일괄 가져오기 리허설).
+        // 크기는 bitSize/8 바이트뿐이다(기대 150만 건, 오탐 1%면 약 1.8MB).
+        byte[] bits = new byte[(int) ((bitSize + 7) / 8)];
+        for (String sha256 : cachedHashes) {
+            for (long position : positions(sha256)) {
+                // Redis 비트 순서: 오프셋 0이 첫 바이트의 최상위 비트다(SETBIT/GETBIT과 같게).
+                bits[(int) (position >>> 3)] |= (byte) (0x80 >>> (position & 7));
+            }
+        }
+        // 호출마다 고유한 임시 키를 쓴다 — 기동 시 1차 빌드와 수동 재구축이 겹쳐도 서로 밟지 않는다.
         byte[] rebuildingKey = (REBUILDING_KEY_PREFIX + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
         execute(connection -> {
-            // 빈 목록이어도 RENAME이 성공하려면 키가 존재해야 한다.
-            connection.setBit(rebuildingKey, 0, false);
-            connection.openPipeline();
-            for (String sha256 : cachedHashes) {
-                for (long position : positions(sha256)) {
-                    connection.setBit(rebuildingKey, position, true);
-                }
-            }
-            connection.closePipeline();
+            connection.stringCommands().set(rebuildingKey, bits);
             // RENAME은 원자적이다 — 재구축 중간 상태를 읽는 레이스가 없다.
-            connection.rename(rebuildingKey, KEY);
+            connection.keyCommands().rename(rebuildingKey, KEY);
             return null;
         });
     }
@@ -115,17 +118,22 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
             return;
         }
         try {
-            List<long[]> positions = sha256s.stream().map(this::positions).toList();
-            execute(connection -> {
-                connection.openPipeline();
-                for (long[] each : positions) {
-                    for (long position : each) {
-                        connection.setBit(KEY, position, true);
+            // 파이프라인 하나에 너무 많이 쌓지 않도록 나눠 보낸다(재구축 뒤 목록 재반영은 수십만 건이다).
+            List<String> all = List.copyOf(sha256s);
+            for (int from = 0; from < all.size(); from += PIPELINE_CHUNK) {
+                List<long[]> positions = all.subList(from, Math.min(all.size(), from + PIPELINE_CHUNK)).stream()
+                        .map(this::positions).toList();
+                execute(connection -> {
+                    connection.openPipeline();
+                    for (long[] each : positions) {
+                        for (long position : each) {
+                            connection.setBit(KEY, position, true);
+                        }
                     }
-                }
-                connection.closePipeline();
-                return null;
-            });
+                    connection.closePipeline();
+                    return null;
+                });
+            }
         } catch (RuntimeException e) {
             log.warn("블룸 필터 일괄 추가 실패 {}건(다음 재구축에서 반영): {}", sha256s.size(), e.toString());
         }

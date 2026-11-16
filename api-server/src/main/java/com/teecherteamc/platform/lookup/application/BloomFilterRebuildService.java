@@ -30,6 +30,7 @@ public class BloomFilterRebuildService {
     public void rebuild() {
         bloomFilterPort.rebuild(cachedHashSourcePort.findAllCachedHashes());
         // RENAME 이후 재조회: 스냅샷과 RENAME 사이에 커밋된 목록 행을 라이브 블룸에 다시 넣는다.
-        cachedHashSourcePort.findAllListHashes().forEach(bloomFilterPort::add);
+        // 목록이 수십만 건이어도 Redis 왕복을 해시마다 하지 않도록 한 번에 넘긴다(addAll이 나눠 보낸다).
+        bloomFilterPort.addAll(cachedHashSourcePort.findAllListHashes());
     }
 }

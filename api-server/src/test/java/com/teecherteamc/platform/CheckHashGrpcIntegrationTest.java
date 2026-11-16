@@ -78,6 +78,33 @@ class CheckHashGrpcIntegrationTest {
         assertThat(hashes).allMatch(bloomFilterPort::mightContain);
     }
 
+    // 블랙리스트 60만 건에서 SETBIT 수백만 개를 파이프라인 하나로 보내던 재구축이 Redis 시간 초과와 힙 고갈로
+    // api-server를 멈췄다(일괄 가져오기 리허설). 비트 배열을 메모리에서 만들어 한 번에 쓰면 몇 초 안에 끝난다.
+    @Test
+    void rebuild_of_many_hashes_finishes_quickly_and_keeps_every_hash() {
+        java.util.List<String> hashes = java.util.stream.IntStream.range(0, 300_000)
+                .mapToObj(i -> String.format("%064x", i)).toList();
+
+        long started = System.nanoTime();
+        bloomFilterPort.rebuild(hashes);
+        long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(elapsedMs).isLessThan(10_000);
+        assertThat(hashes.stream().filter(h -> h.endsWith("7")).limit(2_000)).allMatch(bloomFilterPort::mightContain);
+        assertThat(bloomFilterPort.mightContain(hashes.getLast())).isTrue();
+    }
+
+    @Test
+    void rebuild_reapplies_list_hashes_in_bulk_not_one_by_one() {
+        org.mockito.Mockito.clearInvocations(bloomFilterPort);
+
+        bloomFilterRebuildService.rebuild();
+
+        org.mockito.Mockito.verify(bloomFilterPort, org.mockito.Mockito.never())
+                .add(org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.verify(bloomFilterPort).addAll(org.mockito.ArgumentMatchers.anyCollection());
+    }
+
     @Test
     void addAll_with_no_hashes_does_nothing() {
         bloomFilterPort.rebuild(java.util.List.of());
