@@ -14,11 +14,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.grpc.client.ImportGrpcClients;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate
 @AutoConfigureTestGrpcTransport
 @ImportGrpcClients(types = {VerdictServiceGrpc.VerdictServiceStub.class, VerdictServiceGrpc.VerdictServiceBlockingStub.class})
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, AdminApiClient.class})
 class TlshSimilarityGrpcIntegrationTest {
+    @Autowired AdminApiClient adminClient;
     @Autowired VerdictServiceGrpc.VerdictServiceStub stub;
     @Autowired VerdictServiceGrpc.VerdictServiceBlockingStub blocking;
     @Autowired JdbcTemplate jdbc;
@@ -768,6 +770,51 @@ class TlshSimilarityGrpcIntegrationTest {
                 .containsEntry("distance", 17).containsEntry("matched_sample_sha256", baseline).containsEntry("sha256", sha);
         assertThat(jdbc.queryForObject("SELECT agent_id FROM event_decision_evidence WHERE event_id=?", UUID.class, event)).isEqualTo(authenticatedAgent);
         assertThat(jdbc.queryForList(verdictsSql, sha)).isEqualTo(verdictsBefore);
+    }
+
+    @Test
+    void checkhash_similarity_block_shows_evidence_in_event_detail() throws Exception {
+        byte[] original = getClass().getResourceAsStream("/tlsh/reference.txt").readAllBytes();
+        byte[] padded = Arrays.copyOf(original, original.length + 64);
+        Arrays.fill(padded, original.length, padded.length, (byte)' ');
+        String baseline = TlshFingerprintGrpcIntegrationTest.sha(original);
+        String sha = TlshFingerprintGrpcIntegrationTest.sha(padded);
+        upload(original, UUID.randomUUID());
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", baseline);
+        UUID event = UUID.randomUUID();
+        assertThat(check(blocking, sha, tlshOf(padded), event).getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        // 에이전트는 업로드 없이 SIMILARITY 차단을 보고한다.
+        blocking.reportEvent(ReportEventRequest.newBuilder().setEventId(event.toString()).setSha256(sha)
+                .setUrl("https://fixture.invalid/file").setRequestHost("fixture.invalid").setFilename("padded.txt")
+                .setDecision(FinalDecision.FINAL_DECISION_BLOCKED).setDecisionSourceValue(6).setBytesUploaded(0)
+                .setHeldAt(com.google.protobuf.Timestamp.newBuilder().setSeconds(java.time.Instant.now().getEpochSecond())).build());
+
+        // file_verdicts 행도 격리 파일도 없는 상태에서 상세가 근거를 보여야 한다.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, sha)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM quarantine_files WHERE event_id=?", Integer.class, event)).isZero();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> detail = adminClient.getForEntity("/api/admin/download-events/" + event, Map.class).getBody();
+        assertThat(detail).containsEntry("decision", "BLOCKED").containsEntry("decisionSource", "SIMILARITY")
+                .containsEntry("bytesUploaded", 0).containsEntry("sha256", sha);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> similarity = (Map<String, Object>) detail.get("similarity");
+        assertThat(similarity).containsEntry("classification", "BLOCK").containsEntry("matchedSampleSha256", baseline)
+                .containsEntry("distance", 17).containsEntry("policyVersion", "tlsh-30-70-v1");
+        assertThat(detail).containsEntry("quarantined", false);
+
+        // 위협 대시보드 뷰와 이벤트 목록에 이 이벤트가 나온다.
+        var threat = jdbc.queryForMap("SELECT severity, reason_type FROM download_event_threats WHERE event_id=?", event);
+        assertThat(threat).containsEntry("severity", "MEDIUM").containsEntry("reason_type", "SIMILARITY");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> page = adminClient.getForEntity("/api/admin/download-events?agentId=" + authenticatedAgent, Map.class).getBody();
+        @SuppressWarnings("unchecked")
+        var items = (List<Map<String, Object>>) page.get("content");
+        assertThat(items).anySatisfy(i -> assertThat(i).containsEntry("eventId", event.toString())
+                .containsEntry("decision", "BLOCKED").containsEntry("decisionSource", "SIMILARITY")
+                .containsEntry("similarityClassification", "BLOCK"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> quarantineList = adminClient.getForEntity("/api/admin/quarantine?agentId=" + authenticatedAgent + "&size=200", Map.class).getBody();
+        assertThat((List<Map<String, Object>>) quarantineList.get("content")).noneMatch(q -> sha.equals(q.get("sha256")));
     }
 
     @Test

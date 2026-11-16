@@ -10,4 +10,7 @@ package com.teecherteamc.platform.event.domain;
 public interface FileVerdictExistsPort {
 
     boolean exists(String sha256);
+
+    /** 이 이벤트에 같은 에이전트·SHA로 예약된 근거(평가)가 연결돼 있는지. 업로드 전 TLSH 차단은 file_verdicts 없이 이것만 있다. */
+    boolean hasEvidenceAssessment(java.util.UUID eventId, java.util.UUID agentId, String sha256);
 }

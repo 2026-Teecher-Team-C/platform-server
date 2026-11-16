@@ -26,5 +26,6 @@ public record DownloadEventDetailRow(
         long bytesUploaded,
         Instant heldAt,
         Instant decidedAt,
-        EventSimilarity similarity) {
+        EventSimilarity similarity,
+        boolean quarantined) {
 }
