@@ -3,7 +3,10 @@ package com.teecherteamc.platform;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.teecherteamc.platform.hashlist.application.AddBlacklistEntryUseCase;
+import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
 import com.teecherteamc.platform.lookup.application.BloomFilterRebuildService;
+import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.WhitelistLookupPort;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse;
@@ -50,6 +53,73 @@ class CheckHashGrpcIntegrationTest {
 
     @Autowired
     private WhitelistLookupPort whitelistLookupPort;
+
+    @Autowired
+    private BloomFilterPort bloomFilterPort;
+
+    @Autowired
+    private AddBlacklistEntryUseCase addBlacklistEntryUseCase;
+
+    @Autowired
+    private AddWhitelistEntryUseCase addWhitelistEntryUseCase;
+
+    // 아래 두 before_rebuild 테스트는 현재 CheckHashUseCase가 블룸보다 목록을 먼저 조회해서 구현 전에도
+    // 통과할 수 있다. Task 4(블룸 → 화이트 → 블랙 순서)를 끝낸 뒤에는 블룸 add가 없으면 FAIL하므로,
+    // 그때 다시 FAIL→PASS를 확인한다.
+    @Test
+    void added_blacklist_hash_is_blocked_before_rebuild() {
+        String sha256 = "b1".repeat(32);
+        bloomFilterPort.rebuild(java.util.List.of());
+        UUID adminId = seedAdmin();
+
+        addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(sha256, "known bad", adminId, null));
+
+        assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+    }
+
+    @Test
+    void added_whitelist_hash_is_allowed_before_rebuild() {
+        String sha256 = "c2".repeat(32);
+        bloomFilterPort.rebuild(java.util.List.of());
+        UUID adminId = seedAdmin();
+
+        addWhitelistEntryUseCase.add(
+                new AddWhitelistEntryUseCase.Command(sha256, "exception", null, adminId, null));
+
+        assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+    }
+
+    @Test
+    void rebuild_includes_list_entries() {
+        String black = "d3".repeat(32);
+        String white = "e4".repeat(32);
+        seedBlacklist(black);
+        seedWhitelist(white, true, null);
+        bloomFilterPort.rebuild(java.util.List.of());
+        assertThat(bloomFilterPort.mightContain(black)).isFalse();
+        assertThat(bloomFilterPort.mightContain(white)).isFalse();
+
+        bloomFilterRebuildService.rebuild();
+
+        assertThat(bloomFilterPort.mightContain(black)).isTrue();
+        assertThat(bloomFilterPort.mightContain(white)).isTrue();
+    }
+
+    private UUID seedAdmin() {
+        UUID adminId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO admin_users (admin_id, username, password_hash) VALUES (?, ?, 'unused')",
+                adminId, "bloom-seed-" + adminId);
+        return adminId;
+    }
 
     @Test
     void 블랙리스트에_있으면_BLOCK을_반환한다() {

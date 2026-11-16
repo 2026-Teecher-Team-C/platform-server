@@ -9,6 +9,7 @@ import com.teecherteamc.platform.hashlist.domain.EntrySource;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
 import com.teecherteamc.platform.hashlist.domain.Severity;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
+import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -20,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 블랙리스트에 해시를 등록한다. (POST /api/admin/blacklist)
  *
  * 등록 즉시 차단되는 이유: 판정 사슬(CheckHash)이 블랙리스트를 가장 먼저 조회하기 때문이다.
- * 블룸 필터 반영은 고도화(H1)에서 한다.
+ * 블룸 필터에도 즉시 추가한다(블룸 미스는 목록 조회를 생략시키므로 재구축을 기다리면 안 된다).
  */
 @Service
 public class AddBlacklistEntryUseCase {
@@ -28,12 +29,15 @@ public class AddBlacklistEntryUseCase {
     private final BlacklistEntryRepository blacklist;
     private final WhitelistEntryRepository whitelist;
     private final Clock clock;   // 현재 시각을 밖에서 받아야 테스트에서 고정할 수 있다
+    private final BloomFilterPort bloomFilter;
     private final AuditLogRecorder auditLogRecorder;   // 관리자 쓰기 API가 공통으로 쓰는 감사 로그 기록기(#42)
 
     public AddBlacklistEntryUseCase(BlacklistEntryRepository blacklist,
                                     WhitelistEntryRepository whitelist,
                                     Clock clock,
-                                    AuditLogRecorder auditLogRecorder) {
+                                    AuditLogRecorder auditLogRecorder,
+                                    BloomFilterPort bloomFilter) {
+        this.bloomFilter = bloomFilter;
         this.blacklist = blacklist;
         this.whitelist = whitelist;
         this.clock = clock;
@@ -77,6 +81,7 @@ public class AddBlacklistEntryUseCase {
             // 4. 해제했던 행이 있으면 새로 INSERT하지 않고 되살린다. (PK 충돌 방지)
             entry.reactivate(command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy());
             blacklist.save(entry);
+            bloomFilter.add(key.getHashValue());
             recordAudit(command, key);
             return entry;
         }
@@ -85,6 +90,7 @@ public class AddBlacklistEntryUseCase {
         BlacklistEntry entry = BlacklistEntry.register(
                 key, command.reason(), Severity.HIGH, EntrySource.MANUAL, command.addedBy(), now);
         blacklist.save(entry);
+        bloomFilter.add(key.getHashValue());
         recordAudit(command, key);
         return entry;
     }

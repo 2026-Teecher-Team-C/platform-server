@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.verdict.application;
 
+import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.verdict.domain.ActiveRulesetKeyPort;
 import com.teecherteamc.platform.verdict.domain.Analysis;
 import com.teecherteamc.platform.verdict.domain.AnalysisOutcome;
@@ -45,6 +46,7 @@ public class SubmitFileUseCase {
     private final SimilarityDecisions similarity;
     private final EventDecisionEvidence evidence;
     private final EventQuarantineUploads eventQuarantineUploads;
+    private final BloomFilterPort bloomFilter;
 
     public SubmitFileUseCase(
             FileVerdictRepository fileVerdictRepository,
@@ -55,7 +57,9 @@ public class SubmitFileUseCase {
             ActiveRulesetKeyPort activeRulesetKeyPort,
             PlatformTransactionManager transactionManager,
             RecordFileFingerprint recordFileFingerprint,
-            SimilarityDecisions similarity, EventDecisionEvidence evidence, EventQuarantineUploads eventQuarantineUploads) {
+            SimilarityDecisions similarity, EventDecisionEvidence evidence, EventQuarantineUploads eventQuarantineUploads,
+            BloomFilterPort bloomFilter) {
+        this.bloomFilter = bloomFilter;
         this.fileVerdictRepository = fileVerdictRepository;
         this.analysisRepository = analysisRepository;
         this.engineAnalysisPort = engineAnalysisPort;
@@ -218,6 +222,7 @@ public class SubmitFileUseCase {
                 fileVerdict.markStale();
             }
             fileVerdictRepository.save(fileVerdict);
+            bloomFilter.add(command.verifiedSha256());
             UUID analysis = saveAnalysis(command.verifiedSha256(), outcome);
             if (assessment != null) similarity.save(command.verifiedSha256(), command.eventId(), analysis, assessment);
             else {
@@ -248,6 +253,7 @@ public class SubmitFileUseCase {
             }).orElseGet(() -> FileVerdict.create(
                     sha256, fileSize, null, "ERROR", SOURCE_ENGINE, null, Instant.now()));
             fileVerdictRepository.save(verdict);
+            bloomFilter.add(sha256);
             similarity.clearCache(sha256);
             similarity.clearPending(command.eventId());
             analysisRepository.save(Analysis.record(sha256, null, FALLBACK_RULESETS_VERSION, "unavailable",

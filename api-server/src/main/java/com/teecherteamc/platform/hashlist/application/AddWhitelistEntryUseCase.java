@@ -10,6 +10,7 @@ import com.teecherteamc.platform.hashlist.domain.HashListWriteLock;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRegistered;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
+import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
@@ -35,13 +36,16 @@ public class AddWhitelistEntryUseCase {
     private final HashListWriteLock writeLock;
     private final AuditLogRecorder auditLogRecorder;
     private final Clock clock;
+    private final BloomFilterPort bloomFilter;
 
     public AddWhitelistEntryUseCase(WhitelistEntryRepository whitelist,
                                     BlacklistEntryRepository blacklist,
                                     ApplicationEventPublisher eventPublisher,
                                     HashListWriteLock writeLock,
                                     AuditLogRecorder auditLogRecorder,
-                                    Clock clock) {
+                                    Clock clock,
+                                    BloomFilterPort bloomFilter) {
+        this.bloomFilter = bloomFilter;
         this.whitelist = whitelist;
         this.blacklist = blacklist;
         this.eventPublisher = eventPublisher;
@@ -90,6 +94,7 @@ public class AddWhitelistEntryUseCase {
                     command.expiresAt(), now);
         }
         whitelist.save(entry);
+        bloomFilter.add(key.getHashValue());
 
         // 6. 이전 차단 판정을 쓰지 않게 한다. file_verdicts는 verdict 컨텍스트 소유라 이벤트로 알린다
         eventPublisher.publishEvent(new WhitelistEntryRegistered(key.getHashValue()));

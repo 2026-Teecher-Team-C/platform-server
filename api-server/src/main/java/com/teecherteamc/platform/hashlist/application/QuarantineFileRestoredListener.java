@@ -10,6 +10,7 @@ import com.teecherteamc.platform.hashlist.domain.HashListWriteLock;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntry;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRegistered;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
+import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.quarantine.domain.QuarantineFileRestored;
 import java.time.Clock;
 import java.time.Instant;
@@ -35,13 +36,16 @@ class QuarantineFileRestoredListener {
     private final ApplicationEventPublisher eventPublisher;
     private final AuditLogRecorder auditLogRecorder;
     private final Clock clock;
+    private final BloomFilterPort bloomFilter;
 
     QuarantineFileRestoredListener(WhitelistEntryRepository whitelist,
                                    BlacklistEntryRepository blacklist,
                                    HashListWriteLock writeLock,
                                    ApplicationEventPublisher eventPublisher,
                                    AuditLogRecorder auditLogRecorder,
-                                   Clock clock) {
+                                   Clock clock,
+                                   BloomFilterPort bloomFilter) {
+        this.bloomFilter = bloomFilter;
         this.whitelist = whitelist;
         this.blacklist = blacklist;
         this.writeLock = writeLock;
@@ -98,6 +102,7 @@ class QuarantineFileRestoredListener {
         }
 
         if (whitelistChanged) {
+            bloomFilter.add(key.getHashValue());
             // file_verdicts는 verdict 컨텍스트 소유라 직접 안 고치고 이벤트로 알린다(기존 리스너 재사용)
             eventPublisher.publishEvent(new WhitelistEntryRegistered(key.getHashValue()));
             auditLogRecorder.record(event.adminId(), AuditAction.ADD_WHITELIST, AuditTargetType.WHITELIST,
