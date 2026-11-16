@@ -1,10 +1,9 @@
 package com.teecherteamc.platform.event.application;
 
+import com.teecherteamc.platform.event.domain.DownloadEventListFilter;
 import com.teecherteamc.platform.event.domain.DownloadEventListRow;
 import com.teecherteamc.platform.event.domain.ListDownloadEventsPort;
-import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -24,12 +23,10 @@ public class ListDownloadEventsUseCase {
         this.listDownloadEventsPort = listDownloadEventsPort;
     }
 
-    public Page<DownloadEventListRow> list(
-            UUID agentId, String decision, Instant from, Instant to, int page, int size) {
+    public Page<DownloadEventListRow> list(DownloadEventListFilter filter, int page, int size) {
         PageRequest pageRequest = PageRequest.of(page, size);
-        List<DownloadEventListRow> rows = listDownloadEventsPort.list(
-                agentId, decision, from, to, pageRequest.getOffset(), size);
-        long total = listDownloadEventsPort.count(agentId, decision, from, to);
+        List<DownloadEventListRow> rows = listDownloadEventsPort.list(filter, pageRequest.getOffset(), size);
+        long total = listDownloadEventsPort.count(filter);
         return new PageImpl<>(rows, pageRequest, total);
     }
 }

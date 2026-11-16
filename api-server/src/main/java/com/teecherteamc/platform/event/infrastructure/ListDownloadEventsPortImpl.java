@@ -1,10 +1,11 @@
 package com.teecherteamc.platform.event.infrastructure;
 
+import com.teecherteamc.platform.event.domain.DownloadEventListFilter;
 import com.teecherteamc.platform.event.domain.DownloadEventListRow;
 import com.teecherteamc.platform.event.domain.ListDownloadEventsPort;
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -14,30 +15,40 @@ import org.springframework.stereotype.Component;
  * download_events를 agents/devices와 조인해 hostname까지 한 번에 읽는 어댑터. fleet 컨텍스트의
  * JPA 애그리거트(Agent/Device)는 안 거친다 — 목록 1건당 hostname 하나 보여주려고 애그리거트 전체를
  * 로드할 이유가 없다.
+ *
+ * <p>심각도·대표 룰·확인 여부는 download_event_threats 뷰(V7·V12)에서 읽는다. 뷰는 판정과 상관없이 sha256의 룰을
+ * 붙이므로, 콘솔 계약(차단이 아니면 비움)에 맞게 여기서 BLOCKED일 때만 내보낸다.
  */
 @Component
 class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
 
-    private static final String BASE_SQL =
+    private static final String SEVERITY = "CASE WHEN e.decision = 'BLOCKED' THEN t.severity END";
+    private static final String SEVERITY_RANK = "CASE WHEN e.decision = 'BLOCKED' THEN t.severity_rank END";
+    // 판정 전(decision NULL) 행에서 NULL이 나오면 NOT 조건에서도 빠지므로 false로 맞춘다.
+    private static final String ACKNOWLEDGED =
+            "(COALESCE(e.decision IN ('BLOCKED', 'FAIL_CLOSE'), false) AND t.acknowledged)";
+
+    private static final String FROM =
+            """
+            FROM download_events e
+            JOIN agents a ON a.agent_id = e.agent_id
+            JOIN devices d ON d.device_id = a.device_id
+            JOIN download_event_threats t ON t.event_id = e.event_id
+            """;
+
+    private static final String SELECT =
             """
             SELECT e.event_id, e.agent_id, d.hostname, e.sha256, e.filename, e.mime_type,
                    e.file_size, e.decision, e.decision_source, e.cache_hit, e.hold_duration_ms,
-                   e.created_at, s.classification
-            FROM download_events e
-            JOIN agents a ON a.agent_id = e.agent_id
-            JOIN devices d ON d.device_id = a.device_id
-            LEFT JOIN similarity_assessments s ON s.assessment_id = e.similarity_assessment_id
-            WHERE 1 = 1
-            """;
-
-    private static final String COUNT_SQL =
+                   e.created_at, s.classification,
             """
-            SELECT COUNT(*)
-            FROM download_events e
-            JOIN agents a ON a.agent_id = e.agent_id
-            JOIN devices d ON d.device_id = a.device_id
-            WHERE 1 = 1
-            """;
+                    + SEVERITY + " AS severity, "
+                    + "CASE WHEN e.decision = 'BLOCKED' THEN t.top_rule_name END AS top_rule_name, "
+                    + "CASE WHEN e.decision = 'BLOCKED' THEN t.extra_rule_count END AS extra_rule_count, "
+                    + ACKNOWLEDGED + " AS acknowledged "
+                    + FROM
+                    + " LEFT JOIN similarity_assessments s ON s.assessment_id = e.similarity_assessment_id"
+                    + " WHERE 1 = 1";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -46,11 +57,10 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
     }
 
     @Override
-    public List<DownloadEventListRow> list(
-            UUID agentId, String decision, Instant from, Instant to, long offset, int limit) {
-        StringBuilder sql = new StringBuilder(BASE_SQL);
+    public List<DownloadEventListRow> list(DownloadEventListFilter filter, long offset, int limit) {
+        StringBuilder sql = new StringBuilder(SELECT);
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, agentId, decision, from, to);
+        appendFilters(sql, params, filter);
         sql.append(" ORDER BY e.created_at DESC, e.event_id DESC LIMIT ? OFFSET ?");
         params.add(limit);
         params.add(offset);
@@ -70,38 +80,52 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
                         // 콘솔 타입(cacheHit: boolean, non-null)과 맞아서 의도적으로 그대로 둔다.
                         rs.getBoolean("cache_hit"),
                         rs.getObject("hold_duration_ms", Integer.class),
+                        rs.getTimestamp("created_at").toInstant(),
                         // 이벤트 FK의 분류만 요약한다. 없는 평가는 NONE으로 바꾸지 않는다.
-                        rs.getTimestamp("created_at").toInstant(), rs.getString("classification")),
+                        rs.getString("classification"),
+                        rs.getString("severity"),
+                        rs.getString("top_rule_name"),
+                        // 룰이 없는 행은 NULL이고 getInt()가 0으로 돌려준다(콘솔 extraRuleCount: number).
+                        rs.getInt("extra_rule_count"),
+                        rs.getBoolean("acknowledged")),
                 params.toArray());
     }
 
     @Override
-    public long count(UUID agentId, String decision, Instant from, Instant to) {
+    public long count(DownloadEventListFilter filter) {
         // list()와 같은 조인을 거쳐야 목록에 안 나오는 행(에이전트·장비가 없는 이벤트)이 개수에 섞이지 않는다.
-        StringBuilder sql = new StringBuilder(COUNT_SQL);
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) " + FROM + " WHERE 1 = 1");
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, agentId, decision, from, to);
+        appendFilters(sql, params, filter);
         Long total = jdbcTemplate.queryForObject(sql.toString(), Long.class, params.toArray());
         return total == null ? 0 : total;
     }
 
-    private static void appendFilters(
-            StringBuilder sql, List<Object> params, UUID agentId, String decision, Instant from, Instant to) {
-        if (agentId != null) {
+    private static void appendFilters(StringBuilder sql, List<Object> params, DownloadEventListFilter filter) {
+        if (filter.agentId() != null) {
             sql.append(" AND e.agent_id = ?");
-            params.add(agentId);
+            params.add(filter.agentId());
         }
-        if (decision != null) {
-            sql.append(" AND e.decision = ?");
-            params.add(decision);
+        if (!filter.decisions().isEmpty()) {
+            sql.append(" AND e.decision IN (")
+                    .append(String.join(", ", Collections.nCopies(filter.decisions().size(), "?")))
+                    .append(")");
+            params.addAll(filter.decisions());
         }
-        if (from != null) {
+        if (filter.from() != null) {
             sql.append(" AND e.created_at >= ?");
-            params.add(Timestamp.from(from));
+            params.add(Timestamp.from(filter.from()));
         }
-        if (to != null) {
+        if (filter.to() != null) {
             sql.append(" AND e.created_at < ?");
-            params.add(Timestamp.from(to));
+            params.add(Timestamp.from(filter.to()));
+        }
+        if (filter.minSeverityRank() != null) {
+            sql.append(" AND ").append(SEVERITY_RANK).append(" >= ?");
+            params.add(filter.minSeverityRank());
+        }
+        if (filter.acknowledged() != null) {
+            sql.append(filter.acknowledged() ? " AND " : " AND NOT ").append(ACKNOWLEDGED);
         }
     }
 }
