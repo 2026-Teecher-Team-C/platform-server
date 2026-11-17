@@ -95,3 +95,18 @@ management:
     web:
       exposure:
         include: health, prometheus
+  metrics:
+    # CheckHash 지연 p95/p99(고도화 테스트 1-1). SLO 경계는 100ms(목록·캐시 경로)와 1s(TLSH 비교 목표).
+    distribution:
+      percentiles-histogram:
+        verdict.checkhash: true
+        verdict.checkhash.stage: true
+      slo:
+        verdict.checkhash: 100ms, 1s
+        verdict.checkhash.stage: 100ms, 1s
+
+logging:
+  pattern:
+    # CheckHash·SubmitFile 요청 동안 MDC의 event_id를 찍는다(측정 결과와 로그를 이어 붙이기, 고도화 테스트 1-1).
+    # 요청 밖에서는 빈 괄호가 남지 않게 지운다.
+    correlation: "%replace([event_id=%X{event_id}] ){'\\[event_id=\\] ', ''}"
