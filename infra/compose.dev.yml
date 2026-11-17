@@ -35,6 +35,9 @@ services:
 
   postgres:
     image: postgres:17-alpine
+    # 쿼리별 실행 통계(pg_stat_statements). 고도화 측정용, 2026-11-17.
+    # 확장 객체는 최초 1회 수동 생성: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     environment:
       POSTGRES_DB: platform
       POSTGRES_USER: platform
