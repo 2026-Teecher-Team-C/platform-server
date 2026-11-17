@@ -348,7 +348,11 @@ class BlacklistRegisterRestIntegrationTest {
     }
 
     @Test
-    void BYPASSED로_받은_경우도_포함된다() {
+    // 알려진 범위 제한: 실제로는 ReportEventUseCase.resolveSafeSha256()이 바이패스 다운로드는
+    // (TLSH 근거가 연결된 경우가 아니면) sha256을 NULL로 저장해서, 이 쿼리가 실제로 바이패스 건을
+    // 찾아내는 경우는 드물다 — 바이패스는 애초에 해시를 계산 안 하는 경로라 저장할 해시 자체가 없다.
+    // 이 테스트는 "만약 sha256이 남아있다면" 쿼리가 올바르게 포함시키는지만 확인한다.
+    void sha256이_남아있는_BYPASSED_건은_포함된다() {
         String hash = randomSha256();
         UUID deviceId = seedDevice("DESKTOP-BYPASSED");
         seedDownloadEvent(seedAgent(deviceId), hash, "BYPASSED", Instant.now());
