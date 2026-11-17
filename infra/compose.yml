@@ -108,7 +108,8 @@ services:
 
   cadvisor:
     # 컨테이너별 CPU·메모리·OOM. 메모리 약 100~150MB라 EC2 여유(available)가 500MB 아래로 내려가면 뺀다.
-    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    # v0.54.0부터 containerd 이미지 저장소(Docker 29 기본)를 읽는다. v0.52는 컨테이너를 식별하지 못했다.
+    image: ghcr.io/google/cadvisor:v0.60.6
     command: ["--housekeeping_interval=30s", "--docker_only=true", "--store_container_labels=false"]
     privileged: true
     devices:
