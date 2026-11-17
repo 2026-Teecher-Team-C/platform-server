@@ -77,6 +77,21 @@ final class DashboardSeed {
         }
     }
 
+    /** 엔진 상태 판단용: 룰 없이 상태(SUCCESS·TIMEOUT·CRASH·OOM·UNSUPPORTED)와 분석 시각만 있는 분석 1건. */
+    void analysisAt(String status, Instant analyzedAt) {
+        String sha256 = randomSha256();
+        jdbc.update("INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'MALICIOUS', 'ENGINE')",
+                sha256);
+        jdbc.update(
+                """
+                INSERT INTO analyses
+                    (analysis_id, sha256, rulesets_version, engine_version, status, verdict, duration_ms, analyzed_at)
+                VALUES (?, ?, 0, '1.0.0', ?, ?, 100, ?)
+                """,
+                UUID.randomUUID(), sha256, status, "SUCCESS".equals(status) ? "CLEAN" : "ERROR",
+                Timestamp.from(analyzedAt));
+    }
+
     UUID engineBlock(UUID agentId, String host, Instant createdAt, String[]... rules) {
         String sha256 = randomSha256();
         analysis(sha256, rules);
