@@ -31,7 +31,7 @@ class DashboardWidgetsPortImpl implements DashboardWidgetsPort {
      * 룰 줄: 같은 sha256의 최신 SUCCESS 분석에 걸린 룰 전부(뷰의 latest_success_analysis와 같다).
      * 블랙리스트 줄: hash_blacklist 심각도. TLSH 유사도 차단은 룰도 블랙리스트도 아니라 빠진다(콘솔 mock과 같다).
      */
-    private static final String THREATS_SQL =
+    static final String THREATS_SQL =
             """
             WITH blocked AS (
                 SELECT e.agent_id, e.sha256, e.decision_source, e.created_at
@@ -57,7 +57,7 @@ class DashboardWidgetsPortImpl implements DashboardWidgetsPort {
                 UNION ALL
                 SELECT 'BLACKLIST', NULL, bl.severity, b.agent_id, b.created_at
                 FROM blocked b
-                JOIN hash_blacklist bl ON bl.hash_type = 'SHA256' AND bl.hash_value = b.sha256
+                JOIN hash_blacklist bl ON bl.hash_type = 'SHA256' AND bl.hash_value = b.sha256::text
                 WHERE b.decision_source = 'BLACKLIST'
             )
             SELECT kind, rule_name,
