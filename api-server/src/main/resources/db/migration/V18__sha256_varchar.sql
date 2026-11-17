@@ -10,7 +10,8 @@ DROP VIEW download_event_threats;
 DROP VIEW current_similarity_corpus_token;
 DROP VIEW active_malicious_fingerprints;
 
--- 2) 타입 변경. file_verdicts.sha256을 참조하는 FK 6개가 함께 다시 검증된다.
+-- 2) 타입 변경. file_verdicts.sha256을 참조하는 FK 4개(analyses, quarantine_files, pending_quarantine_uploads,
+--    similarity_cache)가 함께 다시 검증된다.
 ALTER TABLE file_verdicts ALTER COLUMN sha256 TYPE VARCHAR(64);
 ALTER TABLE download_events ALTER COLUMN sha256 TYPE VARCHAR(64);
 ALTER TABLE analyses ALTER COLUMN sha256 TYPE VARCHAR(64);

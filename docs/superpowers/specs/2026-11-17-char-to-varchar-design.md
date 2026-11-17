@@ -60,6 +60,16 @@ V18 한 파일, Flyway 트랜잭션 하나:
 - PR #103의 인덱스 사용 테스트 유지, `DevelopMigrationUpgradeTest`로 기존 이력 위 업그레이드 확인.
 - 로컬에 117만 행을 넣고 V18 소요 시간을 재서 운영 차단 시간을 미리 알린다.
 
+## 배포와 되돌리기
+
+- V18은 되돌릴 수 없는(forward-only) 변경이다. 적용 뒤 이전 커밋으로 앱만 되돌리면 옛 엔티티의
+  `@JdbcTypeCode(SqlTypes.CHAR)`가 `ddl-auto: validate`에서 VARCHAR 열을 거부해 api-server가 뜨지 않는다(fail-close로 다운로드 전부 차단).
+  문제가 생기면 앞으로 고친다(fix-forward). 정말 되돌려야 하면 V19로 열을 CHAR(64)로 되돌리고 뷰 3개·함수를 V17 정의로 다시 만든다.
+  값은 모두 64자 16진수라 어느 쪽이든 데이터는 잃지 않는다.
+- 배포 전 디스크 여유가 `file_fingerprints` 전체 크기의 2배 이상인지 본다(표 재작성 동안 복사본이 생긴다).
+- 배포 헬스체크 대기는 300초로 늘렸다(`.github/workflows/deploy.yml`). 기다리는 동안 배포를 다시 돌리지 않는다.
+- 배포 뒤 `nginx -s reload`가 필요하다(api-server 컨테이너가 새로 만들어지면 nginx가 옛 IP를 본다).
+
 ## 빌더에게 남긴 것
 
 - 뷰·함수의 "현재 정의"는 마지막으로 그 객체를 만든 마이그레이션 파일을 기준으로 한다.
