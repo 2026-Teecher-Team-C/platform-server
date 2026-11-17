@@ -7,6 +7,7 @@ import com.trendmicro.tlsh.Tlsh;
 import java.sql.PreparedStatement;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Component;
@@ -23,9 +24,14 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
     private final JdbcTemplate jdbc;
     private final ParsedSimilarityCorpus corpus;
 
-    public JdbcSimilarityDecisionStore(JdbcTemplate jdbc, ParsedSimilarityCorpus corpus) {
+    /** 비교 대상 상한(시나리오 B 규모별 측정). 0 이하는 무제한. 바꾸면 재시작한다. */
+    private final int corpusLimit;
+
+    public JdbcSimilarityDecisionStore(JdbcTemplate jdbc, ParsedSimilarityCorpus corpus,
+            @Value("${similarity.corpus.limit:0}") int corpusLimit) {
         this.jdbc = jdbc;
         this.corpus = corpus;
+        this.corpusLimit = corpusLimit;
     }
 
     /** V8의 목록/지문 쓰기 트리거는 같은 키의 배타 잠금을 얻는다. 비교에서 커밋까지 후보가 고정된다. */
@@ -111,7 +117,9 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
         // PostgreSQL 커서로 전 후보를 읽는다. fetchSize는 전송 묶음이지 후보 수 상한이 아니다.
         // 거리 동률이면 SHA가 작은 샘플을 선택하여 실행 순서나 DB 계획이 달라도 근거가 같다.
         corpus.visit(token, accept -> jdbc.query(connection -> {
-            PreparedStatement statement = connection.prepareStatement("SELECT sha256, tlsh FROM active_malicious_fingerprints");
+            String sql = "SELECT sha256, tlsh FROM active_malicious_fingerprints";
+            PreparedStatement statement = connection.prepareStatement(corpusLimit > 0 ? sql + " LIMIT ?" : sql);
+            if (corpusLimit > 0) statement.setInt(1, corpusLimit);
             statement.setFetchSize(256);
             return statement;
         }, (RowCallbackHandler) rs -> accept.accept(new ParsedSimilarityCorpus.Candidate(

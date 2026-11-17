@@ -45,13 +45,14 @@ public class CheckHashUseCase {
     private final Clock clock;
     private final SimilarityDecisions similarity;
     private final EventDecisionEvidence evidence;
+    private final CheckHashMetrics metrics;
 
     public CheckHashUseCase(
             WhitelistLookupPort whitelistLookupPort,
             BlacklistLookupPort blacklistLookupPort,
             BloomFilterPort bloomFilterPort,
             VerdictCacheLookupPort verdictCacheLookupPort,
-            Clock clock, SimilarityDecisions similarity, EventDecisionEvidence evidence) {
+            Clock clock, SimilarityDecisions similarity, EventDecisionEvidence evidence, CheckHashMetrics metrics) {
         this.whitelistLookupPort = whitelistLookupPort;
         this.blacklistLookupPort = blacklistLookupPort;
         this.bloomFilterPort = bloomFilterPort;
@@ -59,10 +60,24 @@ public class CheckHashUseCase {
         this.clock = clock;
         this.similarity = similarity;
         this.evidence = evidence;
+        this.metrics = metrics;
     }
 
+    /** 전체 시간은 조기 반환·예외 경로까지 한 번씩 남긴다(예외면 decision=ERROR). */
     @Transactional
     public CheckHashResult checkHash(CheckHashQuery query) {
+        long start = System.nanoTime();
+        CheckHashResult result = null;
+        try {
+            result = decide(query);
+            return result;
+        } finally {
+            if (result == null) metrics.record(start, "ERROR", null);
+            else metrics.record(start, result.decision(), result.source());
+        }
+    }
+
+    private CheckHashResult decide(CheckHashQuery query) {
         String sha256 = query.sha256();
         // 근거를 남길 수 있는 요청(TLSH + event_id)만 이벤트 소유권을 먼저 잡는다. 잠금 순서를 SubmitFile과 같은
         // event -> corpus로 맞추기 위해서다. event 잠금은 아무 잠금도 쥐지 않은 채 기다리고, 그 뒤 corpus는
@@ -70,39 +85,34 @@ public class CheckHashUseCase {
         // event 잠금을 기다리면 [CheckHash: corpus 공유 보유 -> event 대기] / [SubmitFile: event 보유 -> 대기 중인
         // corpus 배타 요청 뒤에서 corpus 공유 대기] / [corpus 작성자: CheckHash의 공유 해제 대기] 사이클이 생긴다.
         boolean claimable = query.tlsh() != null && query.eventId() != null;
-        if (claimable) evidence.claim(query.eventId(), sha256, query.agentId());
+        if (claimable) metrics.stage("claim", () -> evidence.claim(query.eventId(), sha256, query.agentId()));
 
         // 정확 예외, 후보 토큰과 캐시를 목록 쓰기와 한 경계에서 읽는다.
         // 쓰기와 경쟁하면 캐시 ALLOW를 사용하지 않는다. 잠금 대기 대신 업로드 재검사를 유도한다.
-        if (!similarity.tryLockCorpus()) return UNKNOWN;
+        if (!metrics.stage("corpus_lock", similarity::tryLockCorpus)) return UNKNOWN;
 
         boolean listsChecked = false;
-        if (bloomMightContain(sha256)) {
-            if (whitelistLookupPort.isEffective(sha256, clock.instant())) {
-                return new CheckHashResult("ALLOW", "WHITELIST", null);
-            }
-            Optional<String> blacklistReason = blacklistLookupPort.findActiveReason(sha256);
-            if (blacklistReason.isPresent()) {
-                return new CheckHashResult("BLOCK", "BLACKLIST", blacklistReason.get());
-            }
+        if (metrics.stage("bloom", () -> bloomMightContain(sha256))) {
+            CheckHashResult listed = metrics.stage("lists", () -> fromLists(sha256));
+            if (listed != null) return listed;
             listsChecked = true;
-            CheckHashResult cached = fromCache(sha256);
+            CheckHashResult cached = metrics.stage("cache", () -> fromCache(sha256));
             if (cached != null) return cached;
         }
 
         if (query.tlsh() == null) return UNKNOWN;
-        Assessment assessment = similarity.compareClaimed(query.tlsh());
+        Assessment assessment = metrics.stage("tlsh_compare", () -> similarity.compareClaimed(query.tlsh()));
         String classification = assessment.classification();
         if (!"BLOCK".equals(classification) && !"WARN".equals(classification)) return UNKNOWN;
         if (!listsChecked) {
             // 블룸이 목록 해시를 놓쳐도(예: Redis 초기화 뒤 재구축 전) TLSH가 정확 목록을 이기지 않게, 저장·차단
             // 직전에만 정확 목록을 한 번 더 본다. 블룸 miss의 대부분(NONE·TLSH 없음)은 이 조회를 하지 않는다.
-            SubmitFileResult exact = similarity.exactOverride(sha256);
+            SubmitFileResult exact = metrics.stage("lists", () -> similarity.exactOverride(sha256));
             if (exact != null) return new CheckHashResult(exact.decision(), exact.source(), exact.reason());
         }
         // claim()을 이미 같은 sha·agent로 했으므로 연결 대상 evidence 행이 있다. event_id가 없는 구형 요청은
         // 붙일 이벤트가 없어 저장하지 않는다(판정만 돌려준다).
-        if (claimable) similarity.saveClaimed(sha256, query.eventId(), assessment);
+        if (claimable) metrics.stage("tlsh_save", () -> similarity.saveClaimed(sha256, query.eventId(), assessment));
         return "BLOCK".equals(classification)
                 ? new CheckHashResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance())
                 : UNKNOWN;
@@ -119,6 +129,15 @@ public class CheckHashUseCase {
             log.warn("블룸 필터 조회 실패 — 목록·캐시 조회로 계속한다", e);
             return true;
         }
+    }
+
+    /** 화이트리스트가 블랙리스트보다 먼저다. 어느 쪽에도 없으면 null. */
+    private CheckHashResult fromLists(String sha256) {
+        if (whitelistLookupPort.isEffective(sha256, clock.instant())) {
+            return new CheckHashResult("ALLOW", "WHITELIST", null);
+        }
+        Optional<String> blacklistReason = blacklistLookupPort.findActiveReason(sha256);
+        return blacklistReason.map(reason -> new CheckHashResult("BLOCK", "BLACKLIST", reason)).orElse(null);
     }
 
     /** 결론 있는 캐시면 결과, 미결(없음·stale·UNKNOWN/ERROR)이면 null. */
