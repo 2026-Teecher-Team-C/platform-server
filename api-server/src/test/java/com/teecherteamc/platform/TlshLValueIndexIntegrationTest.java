@@ -31,6 +31,21 @@ class TlshLValueIndexIntegrationTest {
 
     @Test
     void corpus_조회는_L_value_부분_인덱스를_쓴다() {
+        // 빈 표에서는 플래너가 아무 계획이나 골라(CI에서 실패) L-value가 고루 퍼진 지문을 넣고 통계를 만든다.
+        jdbc.update("""
+                INSERT INTO file_fingerprints(sha256, tlsh, calculation_status, algorithm_version, provenance)
+                SELECT encode(sha256(('lvalue-index-' || i)::bytea), 'hex'),
+                       'T1AB' || upper(lpad(to_hex(i % 256), 2, '0')) || upper(substr(repeat(md5(i::text), 3), 1, 66)),
+                       'CALCULATED', 'lvalue-index', 'VERIFIED_UPLOAD'
+                FROM generate_series(1, 2000) AS i
+                """);
+        // 운영처럼 지문마다 활성 블랙리스트가 있어야 플래너가 블랙리스트가 아니라 지문 쪽(L-value)부터 고른다.
+        jdbc.update("""
+                INSERT INTO hash_blacklist(hash_value, reason)
+                SELECT sha256, 'lvalue-index' FROM file_fingerprints WHERE algorithm_version = 'lvalue-index'
+                """);
+        jdbc.execute("ANALYZE file_fingerprints");
+        jdbc.execute("ANALYZE hash_blacklist");
         jdbc.execute("SET LOCAL enable_seqscan = off");
         String plan = String.join("\n", jdbc.queryForList(
                 "EXPLAIN SELECT sha256, tlsh FROM active_malicious_fingerprints WHERE tlsh_lvalue(tlsh) = ANY(?)",
