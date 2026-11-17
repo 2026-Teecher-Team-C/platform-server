@@ -1,0 +1,11 @@
+# 맥북 Grafana용. Prometheus는 EC2에 있고 SSH 터널(localhost:9090)로 붙는다(infra/grafana/run.sh).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://host.docker.internal:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
