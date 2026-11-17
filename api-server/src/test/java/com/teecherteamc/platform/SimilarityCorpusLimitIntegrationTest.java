@@ -6,6 +6,7 @@ import com.teecherteamc.platform.verdict.infrastructure.JdbcSimilarityDecisionSt
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.grpc.test.autoconfigure.AutoConfigureTestGrpcTransport;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,7 +14,9 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 /** similarity.corpus.limit: 규모별 곡선(시나리오 B)용 비교 대상 상한. 양수면 그 수만 비교한다. */
+// 설정을 덮어써 새 컨텍스트가 생기므로, 다른 캐시된 컨텍스트와 gRPC 포트가 겹치지 않게 프로세스 내 전송을 쓴다.
 @SpringBootTest
+@AutoConfigureTestGrpcTransport
 @Import(TestcontainersConfiguration.class)
 @TestPropertySource(properties = "similarity.corpus.limit=2")
 @Transactional
