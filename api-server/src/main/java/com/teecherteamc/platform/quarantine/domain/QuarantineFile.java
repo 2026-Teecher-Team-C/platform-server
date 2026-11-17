@@ -6,8 +6,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * 격리 파일 애그리거트 루트. 테이블: quarantine_files. package-info.java가 선언한 "QuarantinedFile"에
@@ -32,7 +30,6 @@ public class QuarantineFile {
     @Column(name = "quarantine_id")
     private UUID quarantineId;
 
-    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "sha256", nullable = false, length = 64)
     private String sha256;
 

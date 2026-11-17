@@ -6,8 +6,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Instant;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 /**
@@ -23,7 +21,6 @@ import org.springframework.data.domain.Persistable;
 public class FileVerdict implements Persistable<String> {
 
     @Id
-    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "sha256", length = 64)
     private String sha256;
 

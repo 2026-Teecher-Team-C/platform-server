@@ -6,8 +6,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 /**
@@ -32,7 +30,6 @@ public class DownloadEvent implements Persistable<UUID> {
     @Column(name = "agent_id", nullable = false)
     private UUID agentId;
 
-    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "sha256", length = 64)
     private String sha256;
 

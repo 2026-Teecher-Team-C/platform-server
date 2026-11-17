@@ -11,8 +11,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 /**
@@ -32,7 +30,6 @@ public class Analysis implements Persistable<UUID> {
     @Column(name = "analysis_id")
     private UUID analysisId;
 
-    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "sha256", length = 64, nullable = false)
     private String sha256;
 
