@@ -10,9 +10,7 @@ import com.teecherteamc.platform.dashboard.domain.ThreatRow;
 import com.teecherteamc.platform.dashboard.domain.TopSourceRow;
 import java.time.Clock;
 import java.time.DateTimeException;
-import java.time.Instant;
 import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -85,22 +83,7 @@ public class DashboardWidgetsController {
     }
 
     private DashboardPeriod period(String from, String to) {
-        try {
-            return DashboardPeriod.of(parseInstant(from, "from"), parseInstant(to, "to"), clock);
-        } catch (IllegalArgumentException e) {
-            throw invalid(e.getMessage());
-        }
-    }
-
-    private static Instant parseInstant(String value, String name) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Instant.parse(value);
-        } catch (DateTimeParseException e) {
-            throw invalid(name + " must be an ISO-8601 timestamp");
-        }
+        return PeriodParams.parse(from, to, clock);
     }
 
     private static <E extends Enum<E>> E parseEnum(Class<E> type, String value, String name) {
