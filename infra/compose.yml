@@ -72,12 +72,19 @@ services:
 
   prometheus:
     image: prom/prometheus:v3.6.0
+    # 볼륨이 없으면 배포·재시작 때마다 지표가 지워진다. 28일 SLO를 계산하려고 35일(28일 + 여유)을 보관한다.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=35d
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     networks: [default, engine-net]
 
 volumes:
   engine-spool:
+  prometheus-data:
 
 networks:
   # 외부(인터넷·AWS·EC2 메타데이터)로 나가는 경로가 없는 네트워크. 탐지 엔진은 여기에만 붙는다.
