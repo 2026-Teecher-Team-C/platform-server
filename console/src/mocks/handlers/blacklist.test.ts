@@ -64,7 +64,8 @@ it('해제했던 해시는 기존 행을 재활성화하고 등록→수정→�
   mockBlacklist.push({ ...mockBlacklist[1], hashValue: hash, isActive: false, createdAt: '2000-01-01T00:00:00Z', deactivatedAt: '2001-01-01T00:00:00Z' })
   try {
     const created = await createBlacklist({ sha256: hash.toUpperCase(), reason: '다시 등록' })
-    expect(created).toMatchObject({ isActive: true, severity: 'HIGH', source: 'MANUAL', deactivatedAt: null, createdAt: '2000-01-01T00:00:00Z' })
+    expect(created.entry).toMatchObject({ isActive: true, severity: 'HIGH', source: 'MANUAL', deactivatedAt: null, createdAt: '2000-01-01T00:00:00Z' })
+    expect(created.affectedDevices).toEqual([])
     expect(mockBlacklist.filter((item) => item.hashValue === hash)).toHaveLength(1)
     await expect(createBlacklist({ sha256: hash, reason: '중복' })).rejects.toMatchObject({ status: 409, body: { code: 'CONFLICT' } })
     expect((await updateBlacklistReason(hash, '수정된 사유')).reason).toBe('수정된 사유')
@@ -84,7 +85,7 @@ it('화이트리스트가 만료됐으면 등록 가능하고 유효하면 충�
   const snapshot = mockBlacklist.map((item) => ({ ...item }))
   mockWhitelist.push({ ...mockWhitelist[0], hashValue: hash, expiresAt: '2000-01-01T00:00:00Z' })
   try {
-    expect((await createBlacklist({ sha256: hash, reason: '만료된 예외' })).hashValue).toBe(hash)
+    expect((await createBlacklist({ sha256: hash, reason: '만료된 예외' })).entry.hashValue).toBe(hash)
     await expect(createBlacklist({ sha256: mockWhitelist[0].hashValue, reason: '충돌' })).rejects.toMatchObject({ status: 409, body: { code: 'CONFLICT' } })
   } finally { mockWhitelist.pop(); mockBlacklist.splice(0, mockBlacklist.length, ...snapshot) }
 })

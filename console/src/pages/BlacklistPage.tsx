@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { createBlacklist, getBlacklist, removeBlacklist, updateBlacklistReason } from '../lib/api/hashlists'
 import type { BlacklistItem, BlacklistQuery, BlacklistSeverity, BlacklistSource } from '../lib/api/hashlists'
 import type { PageResponse } from '../lib/api/types'
-import { blacklistErrorMessage, getBlacklistQueryAfterCreate, getBlacklistQueryAfterStatusChange } from '../lib/blacklist'
+import { blacklistErrorMessage, buildBlacklistCreateNotice, getBlacklistQueryAfterCreate, getBlacklistQueryAfterStatusChange } from '../lib/blacklist'
 import { BlacklistCreateForm } from '../components/blacklist/BlacklistCreateForm'
 import { ClearableHashInput } from '../components/blacklist/ClearableHashInput'
 import { BlacklistNotice } from '../components/blacklist/BlacklistNotice'
@@ -135,7 +135,7 @@ export function BlacklistPage() {
   }
 
   function submitCreate(sha256: string, reason: string) {
-    return runChange(() => createBlacklist({ sha256, reason }), () => {
+    return runChange(() => createBlacklist({ sha256, reason }), (response) => {
       // 등록 후 단건 검색하지 않고 검색 조건을 비운 활성 목록 첫 페이지로 이동한다.
       // 재등록 항목의 최초 등록 시각은 서버 정책대로 유지하므로 맨 위로 올리지는 않는다.
       setHash('')
@@ -143,7 +143,7 @@ export function BlacklistPage() {
       setSource('')
       setIsActive(true)
       setQuery(getBlacklistQueryAfterCreate(query))
-      setNotice('블랙리스트에 등록했습니다.')
+      setNotice(buildBlacklistCreateNotice(response.affectedDevices))
     }, setCreateError)
   }
 

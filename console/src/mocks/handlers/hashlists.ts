@@ -1,9 +1,28 @@
 import { http, HttpResponse } from 'msw'
-import type { BlacklistSeverity, CreateBlacklistRequest, CreateWhitelistRequest } from '../../lib/api/hashlists'
+import type { AffectedDevice, BlacklistSeverity, CreateBlacklistRequest, CreateWhitelistRequest } from '../../lib/api/hashlists'
 import { API_BASE_URL } from '../../lib/api/client'
 import { authorizeMockRequest, isSha256 } from '../http'
 import { appendMockAuditLog } from '../data/auditLogs'
 import { mockBlacklist, mockWhitelist } from '../data/hashlists'
+import { mockDownloadEvents } from '../data/events'
+
+// IMP-10: 서버와 같은 기준(RELEASED/BYPASSED만 실제로 받은 것)으로 영향받은 기기를 집계한다.
+function findAffectedDevices(hashValue: string): AffectedDevice[] {
+  const byDevice = new Map<string, AffectedDevice>()
+  for (const event of mockDownloadEvents) {
+    if (event.sha256 !== hashValue || (event.decision !== 'RELEASED' && event.decision !== 'BYPASSED')) continue
+    const existing = byDevice.get(event.agentId)
+    if (existing) {
+      existing.receivedCount += 1
+      if (Date.parse(event.createdAt) > Date.parse(existing.lastReceivedAt)) existing.lastReceivedAt = event.createdAt
+    } else {
+      byDevice.set(event.agentId, {
+        deviceId: event.agentId, hostname: event.hostname, receivedCount: 1, lastReceivedAt: event.createdAt,
+      })
+    }
+  }
+  return [...byDevice.values()].sort((a, b) => Date.parse(b.lastReceivedAt) - Date.parse(a.lastReceivedAt))
+}
 
 const MOCK_MANUAL_BLACKLIST_SEVERITY: BlacklistSeverity = 'HIGH'
 
@@ -219,7 +238,7 @@ export const hashlistHandlers = [
     if (existing) Object.assign(existing, item)
     else mockBlacklist.unshift(item)
     appendMockAuditLog({ action: 'ADD_BLACKLIST', dangerous: false, actor: { adminId: account.adminId, username: account.username, role: account.role }, targetType: 'BLACKLIST', targetId: 'SHA256:' + hashValue, detail: null, ipAddress: '127.0.0.1' })
-    return HttpResponse.json(item, { status: 201 })
+    return HttpResponse.json({ entry: item, affectedDevices: findAffectedDevices(hashValue) }, { status: 201 })
   }),
 
   http.patch(API_BASE_URL + '/api/admin/blacklist/:sha256', async ({ request, params }) => {
