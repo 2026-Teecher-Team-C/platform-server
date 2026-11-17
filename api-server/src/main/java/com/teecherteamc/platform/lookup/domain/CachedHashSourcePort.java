@@ -11,10 +11,4 @@ import java.util.List;
 public interface CachedHashSourcePort {
 
     List<String> findAllCachedHashes();
-
-    /**
-     * 블랙리스트 ∪ 화이트리스트의 sha256만(rebuild 직후 재조회용). 재구축 스냅샷 이후에 커밋된 목록 행이
-     * RENAME에 덮여 사라지는 것을 막는 데 쓴다.
-     */
-    List<String> findAllListHashes();
 }

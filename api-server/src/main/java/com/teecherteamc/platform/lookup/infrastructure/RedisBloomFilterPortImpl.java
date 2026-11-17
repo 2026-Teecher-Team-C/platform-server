@@ -11,6 +11,7 @@ import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.ReturnType;
 import org.springframework.stereotype.Component;
 
 /**
@@ -29,6 +30,19 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RedisBloomFilterPortImpl.class);
     private static final byte[] KEY = "bloom:file_verdicts".getBytes(StandardCharsets.UTF_8);
     private static final String REBUILDING_KEY_PREFIX = "bloom:file_verdicts:rebuilding:";
+    /**
+     * 새 비트맵(KEYS[1])을 live(KEYS[2])와 OR한 뒤 RENAME한다. Lua라 사이에 다른 명령이 끼지 않아, 스냅샷 뒤
+     * add/addAll로 live에 들어간 비트가 교체로 사라지지 않는다. SETBIT은 켠 비트까지만 문자열을 늘리므로 live는 새
+     * 비트맵보다 짧을 수 있다(Redis 초기화 뒤 즉시 추가만 있었을 때). live가 더 길면 예전에 비트 수가 더 큰 설정이었다는
+     * 뜻이라 OR 없이 교체만 한다. 더 작은 설정의 비트가 섞이는 경우는 오탐(DB 조회)만 늘고 누락은 없다.
+     * 대가: 재구축이 옛 비트를 지우지 않는다. 목록·판정은 하드 삭제 경로가 없어 지울 비트가 없다(2026-11-17).
+     */
+    private static final byte[] MERGE_AND_SWAP = """
+            if redis.call('STRLEN', KEYS[2]) <= tonumber(ARGV[1]) then
+              redis.call('BITOP', 'OR', KEYS[1], KEYS[1], KEYS[2])
+            end
+            return redis.call('RENAME', KEYS[1], KEYS[2])
+            """.getBytes(StandardCharsets.UTF_8);
 
     private final RedisConnectionFactory connectionFactory;
     private static final int PIPELINE_CHUNK = 5_000;
@@ -98,10 +112,10 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         }
         // 호출마다 고유한 임시 키를 쓴다 — 기동 시 1차 빌드와 수동 재구축이 겹쳐도 서로 밟지 않는다.
         byte[] rebuildingKey = (REBUILDING_KEY_PREFIX + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8);
+        byte[] length = String.valueOf(bits.length).getBytes(StandardCharsets.UTF_8);
         execute(connection -> {
             connection.stringCommands().set(rebuildingKey, bits);
-            // RENAME은 원자적이다 — 재구축 중간 상태를 읽는 레이스가 없다.
-            connection.keyCommands().rename(rebuildingKey, KEY);
+            connection.scriptingCommands().eval(MERGE_AND_SWAP, ReturnType.STATUS, 2, rebuildingKey, KEY, length);
             return null;
         });
     }
