@@ -83,3 +83,31 @@ protobuf {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// JMH 마이크로벤치마크. 빌드·테스트에 포함되지 않고 `make bench-tlsh`로만 돈다.
+// Gradle 플러그인 대신 소스셋과 JavaExec로 둔다(Gradle 버전 업그레이드에 플러그인 호환성이 걸리지 않게).
+sourceSets {
+    jmh {
+        java.srcDir 'src/jmh/java'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    jmhImplementation.extendsFrom implementation
+    jmhRuntimeOnly.extendsFrom runtimeOnly
+}
+
+dependencies {
+    jmhImplementation 'org.openjdk.jmh:jmh-core:1.37'
+    jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+}
+
+tasks.register('jmh', JavaExec) {
+    description = 'JMH 벤치마크 실행. 인자는 -PjmhArgs="..." (예: -PjmhArgs="-p corpusSize=1000")'
+    group = 'benchmark'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'org.openjdk.jmh.Main'
+    args((project.findProperty('jmhArgs') ?: '').toString().tokenize())
+}
