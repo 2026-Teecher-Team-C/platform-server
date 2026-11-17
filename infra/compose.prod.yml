@@ -22,3 +22,6 @@ services:
     restart: unless-stopped
   prometheus:
     restart: unless-stopped
+    # Grafana는 맥북에서 띄우고 SSH 터널(ssh -L 9090:localhost:9090 teecher)로 붙는다. EC2 바깥에는 열지 않는다.
+    ports:
+      - "127.0.0.1:9090:9090"
