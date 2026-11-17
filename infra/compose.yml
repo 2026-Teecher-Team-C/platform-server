@@ -82,6 +82,43 @@ services:
       - prometheus-data:/prometheus
     networks: [default, engine-net]
 
+  # ---- 고도화 테스트 수집(설계 레포 docs/advancement 1-2). 호스트 포트는 열지 않고 Prometheus만 긁는다. ----
+  node-exporter:
+    # 호스트 CPU·메모리·디스크. 호스트 /를 읽기 전용으로 본다.
+    image: prom/node-exporter:v1.9.1
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro
+
+  postgres-exporter:
+    # 버퍼 캐시 적중률·쿼리별 시간(pg_stat_statements)·잠금. 계정은 api-server와 같다(읽기만 한다).
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    command: ["--collector.stat_statements"]
+    environment:
+      DATA_SOURCE_URI: postgres:5432/platform?sslmode=disable
+      DATA_SOURCE_USER: ${DB_USERNAME:?DB_USERNAME is required}
+      DATA_SOURCE_PASS: ${DB_PASSWORD:?DB_PASSWORD is required}
+
+  redis-exporter:
+    # 메모리·명령별 시간·쫓겨난 키
+    image: oliver006/redis_exporter:v1.74.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+
+  cadvisor:
+    # 컨테이너별 CPU·메모리·OOM. 메모리 약 100~150MB라 EC2 여유(available)가 500MB 아래로 내려가면 뺀다.
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    command: ["--housekeeping_interval=30s", "--docker_only=true", "--store_container_labels=false"]
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
 volumes:
   engine-spool:
   prometheus-data:
