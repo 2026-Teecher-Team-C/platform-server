@@ -64,6 +64,9 @@ class CheckHashGrpcIntegrationTest {
     private AddBlacklistEntryUseCase addBlacklistEntryUseCase;
 
     @Autowired
+    private org.springframework.data.redis.connection.RedisConnectionFactory redisConnectionFactory;
+
+    @Autowired
     private AddWhitelistEntryUseCase addWhitelistEntryUseCase;
 
     // CheckHash는 블룸 → 화이트 → 블랙 순서라 블룸 miss면 목록을 읽지 않는다. 아래 두 테스트는 목록 쓰기
@@ -95,14 +98,17 @@ class CheckHashGrpcIntegrationTest {
     }
 
     @Test
-    void rebuild_reapplies_list_hashes_in_bulk_not_one_by_one() {
+    void rebuild_does_not_reapply_list_hashes_bit_by_bit() {
+        // 목록 117만 건을 SETBIT으로 다시 넣던 단계가 재구축 1회 344초로 CPU를 포화시켰다(2026-11-17).
+        // 스냅샷 뒤 들어온 비트는 rebuild가 live 블룸과 원자적으로 OR해 지킨다.
         org.mockito.Mockito.clearInvocations(bloomFilterPort);
 
         bloomFilterRebuildService.rebuild();
 
         org.mockito.Mockito.verify(bloomFilterPort, org.mockito.Mockito.never())
                 .add(org.mockito.ArgumentMatchers.anyString());
-        org.mockito.Mockito.verify(bloomFilterPort).addAll(org.mockito.ArgumentMatchers.anyCollection());
+        org.mockito.Mockito.verify(bloomFilterPort, org.mockito.Mockito.never())
+                .addAll(org.mockito.ArgumentMatchers.anyCollection());
     }
 
     @Test
@@ -171,7 +177,10 @@ class CheckHashGrpcIntegrationTest {
         String white = "e4".repeat(32);
         seedBlacklist(black);
         seedWhitelist(white, true, null);
-        bloomFilterPort.rebuild(java.util.List.of());
+        // 재구축은 live와 OR하므로 비우지 않는다. Redis가 날아간 상황을 키 삭제로 재현한다.
+        try (var connection = redisConnectionFactory.getConnection()) {
+            connection.keyCommands().del("bloom:file_verdicts".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
         assertThat(bloomFilterPort.mightContain(black)).isFalse();
         assertThat(bloomFilterPort.mightContain(white)).isFalse();
 
@@ -182,7 +191,7 @@ class CheckHashGrpcIntegrationTest {
     }
 
     // 재구축 스냅샷 읽기 직후, RENAME 전에 목록 쓰기가 커밋·add되는 레이스를 결정적으로 재현한다.
-    // 재구축 뒤 목록 재조회가 없으면 이 해시가 블룸에서 사라진다.
+    // 교체가 live 블룸과 OR하지 않으면 이 해시가 블룸에서 사라진다.
     @Test
     void list_entry_committed_between_snapshot_and_rename_survives_rebuild() {
         String sha256 = "f5".repeat(32);
@@ -196,11 +205,6 @@ class CheckHashGrpcIntegrationTest {
                         addBlacklistEntryUseCase.add(
                                 new AddBlacklistEntryUseCase.Command(sha256, "race", adminId, null));
                         return snapshot;
-                    }
-
-                    @Override
-                    public java.util.List<String> findAllListHashes() {
-                        return real.findAllListHashes();
                     }
                 };
 
