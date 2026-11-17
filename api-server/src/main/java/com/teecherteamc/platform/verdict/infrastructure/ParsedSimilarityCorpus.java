@@ -1,9 +1,13 @@
 package com.teecherteamc.platform.verdict.infrastructure;
 
 import com.trendmicro.tlsh.Tlsh;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +18,16 @@ public class ParsedSimilarityCorpus {
     private static final int MAX_TOKENS = 4;
     private final LinkedHashMap<String, List<Candidate>> snapshots = new LinkedHashMap<>(8, 0.75f, true);
     private int entries;
+    private final Counter hits;
+    private final Counter misses;
+    /** 마지막으로 비교한 후보 수. 상한(similarity.corpus.limit)이 걸리면 그 수다. */
+    private final AtomicLong size = new AtomicLong();
+
+    public ParsedSimilarityCorpus(MeterRegistry registry) {
+        this.hits = Counter.builder("verdict.similarity.cache.hits").register(registry);
+        this.misses = Counter.builder("verdict.similarity.cache.misses").register(registry);
+        Gauge.builder("verdict.similarity.corpus.size", size, AtomicLong::get).register(registry);
+    }
     public record Candidate(String sha, String encoded, Tlsh parsed) {}
 
     /**
@@ -24,18 +38,24 @@ public class ParsedSimilarityCorpus {
     public synchronized void visit(String token, Consumer<Consumer<Candidate>> load, Consumer<Candidate> visit) {
         List<Candidate> cached = snapshots.get(token);
         if (cached != null) {
+            hits.increment();
+            size.set(cached.size());
             cached.forEach(visit);
             return;
         }
+        misses.increment();
+        long[] visited = {0};
         List<Candidate> collected = new ArrayList<>();
         boolean[] overflow = {false};
         load.accept(candidate -> {
+            visited[0]++;
             visit.accept(candidate);
             if (!overflow[0]) {
                 if (collected.size() == MAX_ENTRIES) { collected.clear(); overflow[0] = true; }
                 else collected.add(candidate);
             }
         });
+        size.set(visited[0]);
         if (overflow[0]) return;
         while (!snapshots.isEmpty() && (snapshots.size() >= MAX_TOKENS || entries + collected.size() > MAX_ENTRIES)) {
             var iterator = snapshots.entrySet().iterator();

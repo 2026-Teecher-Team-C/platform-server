@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ParsedSimilarityCorpusTest {
-    private final ParsedSimilarityCorpus cache = new ParsedSimilarityCorpus();
+    private final ParsedSimilarityCorpus cache = new ParsedSimilarityCorpus(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     private final ParsedSimilarityCorpus.Candidate candidate = new ParsedSimilarityCorpus.Candidate("a".repeat(64), "unused", null);
 
     @Test
