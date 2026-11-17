@@ -7,7 +7,7 @@ ENGINE_TEST = docker run --rm -v "$(CURDIR)":/workspace -w /workspace/detection-
 	-e UV_PROJECT_ENVIRONMENT=/tmp/venv ghcr.io/astral-sh/uv:0.9-python3.12-bookworm-slim sh -c
 NODE = docker run --rm -v "$(CURDIR)/console":/app -v platform-console-node-modules:/app/node_modules -w /app node:22-alpine sh -c
 
-.PHONY: dev down logs test test-api test-engine test-console proto
+.PHONY: dev down logs test test-api test-engine test-console proto bench-tlsh
 
 dev:            ## 전체 스택 기동 (api 8080/9090, console 5173, postgres 5432, redis 6379, prometheus 9091)
 	$(COMPOSE_DEV) up --build
@@ -28,6 +28,9 @@ test-engine:
 
 test-console:
 	$(NODE) "npm ci && npm run lint && npm test && npm run build"
+
+bench-tlsh:     ## TLSH corpus 비교 JMH 벤치마크 (예: make bench-tlsh ARGS="-p corpusSize=1000")
+	$(GRADLE) jmh -PjmhArgs="$(ARGS)"
 
 proto:          ## proto 변경 후 Java·Python 코드 재생성
 	$(GRADLE) generateProto
