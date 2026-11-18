@@ -23,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 // IMP-8: /api/admin/similarity-policy 조회·변경 API.
 // 임계값은 DB 한 행짜리 전역 설정이다. 테스트가 값을 바꾼 채 끝나면 같은 컨테이너를 쓰는
 // 다른 테스트가 30/70을 가정하고 돌다가 깨지므로 매번 끝날 때 되돌린다.
+// 경고 상한은 70이다(L-value 인덱스 창 ±5 기준). 그래서 변경 테스트의 경고 값은 모두 70 이하다.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @Import({TestcontainersConfiguration.class, AdminApiClient.class})
@@ -54,32 +55,41 @@ class SimilarityThresholdRestIntegrationTest {
         assertThat(response.getBody()).containsEntry("blockDistance", 30).containsEntry("warnDistance", 70);
         Map<String, Object> limits = (Map<String, Object>) response.getBody().get("limits");
         assertThat(limits).containsEntry("blockMin", 0).containsEntry("blockMax", 50)
-                .containsEntry("warnMax", 100);
+                .containsEntry("warnMax", 70);
     }
 
     @Test
     void 변경하면_응답과_다음_조회에_새_값이_나온다() {
-        ResponseEntity<Map> put = put(adminClient, Map.of("blockDistance", 40, "warnDistance", 80));
+        ResponseEntity<Map> put = put(adminClient, Map.of("blockDistance", 40, "warnDistance", 60));
 
         assertThat(put.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(put.getBody()).containsEntry("blockDistance", 40).containsEntry("warnDistance", 80);
+        assertThat(put.getBody()).containsEntry("blockDistance", 40).containsEntry("warnDistance", 60);
 
         ResponseEntity<Map> get = adminClient.getForEntity(URL, Map.class);
-        assertThat(get.getBody()).containsEntry("blockDistance", 40).containsEntry("warnDistance", 80);
+        assertThat(get.getBody()).containsEntry("blockDistance", 40).containsEntry("warnDistance", 60);
+    }
+
+    @Test
+    void 허용_범위의_끝값_50과_70도_저장된다() {
+        ResponseEntity<Map> put = put(adminClient, Map.of("blockDistance", 50, "warnDistance", 70));
+
+        assertThat(put.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(adminClient.getForEntity(URL, Map.class).getBody())
+                .containsEntry("blockDistance", 50).containsEntry("warnDistance", 70);
     }
 
     @Test
     void 변경하면_판정_토큰이_바뀌어_캐시된_판정이_무효가_된다() {
         assertThat(corpusToken()).endsWith(":tlsh-30-70-v1");
 
-        put(adminClient, Map.of("blockDistance", 42, "warnDistance", 82));
+        put(adminClient, Map.of("blockDistance", 42, "warnDistance", 62));
 
-        assertThat(corpusToken()).endsWith(":tlsh-42-82-v1");
+        assertThat(corpusToken()).endsWith(":tlsh-42-62-v1");
     }
 
     @Test
     void 변경하면_감사_로그에_이전_값과_새_값이_남는다() {
-        put(adminClient, Map.of("blockDistance", 41, "warnDistance", 81));
+        put(adminClient, Map.of("blockDistance", 41, "warnDistance", 61));
 
         // 값(41)이 이 테스트에서만 쓰이므로 detail로 행을 하나로 좁힐 수 있다.
         Map<String, Object> row = jdbcTemplate.queryForMap(
@@ -96,7 +106,7 @@ class SimilarityThresholdRestIntegrationTest {
         assertThat(row.get("target_id")).isEqualTo("TLSH");
         assertThat(row.get("prev_block")).isEqualTo("30");
         assertThat(row.get("prev_warn")).isEqualTo("70");
-        assertThat(row.get("warn")).isEqualTo("81");
+        assertThat(row.get("warn")).isEqualTo("61");
     }
 
     @Test
@@ -111,12 +121,14 @@ class SimilarityThresholdRestIntegrationTest {
 
     @Test
     void 범위를_벗어난_값은_400이고_저장되지_않는다() {
-        // 차단 51(상한 초과), 경고 <= 차단, 경고 101(상한 초과)
-        assertThat(put(adminClient, Map.of("blockDistance", 51, "warnDistance", 80)).getStatusCode())
+        // 차단 51(상한 초과), 경고 <= 차단, 경고 71(상한 초과), 이전 상한이던 100
+        assertThat(put(adminClient, Map.of("blockDistance", 51, "warnDistance", 60)).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(put(adminClient, Map.of("blockDistance", 30, "warnDistance", 30)).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(put(adminClient, Map.of("blockDistance", 30, "warnDistance", 101)).getStatusCode())
+        assertThat(put(adminClient, Map.of("blockDistance", 30, "warnDistance", 71)).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(put(adminClient, Map.of("blockDistance", 30, "warnDistance", 100)).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
 
         assertThat(adminClient.getForEntity(URL, Map.class).getBody())
@@ -140,7 +152,7 @@ class SimilarityThresholdRestIntegrationTest {
         assertThat(get.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         ResponseEntity<Map> put = restTemplate.exchange(URL, HttpMethod.PUT,
-                bearer(token, Map.of("blockDistance", 40, "warnDistance", 80)), Map.class);
+                bearer(token, Map.of("blockDistance", 40, "warnDistance", 60)), Map.class);
         assertThat(put.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(adminClient.getForEntity(URL, Map.class).getBody()).containsEntry("blockDistance", 30);
     }
@@ -149,7 +161,7 @@ class SimilarityThresholdRestIntegrationTest {
     void 로그인하지_않으면_401이다() {
         assertThat(restTemplate.getForEntity(URL, Map.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(restTemplate.exchange(URL, HttpMethod.PUT,
-                new HttpEntity<>(Map.of("blockDistance", 40, "warnDistance", 80), jsonHeaders()), Map.class)
+                new HttpEntity<>(Map.of("blockDistance", 40, "warnDistance", 60), jsonHeaders()), Map.class)
                 .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
