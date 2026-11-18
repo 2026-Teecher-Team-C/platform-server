@@ -3,7 +3,10 @@ package com.teecherteamc.platform;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.teecherteamc.platform.verdict.domain.SimilarityDecisionStore.Assessment;
+import com.teecherteamc.platform.verdict.infrastructure.InMemoryTlshCorpus;
 import com.teecherteamc.platform.verdict.infrastructure.JdbcSimilarityDecisionStore;
+import com.teecherteamc.platform.verdict.infrastructure.JdbcTlshCorpusLoader;
+import com.teecherteamc.platform.verdict.infrastructure.TlshCorpusSnapshot;
 import com.teecherteamc.platform.verdict.infrastructure.ParsedSimilarityCorpus;
 import com.trendmicro.tlsh.TlshCreator;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -52,24 +55,60 @@ class TlshCompareModeEquivalenceIntegrationTest {
 
         JdbcSimilarityDecisionStore bruteforce = store("bruteforce");
         JdbcSimilarityDecisionStore indexed = store("indexed");
+        // 메모리 스냅샷은 이 테스트 트랜잭션(커밋 전 시드 포함)에서 읽어 넣는다. 토큰이 같으니 메모리 경로로 답한다.
+        InMemoryTlshCorpus memoryCorpus = memoryCorpus();
+        memoryCorpus.install(JdbcTlshCorpusLoader.load(jdbc));
+        JdbcSimilarityDecisionStore memory = store("memory", memoryCorpus);
         int nearMatches = 0;
         for (int i = 0; i < 300; i++) {
             String input = i % 2 == 0 ? tlsh(mutate(samples.get(random.nextInt(samples.size())), random)) : tlsh(randomBytes(random));
             Assessment all = bruteforce.compareTlsh(input);
-            Assessment window = indexed.compareTlsh(input);
-            if (all.distance() != null && all.distance() <= WARN_LIMIT) {
-                nearMatches++;
-                assertThat(window.sample()).as(input).isEqualTo(all.sample());
-                assertThat(window.distance()).as(input).isEqualTo(all.distance());
-            } else {
-                assertThat(window.distance() == null || window.distance() > WARN_LIMIT).as(input).isTrue();
+            for (Assessment window : List.of(indexed.compareTlsh(input), memory.compareTlsh(input))) {
+                if (all.distance() != null && all.distance() <= WARN_LIMIT) {
+                    assertThat(window.sample()).as(input).isEqualTo(all.sample());
+                    assertThat(window.tlsh()).as(input).isEqualTo(all.tlsh());
+                    assertThat(window.distance()).as(input).isEqualTo(all.distance());
+                } else {
+                    assertThat(window.distance() == null || window.distance() > WARN_LIMIT).as(input).isTrue();
+                }
             }
+            if (all.distance() != null && all.distance() <= WARN_LIMIT) nearMatches++;
         }
+        assertThat(memoryCorpus.snapshotFor(memory.token())).as("메모리 경로로 답했다").isPresent();
         assertThat(nearMatches).as("≤70 경우를 충분히 검사했다").isGreaterThan(50);
     }
 
+    /** 메모리 스냅샷의 토큰이 지금과 다르면(목록이 막 바뀜) 옛 스냅샷이 아니라 DB에서 찾는다. */
+    @Test
+    void memory_모드는_토큰이_다르면_DB에서_새_지문을_찾는다() {
+        Random random = new Random(42);
+        byte[] data = randomBytes(random);
+        String sample = tlsh(data);
+        InMemoryTlshCorpus memoryCorpus = memoryCorpus();
+        memoryCorpus.install(TlshCorpusSnapshot.builder("old-token").build());
+        String salt = "stale-" + System.nanoTime();
+        jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, ?)", sha(salt, sample), salt);
+        jdbc.update("INSERT INTO file_fingerprints(sha256, tlsh, calculation_status, algorithm_version, provenance) "
+                + "VALUES (?, ?, 'CALCULATED', 'equiv', 'VERIFIED_UPLOAD')", sha(salt, sample), sample);
+
+        Assessment result = store("memory", memoryCorpus).compareTlsh(tlsh(mutate(data, random)));
+
+        assertThat(result.sample()).isEqualTo(sha(salt, sample));
+    }
+
     private JdbcSimilarityDecisionStore store(String mode) {
-        return new JdbcSimilarityDecisionStore(jdbc, new ParsedSimilarityCorpus(new SimpleMeterRegistry()), 0, mode);
+        return store(mode, memoryCorpus());
+    }
+
+    private JdbcSimilarityDecisionStore store(String mode, InMemoryTlshCorpus memoryCorpus) {
+        return new JdbcSimilarityDecisionStore(jdbc, new ParsedSimilarityCorpus(new SimpleMeterRegistry()), 0, mode,
+                memoryCorpus);
+    }
+
+    /** 백그라운드 재구축은 이 테스트에서 돌리지 않는다(작업을 버린다). */
+    private static InMemoryTlshCorpus memoryCorpus() {
+        return new InMemoryTlshCorpus(() -> { throw new UnsupportedOperationException(); }, task -> { }, System::nanoTime,
+                new SimpleMeterRegistry());
     }
 
     private static byte[] mutate(byte[] original, Random random) {
