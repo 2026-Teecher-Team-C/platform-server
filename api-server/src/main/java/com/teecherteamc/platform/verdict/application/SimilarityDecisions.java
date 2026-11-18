@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Transactional(propagation = Propagation.MANDATORY)
 public class SimilarityDecisions {
-    public static final String POLICY = "tlsh-30-70-v1";
     private final SimilarityDecisionStore store;
     private final WhitelistLookupPort whitelist;
     private final BlacklistLookupPort blacklist;
@@ -48,9 +47,13 @@ public class SimilarityDecisions {
     public Assessment compare(String sha) { return classify(store.compare(sha)); }
     /** 에이전트가 계산해 보낸 미검증 TLSH 비교. 형식 오류는 UNAVAILABLE이며 분류 규칙은 compare와 같다. */
     public Assessment compareClaimed(String tlsh) { return classify(store.compareTlsh(tlsh)); }
-    private static Assessment classify(Assessment nearest) {
+    // 임계값은 저장소(포트)에서 읽는다. compare/compareClaimed와 같은 트랜잭션, 같은 corpus 공유 락 아래라서
+    // 비교하는 동안 값이 바뀌지 않는다.
+    private Assessment classify(Assessment nearest) {
         if (nearest.distance() == null) return nearest;
-        String classification = nearest.distance() <= 30 ? "BLOCK" : nearest.distance() <= 70 ? "WARN" : "NONE";
+        SimilarityDecisionStore.Thresholds thresholds = store.thresholds();
+        String classification = nearest.distance() <= thresholds.blockDistance() ? "BLOCK"
+                : nearest.distance() <= thresholds.warnDistance() ? "WARN" : "NONE";
         return new Assessment(nearest.sample(), nearest.tlsh(), nearest.distance(), classification, nearest.token());
     }
     public void save(String sha, UUID event, UUID analysis, Assessment assessment) { store.save(sha, event, analysis, assessment); }
