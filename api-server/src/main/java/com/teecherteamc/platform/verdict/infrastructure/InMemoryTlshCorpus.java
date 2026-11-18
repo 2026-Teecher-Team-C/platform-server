@@ -47,9 +47,10 @@ public class InMemoryTlshCorpus implements DisposableBean {
 
     @Autowired
     public InMemoryTlshCorpus(JdbcTlshCorpusLoader loader, MeterRegistry registry,
-            @Value("${similarity.mode:memory}") String mode) {
+            @Value("${similarity.mode:memory}") String mode, @Value("${similarity.corpus.limit:0}") int corpusLimit) {
         this(loader::loadCommitted, singleThread(), System::nanoTime, registry);
-        this.enabled = "memory".equals(mode);
+        // JdbcSimilarityDecisionStore와 같은 조건: 상한(시나리오 B)이 있으면 메모리 경로를 안 쓰니 만들지도 않는다.
+        this.enabled = "memory".equals(mode) && corpusLimit <= 0;
     }
 
     public InMemoryTlshCorpus(Supplier<TlshCorpusSnapshot> loader, Executor executor, LongSupplier nanoTime,
@@ -90,11 +91,13 @@ public class InMemoryTlshCorpus implements DisposableBean {
     }
 
     private void requestRebuild() {
-        long now = nanoTime.getAsLong();
-        if (everRebuilt && now - lastRebuildStart < MIN_REBUILD_INTERVAL_NANOS) {
+        // 깃발을 먼저 잡고 간격을 본다. 반대 순서면 간격 검사와 CAS 사이에 다른 재구축이 끝나 30초를 건너뛸 수 있다.
+        if (!rebuilding.compareAndSet(false, true)) {
             return;
         }
-        if (!rebuilding.compareAndSet(false, true)) {
+        long now = nanoTime.getAsLong();
+        if (everRebuilt && now - lastRebuildStart < MIN_REBUILD_INTERVAL_NANOS) {
+            rebuilding.set(false);
             return;
         }
         everRebuilt = true;
