@@ -38,6 +38,7 @@ import java.util.regex.Pattern;
 import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.grpc.server.service.GrpcService;
 
@@ -50,6 +51,7 @@ import org.springframework.grpc.server.service.GrpcService;
 public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(VerdictGrpcService.class);
+    private static final String EVENT_ID_MDC = "event_id";
     private static final Pattern SHA256_PATTERN = Pattern.compile("[0-9a-f]{64}");
     private static final int MAX_FILENAME_LENGTH = 512;
     private static final String PK_CONSTRAINT_NAME = "pk_download_events";
@@ -99,7 +101,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         // 형식이 다른 TLSH는 없는 것으로 본다. 업로드되면 서버가 직접 계산한 TLSH로 다시 비교한다.
         CheckHashQuery query = new CheckHashQuery(hashKey.getHashValue(), request.getFileSize(),
                 CheckHashQuery.claimedTlsh(request.getTlsh()), eventId, AgentAuthContext.AGENT_ID.get());
-        try {
+        // 측정 결과(event_id)와 서버 로그를 이어 붙이려고 요청 동안 MDC에 둔다.
+        try (MDC.MDCCloseable ignored = MDC.putCloseable(EVENT_ID_MDC, eventId == null ? "-" : eventId.toString())) {
             CheckHashResult result = checkHashUseCase.checkHash(query);
             responseObserver.onNext(CheckHashResponse.newBuilder()
                     .setDecision(toProtoDecision(result.decision()))
@@ -384,6 +387,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                 fail(Status.INVALID_ARGUMENT.withDescription("metadata를 받지 못했다"));
                 return;
             }
+            MDC.put(EVENT_ID_MDC, eventId.toString());
             try {
                 SpoolResult result = spoolSession.finish();
                 // file_size는 사전 정보일 뿐이고 실제 판정엔 실제 수신 바이트(result.bytesWritten())만
@@ -415,6 +419,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                 responseObserver.onError(Status.INTERNAL.withCause(e).asRuntimeException());
             } finally {
                 spoolSession.delete();
+                MDC.remove(EVENT_ID_MDC);
             }
         }
 

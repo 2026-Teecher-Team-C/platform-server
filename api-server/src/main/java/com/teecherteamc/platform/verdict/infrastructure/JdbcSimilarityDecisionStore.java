@@ -6,6 +6,7 @@ import com.trendmicro.tlsh.Tlsh;
 import java.sql.PreparedStatement;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Component;
@@ -22,9 +23,27 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
     private final JdbcTemplate jdbc;
     private final ParsedSimilarityCorpus corpus;
 
-    public JdbcSimilarityDecisionStore(JdbcTemplate jdbc, ParsedSimilarityCorpus corpus) {
+    /** 비교 대상 상한(시나리오 B 규모별 측정). 0 이하는 무제한. 바꾸면 재시작한다. */
+    private final int corpusLimit;
+
+    /**
+     * indexed(기본): 입력 L-value ±5 후보만 읽는다(V19 인덱스, 결론은 전체 비교와 같다 — TlshLValue 참고).
+     * bruteforce: 후보 전체를 읽는다. 동일성 검사(고도화 테스트 시나리오 C)와 되돌리기용이다.
+     */
+    private final boolean indexed;
+    private static final java.util.regex.Pattern T1_FORMAT = java.util.regex.Pattern.compile("T1[0-9A-F]{70}");
+
+    public JdbcSimilarityDecisionStore(JdbcTemplate jdbc, ParsedSimilarityCorpus corpus,
+            @Value("${similarity.corpus.limit:0}") int corpusLimit,
+            @Value("${similarity.mode:indexed}") String mode) {
         this.jdbc = jdbc;
         this.corpus = corpus;
+        this.corpusLimit = corpusLimit;
+        this.indexed = switch (mode) {
+            case "indexed" -> true;
+            case "bruteforce" -> false;
+            default -> throw new IllegalArgumentException("similarity.mode는 indexed 또는 bruteforce: " + mode);
+        };
     }
 
     /** V8의 목록/지문 쓰기 트리거는 같은 키의 배타 잠금을 얻는다. 비교에서 커밋까지 후보가 고정된다. */
@@ -119,8 +138,19 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
         Assessment[] best = {new Assessment(null, null, null, "NONE", token)};
         // PostgreSQL 커서로 전 후보를 읽는다. fetchSize는 전송 묶음이지 후보 수 상한이 아니다.
         // 거리 동률이면 SHA가 작은 샘플을 선택하여 실행 순서나 DB 계획이 달라도 근거가 같다.
-        corpus.visit(token, accept -> jdbc.query(connection -> {
-            PreparedStatement statement = connection.prepareStatement("SELECT sha256, tlsh FROM active_malicious_fingerprints");
+        // 서버·에이전트 지문은 모두 "T1" + 70자다(V8 CHECK, CheckHashQuery.claimedTlsh). 다른 표기면 전체를 비교한다.
+        Integer[] window = indexed && T1_FORMAT.matcher(claimed).matches()
+                ? TlshLValue.window(TlshLValue.of(claimed)) : null;
+        // 창마다 후보 집합이 다르므로 캐시 키에 넣는다(같은 토큰의 다른 창 스냅샷을 재사용하면 안 된다).
+        String cacheKey = window == null ? token : token + "|L" + window[TlshLValue.WINDOW];
+        corpus.visit(cacheKey, accept -> jdbc.query(connection -> {
+            String sql = "SELECT sha256, tlsh FROM active_malicious_fingerprints"
+                    + (window == null ? "" : " WHERE tlsh_lvalue(tlsh) = ANY(?)")
+                    + (corpusLimit > 0 ? " LIMIT ?" : "");
+            PreparedStatement statement = connection.prepareStatement(sql);
+            int index = 1;
+            if (window != null) statement.setArray(index++, connection.createArrayOf("integer", window));
+            if (corpusLimit > 0) statement.setInt(index, corpusLimit);
             statement.setFetchSize(256);
             return statement;
         }, (RowCallbackHandler) rs -> accept.accept(new ParsedSimilarityCorpus.Candidate(

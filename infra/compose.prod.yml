@@ -25,3 +25,12 @@ services:
     # Grafana는 맥북에서 띄우고 SSH 터널(ssh -L 9090:localhost:9090 teecher)로 붙는다. EC2 바깥에는 열지 않는다.
     ports:
       - "127.0.0.1:9090:9090"
+  # EC2는 매일 UTC 16:00에 꺼지고 00:00에 켜진다. restart가 없으면 exporter가 재부팅 뒤 꺼진 채 남는다(2026-11-18).
+  node-exporter:
+    restart: unless-stopped
+  postgres-exporter:
+    restart: unless-stopped
+  redis-exporter:
+    restart: unless-stopped
+  cadvisor:
+    restart: unless-stopped
