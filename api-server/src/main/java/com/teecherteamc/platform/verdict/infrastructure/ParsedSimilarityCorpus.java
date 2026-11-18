@@ -57,8 +57,8 @@ public class ParsedSimilarityCorpus {
         if (inFlight != null) snapshot = inFlight.join();
         if (snapshot != null) {
             hits.increment();
-            size.set(snapshot.size());
             snapshot.forEach(visit);
+            size.set(snapshot.size());
             return;
         }
         misses.increment();
@@ -71,6 +71,7 @@ public class ParsedSimilarityCorpus {
         long[] visited = {0};
         List<Candidate> collected = new ArrayList<>();
         boolean[] overflow = {false};
+        List<Candidate> complete = null;
         try {
             load.accept(candidate -> {
                 visited[0]++;
@@ -85,26 +86,25 @@ public class ParsedSimilarityCorpus {
                     }
                 }
             });
-        } catch (RuntimeException | Error e) {
-            release(token, mine, null);
-            throw e;
-        }
-        size.set(visited[0]);
-        if (overflow[0]) return;
-        List<Candidate> complete = List.copyOf(collected);
-        synchronized (this) {
-            if (!snapshots.containsKey(token)) {
-                while (!snapshots.isEmpty()
-                        && (snapshots.size() >= MAX_TOKENS || entries + complete.size() > MAX_ENTRIES)) {
-                    var iterator = snapshots.entrySet().iterator();
-                    entries -= iterator.next().getValue().size();
-                    iterator.remove();
+            size.set(visited[0]);
+            if (overflow[0]) return;
+            complete = List.copyOf(collected);
+            synchronized (this) {
+                if (!snapshots.containsKey(token)) {
+                    while (!snapshots.isEmpty()
+                            && (snapshots.size() >= MAX_TOKENS || entries + complete.size() > MAX_ENTRIES)) {
+                        var iterator = snapshots.entrySet().iterator();
+                        entries -= iterator.next().getValue().size();
+                        iterator.remove();
+                    }
+                    snapshots.put(token, complete);
+                    entries += complete.size();
                 }
-                snapshots.put(token, complete);
-                entries += complete.size();
             }
+        } finally {
+            // 어떤 경로로 나가든(예산 초과·예외·성공) 대기자를 깨운다. complete가 null이면 "직접 읽어라"다.
+            release(token, mine, complete);
         }
-        release(token, mine, complete);
     }
 
     /** 대기자를 깨운다. null은 "직접 읽어라"(예산 초과·실패)다. 반쪽 목록은 절대 넘기지 않는다. */
