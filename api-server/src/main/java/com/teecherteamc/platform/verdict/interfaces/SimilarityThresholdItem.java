@@ -6,7 +6,7 @@ import com.teecherteamc.platform.verdict.domain.SimilarityThresholds;
 /**
  * GET/PUT /api/admin/similarity-policy 응답. 지금 적용 중인 값과 서버가 허용하는 범위를 함께 준다.
  *
- * 예: {"blockDistance":30,"warnDistance":70,"limits":{"blockMin":0,"blockMax":50,"warnMax":100}}
+ * 예: {"blockDistance":30,"warnDistance":70,"limits":{"blockMin":0,"blockMax":50,"warnMax":70}}
  */
 public record SimilarityThresholdItem(int blockDistance, int warnDistance, Limits limits) {
 
