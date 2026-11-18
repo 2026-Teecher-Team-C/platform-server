@@ -102,6 +102,8 @@ api-server의 로그인·권한 적용 방침이다. 관리 콘솔 로그인(Bea
 | 화이트리스트 전부 | `/api/admin/whitelist...` | ✅ | ❌ | ❌ |
 | 우회 도메인 조회 | `GET /api/admin/bypass-domains` | ✅ | ✅ | ❌ |
 | 우회 도메인 변경 | `POST`·`DELETE /api/admin/bypass-domains...` | ✅ | ❌ | ❌ |
+| 유사도 임계값 조회 | `GET /api/admin/similarity-policy` | ✅ | ✅ | ❌ |
+| 유사도 임계값 변경 | `PUT /api/admin/similarity-policy` | ✅ | ❌ | ❌ |
 | 룰셋 조회 | `GET /api/admin/rulesets`, `.../{version}/rules` | ✅ | ✅ | ❌ |
 | 룰셋 변경 | `POST /api/admin/rulesets`, `.../activate`, `PATCH .../rules/{ruleId}` | ✅ | ❌ | ❌ |
 | 에이전트 목록 | `GET /api/admin/agents` | ✅ | ✅ | ❌ |
