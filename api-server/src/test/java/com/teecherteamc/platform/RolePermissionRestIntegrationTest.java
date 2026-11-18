@@ -194,6 +194,8 @@ class RolePermissionRestIntegrationTest {
             new Row("GET", "/api/admin/bypass-domains", true, true, false),
             new Row("POST", "/api/admin/bypass-domains", true, false, false),
             new Row("DELETE", "/api/admin/bypass-domains/" + SOME_UUID, true, false, false),
+            new Row("GET", "/api/admin/similarity-policy", true, true, false),
+            new Row("PUT", "/api/admin/similarity-policy", true, false, false),
             // 룰셋
             new Row("GET", "/api/admin/rulesets", true, true, false),
             new Row("GET", "/api/admin/rulesets/1/rules", true, true, false),
