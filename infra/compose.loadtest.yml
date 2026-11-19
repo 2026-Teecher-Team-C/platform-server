@@ -1,0 +1,110 @@
+# 로컬 부하 시험(업로드 + YARA 판정) 덮어쓰기. 사용: make loadtest / make loadtest-burst / make loadtest-down (레포 루트)
+# compose.yml + compose.temp-db.yml(운영과 같은 Postgres 컨테이너) 위에 얹는다. make dev(compose.dev.yml)는 건드리지 않는다.
+# 프로젝트 이름을 platform-loadtest로 따로 써서(Makefile) make dev의 컨테이너·볼륨과 섞이지 않는다.
+# 호스트 포트는 하나도 열지 않는다 — make dev와 동시에 떠 있어도 포트가 부딪히지 않는다.
+#
+# ---- 서버 자원: 운영 EC2(2 vCPU / 3.8GB)에 맞춘다 ----
+# CPU: 판정 경로 컨테이너 전부를 같은 CPU 2개(cpuset)에 묶는다 = 서버 전체가 쓰는 CPU 합계 2.0.
+#   운영 EC2처럼 2개를 서로 나눠 쓰고(엔진이 쉬면 api-server·nginx가 더 쓴다), 엔진만 운영과 같이 cpus 1.0으로 묶는다.
+#   처음에는 컨테이너마다 cpus 상한(api 0.65, nginx 0.10 …)을 따로 걸었는데, 300건 버스트에서 nginx가 0.10에 막혀
+#   HTTP/2 SETTINGS를 20초 넘게 못 보내는 등 운영에 없는 병목이 생겼다(2026-11-19). 그 방식은
+#   compose.loadtest-split.yml(CPU_SPLIT=1)로 남겨 둔다.
+#   클라이언트·toxiproxy·localstack은 나머지 CPU에 둬서 서버 CPU를 빼앗지 않는다. CPU 번호는 run.sh가 Docker CPU 수를
+#   보고 정한다(LOADTEST_SERVER_CPUSET, LOADTEST_CLIENT_CPUSET). 아래 기본값은 그 변수 없이 compose를 부를 때(down 등)용.
+#
+# 메모리: 상한 합계 3520m(≤ 3.8g = 3891m).
+#   컨테이너           mem     근거
+#   detection-engine   1024m   운영 compose.yml 값 그대로(cpus 1.0도 그대로)
+#   api-server         1536m   SHA256·TLSH 계산, 스풀 쓰기, gRPC. 힙은 아래 JAVA_TOOL_OPTIONS 참고
+#   postgres            768m   판정 기록·TLSH 후보 조회. 운영 shared_buffers 기본값(128MB) 그대로
+#   nginx                64m   gRPC 프록시(300건 버스트에서 약 40MB)
+#   redis               128m   블룸 필터(150만 건 기준 약 2MB)
+#   합계               3520m   남는 약 370m는 운영에서 OS·모니터링(prometheus·cadvisor·exporter)이 쓰는 몫
+#
+# 판정 경로 밖(합계에 넣지 않음): localstack(운영은 관리형 S3), toxiproxy(회선 흉내), loadtest-client(가상 에이전트).
+x-server-cpus: &server-cpus
+  cpuset: "${LOADTEST_SERVER_CPUSET:-0,1}"
+x-client-cpus: &client-cpus
+  cpuset: "${LOADTEST_CLIENT_CPUSET:-0,1}"
+
+services:
+  nginx:
+    <<: *server-cpus
+    # compose.yml의 80:80을 지운다. 클라이언트는 같은 네트워크에서 toxiproxy를 거쳐 nginx:80으로 들어온다.
+    ports: !reset []
+    mem_limit: 64m
+
+  api-server:
+    <<: *server-cpus
+    # compose.yml의 build(운영과 같은 Dockerfile, bootJar)를 그대로 쓴다. make dev의 gradle bootRun과 다르다.
+    environment:
+      # LocalStack 값은 운영 compose.yml이 모르는 설정이라 여기서 직접 넘긴다(compose.dev.yml과 같다).
+      QUARANTINE_S3_ENDPOINT: ${QUARANTINE_S3_ENDPOINT}
+      QUARANTINE_S3_PATH_STYLE: ${QUARANTINE_S3_PATH_STYLE}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # 운영 compose.prod.yml과 같은 값(MalwareBazaar 117만 건 기준 블룸 크기). make loadtest-seed로 같은 데이터를 넣는다.
+      LOOKUP_BLOOMFILTER_EXPECTEDHASHCOUNT: "1500000"
+      # JVM은 컨테이너 cgroup 제한을 읽는다(JDK 21 기본 UseContainerSupport).
+      # - 힙: 기본 MaxRAMPercentage=25면 1536m의 25% = 384MB다. 운영 api-server는 메모리 상한이 없어서
+      #   호스트 3.8GB의 25% ≈ 950MB를 힙으로 잡는다. 60%(≈ 920MB)로 올려 운영 힙 크기에 맞춘다.
+      #   나머지 약 600MB는 메타스페이스·스레드 스택·Netty 다이렉트 버퍼 몫(다이렉트 상한 기본값 = 최대 힙).
+      # - CPU 수: 운영 JVM은 2개로 본다. cpuset이 2개라 그대로 2가 되지만, CPU_SPLIT=1(cpus 0.65)에서도 같게 2로 고정한다.
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:ActiveProcessorCount=2"
+    mem_limit: 1536m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  detection-engine:
+    <<: *server-cpus
+    # 운영 compose.yml 값을 다시 적어 둔다(이 파일만 보고 배분을 알 수 있게).
+    cpus: 1.0
+    mem_limit: 1g
+
+  postgres:
+    <<: *server-cpus
+    mem_limit: 768m
+
+  redis:
+    <<: *server-cpus
+    mem_limit: 128m
+
+  # 격리 버킷(S3) 대용. 무작위 파일은 ALLOW라 판정 경로에서는 거의 안 쓰이지만 api-server가 기동 때 버킷을 만든다.
+  localstack:
+    <<: *client-cpus
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:4566/_localstack/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    mem_limit: 768m
+
+  # 회선(업로드 속도) 흉내. Docker Desktop에서는 tc를 쓸 수 없어 TCP 프록시로 늦춘다.
+  # bandwidth toxic은 연결(link)마다 따로 계산된다 — 가상 사용자(또는 업로드)마다 TCP 연결을 따로 열어 1명당 속도가 된다.
+  # 프록시·toxic은 loadtest-client가 HTTP API(8474)로 만든다. 포트는 호스트에 열지 않는다.
+  toxiproxy:
+    <<: *client-cpus
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    depends_on:
+      - nginx
+
+  # 가상 에이전트. 레포의 proto로 이미지 안에서 코드를 만든다(팀원 PC에 Python 설치 불필요).
+  # make loadtest가 `run --rm`으로만 띄운다(up 대상 아님).
+  loadtest-client:
+    <<: *client-cpus
+    build:
+      context: ..
+      dockerfile: infra/loadtest/Dockerfile
+    profiles: ["loadtest-client"]
+    volumes:
+      - ../loadtest-results:/results
+    depends_on:
+      - toxiproxy

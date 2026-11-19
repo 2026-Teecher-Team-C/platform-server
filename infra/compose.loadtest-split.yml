@@ -1,0 +1,20 @@
+# 선택: 서버 컨테이너마다 CPU 상한을 따로 거는 배분(make loadtest CPU_SPLIT=1). compose.loadtest.yml 위에 얹는다.
+# 기본(같은 CPU 2개를 나눠 씀)보다 보수적이다. 엔진이 쉬어도 api-server·nginx가 자기 몫 이상을 못 쓴다.
+# 300건 버스트처럼 연결이 많으면 nginx 0.10에서 운영에 없는 병목이 생긴다(2026-11-19 확인).
+#
+#   컨테이너           cpus   근거
+#   detection-engine   1.00   운영 compose.yml 값 그대로
+#   api-server         0.65   SHA256·TLSH 계산, 스풀 쓰기, gRPC
+#   postgres           0.20   판정 기록·TLSH 후보 조회
+#   nginx              0.10   gRPC 프록시
+#   redis              0.05   블룸 필터
+#   합계               2.00
+services:
+  api-server:
+    cpus: 0.65
+  postgres:
+    cpus: 0.20
+  nginx:
+    cpus: 0.10
+  redis:
+    cpus: 0.05
