@@ -39,6 +39,7 @@ TLSH 유사도 비교 대상 규모가 운영과 같아진다. 파일이 없으�
 
 1. 팀 공유 드라이브(링크는 팀 채널에 공유됨)에서 `malicious-fingerprints-2026-11-19.csv.gz`를 브라우저로 받는다
    (드라이브는 로그인·확인 페이지가 있어 자동으로 받지 않는다).
+   - 파일 내용·확인 방법은 비공개 레포 `2026-Teecher-Team-C/loadtest-data`의 README에 있다.
    - 크기 99,256,261바이트, sha256 `19ce12a524859e9683a178b1190cd3a5c56b8357395ab54d40eb5d961692bf44`
    - 운영 위협 데이터라 레포에 커밋하지 않는다(`.gitignore`에 `loadtest-seed/`, `*.csv.gz`).
 2. `make loadtest-seed FILE=<받은 경로>`
