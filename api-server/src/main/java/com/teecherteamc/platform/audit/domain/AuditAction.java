@@ -36,6 +36,8 @@ public enum AuditAction {
     ADD_BYPASS_DOMAIN,
     REMOVE_BYPASS_DOMAIN,
     UPDATE_FILE_TYPE_POLICY,
+    // 유사도 임계값 변경 (IMP-8). 위험 조작 4종에는 넣지 않는다.
+    UPDATE_SIMILARITY_THRESHOLD,
     // 다운로드 이벤트 (대시보드 "확인 안 한 높은 심각도 차단"을 확인 처리)
     DOWNLOAD_EVENT_ACKNOWLEDGE,
     // 판정 / 에이전트 / 캐시

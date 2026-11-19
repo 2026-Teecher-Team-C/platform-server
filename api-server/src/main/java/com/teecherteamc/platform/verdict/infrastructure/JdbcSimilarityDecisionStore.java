@@ -1,7 +1,6 @@
 package com.teecherteamc.platform.verdict.infrastructure;
 
 import com.teecherteamc.platform.verdict.domain.SimilarityDecisionStore;
-import com.teecherteamc.platform.verdict.application.SimilarityDecisions;
 
 import com.trendmicro.tlsh.Tlsh;
 import java.sql.PreparedStatement;
@@ -70,6 +69,16 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
 
     public String token() {
         return jdbc.queryForObject("SELECT token FROM current_similarity_corpus_token", String.class);
+    }
+
+    /**
+     * 지금 적용 중인 임계값. 토큰과 같은 corpus 공유 락(lockCorpus/tryLockCorpus) 아래에서 호출해야
+     * 판정하는 동안 값이 바뀌지 않는다. 값을 바꾸는 쪽은 같은 키의 배타 락을 먼저 잡는다.
+     */
+    public Thresholds thresholds() {
+        return jdbc.queryForObject(
+                "SELECT block_distance, warn_distance FROM similarity_corpus_state",
+                (rs, rowNum) -> new Thresholds(rs.getInt(1), rs.getInt(2)));
     }
 
     /** revision뿐 아니라 시간으로 만료된 화이트리스트 수와 정책 버전도 토큰에 포함한다. */
@@ -172,14 +181,20 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
         return best[0];
     }
 
-    /** 원본 엔진 analysis와 최종 정책을 분리한다. 기준 샘플이 해제돼도 당시 TLSH/거리 스냅샷은 남는다. */
+    /**
+     * 원본 엔진 analysis와 최종 정책을 분리한다. 기준 샘플이 해제돼도 당시 TLSH/거리 스냅샷은 남는다.
+     * policy_version은 그 시점의 임계값에서 DB 함수로 만든다. 공유 락이 트랜잭션 끝까지 유지되므로
+     * 비교에 쓴 임계값과 같은 값이다.
+     */
     public void save(String sha, UUID event, UUID analysis, Assessment assessment) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO similarity_assessments(assessment_id, sha256, analysis_id, corpus_token, policy_version,
                     matched_sample_sha256, matched_sample_tlsh, distance, classification)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, id, sha, analysis, assessment.token(), SimilarityDecisions.POLICY, assessment.sample(), assessment.tlsh(),
+                VALUES (?, ?, ?, ?,
+                    (SELECT similarity_policy_version(block_distance, warn_distance) FROM similarity_corpus_state),
+                    ?, ?, ?, ?)
+                """, id, sha, analysis, assessment.token(), assessment.sample(), assessment.tlsh(),
                 assessment.distance(), assessment.classification());
         jdbc.update("""
                 INSERT INTO similarity_cache(sha256, assessment_id) VALUES (?, ?)
@@ -203,8 +218,10 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
         jdbc.update("""
                 INSERT INTO similarity_assessments(assessment_id, sha256, analysis_id, corpus_token, policy_version,
                     matched_sample_sha256, matched_sample_tlsh, distance, classification, input_source)
-                VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'AGENT_CLAIMED')
-                """, id, sha, assessment.token(), SimilarityDecisions.POLICY, assessment.sample(), assessment.tlsh(),
+                VALUES (?, ?, NULL, ?,
+                    (SELECT similarity_policy_version(block_distance, warn_distance) FROM similarity_corpus_state),
+                    ?, ?, ?, ?, 'AGENT_CLAIMED')
+                """, id, sha, assessment.token(), assessment.sample(), assessment.tlsh(),
                 assessment.distance(), assessment.classification());
         int linked = jdbc.update("""
                 UPDATE event_decision_evidence e SET assessment_id=? WHERE event_id=? AND sha256=?

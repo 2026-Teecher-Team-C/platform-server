@@ -96,6 +96,7 @@ public class SecurityConfig {
                         "/api/admin/quarantine", "/api/admin/quarantine/*",
                         "/api/admin/blacklist",
                         "/api/admin/bypass-domains",
+                        "/api/admin/similarity-policy",
                         "/api/admin/rulesets", "/api/admin/rulesets/*/rules",
                         "/api/admin/agents",
                         "/api/admin/dashboard/unacknowledged-blocks",

@@ -6,10 +6,18 @@ import java.util.UUID;
 /** 짧은 호출자 트랜잭션 안에서 corpus 일관성, 평가 스냅샷과 요청 연결을 저장하는 포트. */
 public interface SimilarityDecisionStore {
     record Assessment(String sample, String tlsh, Integer distance, String classification, String token) {}
+        /**
+     * 지금 적용 중인 TLSH 거리 임계값. 거리가 blockDistance 이하면 BLOCK, warnDistance 이하면 WARN이다.
+     * 값은 similarity_corpus_state 한 행에 있고, 판정에 쓰는 토큰과 같은 corpus 공유 락 아래에서 읽어야
+     * 토큰과 어긋나지 않는다.
+     */
+    record Thresholds(int blockDistance, int warnDistance) {}
+
     void lockCorpus();
     boolean tryLockCorpus();
     void lockFile(String sha);
     String token();
+    Thresholds thresholds();
     boolean cacheValid(String sha);
     Optional<UUID> reusableCleanAnalysis(String sha);
     void bindCached(String sha, UUID event);
