@@ -40,14 +40,17 @@ precheck() {
   - Windows(WSL2 백엔드): %UserProfile%\\.wslconfig 의 [wsl2] memory=6GB 후 'wsl --shutdown'"
     fi
     # 서버는 CPU 0,1에 묶고, 클라이언트 쪽(클라이언트·toxiproxy·localstack)은 나머지에 둔다.
-    export LOADTEST_SERVER_CPUSET=0,1
-    if [ "$NCPU" -ge 3 ]; then
+    # 구성 비교(엔진 분리·사양 상향) 때는 미리 준 값을 그대로 쓴다.
+    export LOADTEST_SERVER_CPUSET="${LOADTEST_SERVER_CPUSET:-0,1}"
+    if [ -n "${LOADTEST_CLIENT_CPUSET:-}" ]; then
+        export LOADTEST_CLIENT_CPUSET
+    elif [ "$NCPU" -ge 3 ]; then
         export LOADTEST_CLIENT_CPUSET="2-$((NCPU - 1))"
     else
         export LOADTEST_CLIENT_CPUSET=0,1
         echo "주의: CPU 2개면 클라이언트·toxiproxy가 서버와 같은 CPU를 쓴다. 결과가 실제보다 느릴 수 있다(4개 이상 권장)."
     fi
-    echo "CPU 배치: 서버 ${LOADTEST_SERVER_CPUSET} / 클라이언트 ${LOADTEST_CLIENT_CPUSET}${CPU_SPLIT:+ (CPU_SPLIT: 컨테이너별 cpus 상한)}"
+    echo "CPU 배치: 서버 ${LOADTEST_SERVER_CPUSET} / 엔진 ${LOADTEST_ENGINE_CPUSET:-서버와 공유} (cpus ${LOADTEST_ENGINE_CPUS:-1.0}) / 클라이언트 ${LOADTEST_CLIENT_CPUSET}${CPU_SPLIT:+ (CPU_SPLIT: 컨테이너별 cpus 상한)}"
 }
 
 # 서버를 빌드·기동하고 응답할 때까지 기다린다. 결과: CLIENT(가상 에이전트 실행 명령)

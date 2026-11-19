@@ -207,6 +207,26 @@ loadtest-client ──(사용자마다 TCP 연결 1개)──▶ toxiproxy ─�
 - 판정 경로 밖(합계에 안 넣음): localstack(운영은 관리형 S3), toxiproxy(회선), loadtest-client.
   운영 EC2에서 도는 Prometheus·exporter·cAdvisor는 띄우지 않는다.
 
+### 구성 비교 (엔진 분리·사양 상향)
+
+CPU 배치를 환경 변수로 바꿔 "엔진을 다른 서버로 분리하면", "EC2 사양을 올리면"을 같은 PC에서 비교한다.
+
+| 변수 | 기본값 | 뜻 |
+|---|---|---|
+| `LOADTEST_SERVER_CPUSET` | `0,1` | 서버 컨테이너가 쓰는 CPU |
+| `LOADTEST_ENGINE_CPUSET` | 서버와 같음 | 엔진만 다른 CPU에 둘 때(분리 흉내) |
+| `LOADTEST_ENGINE_CPUS` | `1.0` | 엔진 CPU 상한(운영 compose 값) |
+| `LOADTEST_API_CPUS` | `2` | api-server JVM이 보는 CPU 수(`ActiveProcessorCount`) |
+| `LOADTEST_CLIENT_CPUSET` | 나머지 CPU | 클라이언트·toxiproxy CPU. 위 값과 겹치지 않게 준다 |
+
+```bash
+# 엔진을 별도 CPU 2개로 분리
+LOADTEST_ENGINE_CPUSET=2,3 LOADTEST_ENGINE_CPUS=2 LOADTEST_CLIENT_CPUSET=4-7 make loadtest SIZE=10,100 CONC=8 COUNT=150
+# 서버 전체 CPU 4개(사양 상향)
+LOADTEST_SERVER_CPUSET=0-3 LOADTEST_ENGINE_CPUS=2 LOADTEST_API_CPUS=4 LOADTEST_CLIENT_CPUSET=4-7 make loadtest SIZE=10,100 CONC=8 COUNT=150
+```
+Docker에 CPU가 8개 이상 할당돼 있어야 한다. 바꾼 값은 컨테이너를 다시 만들므로 끝나면 변수 없이 한 번 실행해 기본 구성으로 되돌린다.
+
 ### 회선 제한 (Toxiproxy)
 
 - Docker Desktop에서는 `tc`를 쓸 수 없어 TCP 프록시(Toxiproxy 2.12.0)의 `bandwidth` toxic으로 늦춘다.

@@ -50,7 +50,7 @@ services:
       #   호스트 3.8GB의 25% ≈ 950MB를 힙으로 잡는다. 60%(≈ 920MB)로 올려 운영 힙 크기에 맞춘다.
       #   나머지 약 600MB는 메타스페이스·스레드 스택·Netty 다이렉트 버퍼 몫(다이렉트 상한 기본값 = 최대 힙).
       # - CPU 수: 운영 JVM은 2개로 본다. cpuset이 2개라 그대로 2가 되지만, CPU_SPLIT=1(cpus 0.65)에서도 같게 2로 고정한다.
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:ActiveProcessorCount=2"
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:ActiveProcessorCount=${LOADTEST_API_CPUS:-2}"
     mem_limit: 1536m
     depends_on:
       postgres:
@@ -61,9 +61,11 @@ services:
         condition: service_healthy
 
   detection-engine:
-    <<: *server-cpus
+    # 기본은 서버와 같은 CPU 2개를 나눠 쓴다. 엔진 분리·사양 상향 비교 때만 LOADTEST_ENGINE_CPUSET·LOADTEST_ENGINE_CPUS를 준다
+    # (infra/loadtest/README.md "구성 비교").
+    cpuset: "${LOADTEST_ENGINE_CPUSET:-${LOADTEST_SERVER_CPUSET:-0,1}}"
     # 운영 compose.yml 값을 다시 적어 둔다(이 파일만 보고 배분을 알 수 있게).
-    cpus: 1.0
+    cpus: ${LOADTEST_ENGINE_CPUS:-1.0}
     mem_limit: 1g
 
   postgres:
