@@ -115,5 +115,6 @@ similarity:
   corpus:
     # TLSH 비교 대상 상한(고도화 테스트 시나리오 B 규모별 곡선). 0이면 무제한(운영 기본값).
     limit: ${SIMILARITY_CORPUS_LIMIT:0}
-  # indexed: 입력 TLSH의 L-value ±5 후보만 비교(V19, 결론은 전체 비교와 같다). bruteforce: 전체 비교(동일성 검사·되돌리기용).
-  mode: ${SIMILARITY_MODE:indexed}
+  # memory: 메모리 스냅샷(활성 악성 지문 전체, 117만 건 ≈ 80MB)의 L ±5 묶음만 비교. 스냅샷이 지금 corpus와 다르면 indexed로 답한다.
+  # indexed: 입력 TLSH의 L-value ±5 후보만 DB에서 비교(V19, 결론은 전체 비교와 같다). bruteforce: 전체 비교(동일성 검사·되돌리기용).
+  mode: ${SIMILARITY_MODE:memory}

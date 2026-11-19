@@ -28,23 +28,29 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
     private final int corpusLimit;
 
     /**
-     * indexed(기본): 입력 L-value ±5 후보만 읽는다(V19 인덱스, 결론은 전체 비교와 같다 — TlshLValue 참고).
+     * memory(기본): 메모리 스냅샷의 L ±5 묶음만 비교한다. 스냅샷 토큰이 지금과 다르면 indexed로 답한다.
+     * indexed: 입력 L-value ±5 후보만 DB에서 읽는다(V19 인덱스, 결론은 전체 비교와 같다 — TlshLValue 참고).
      * bruteforce: 후보 전체를 읽는다. 동일성 검사(고도화 테스트 시나리오 C)와 되돌리기용이다.
      */
     private final boolean indexed;
+    private final boolean memory;
+    private final InMemoryTlshCorpus memoryCorpus;
     private static final java.util.regex.Pattern T1_FORMAT = java.util.regex.Pattern.compile("T1[0-9A-F]{70}");
 
     public JdbcSimilarityDecisionStore(JdbcTemplate jdbc, ParsedSimilarityCorpus corpus,
             @Value("${similarity.corpus.limit:0}") int corpusLimit,
-            @Value("${similarity.mode:indexed}") String mode) {
+            @Value("${similarity.mode:memory}") String mode, InMemoryTlshCorpus memoryCorpus) {
         this.jdbc = jdbc;
         this.corpus = corpus;
         this.corpusLimit = corpusLimit;
+        this.memoryCorpus = memoryCorpus;
         this.indexed = switch (mode) {
-            case "indexed" -> true;
+            case "memory", "indexed" -> true;
             case "bruteforce" -> false;
-            default -> throw new IllegalArgumentException("similarity.mode는 indexed 또는 bruteforce: " + mode);
+            default -> throw new IllegalArgumentException("similarity.mode는 memory, indexed, bruteforce 중 하나: " + mode);
         };
+        // 상한(시나리오 B)은 DB 경로에만 걸리므로 상한이 있으면 메모리 경로를 쓰지 않는다.
+        this.memory = "memory".equals(mode) && corpusLimit <= 0;
     }
 
     /** V8의 목록/지문 쓰기 트리거는 같은 키의 배타 잠금을 얻는다. 비교에서 커밋까지 후보가 고정된다. */
@@ -125,6 +131,14 @@ public class JdbcSimilarityDecisionStore implements SimilarityDecisionStore {
             input = Tlsh.fromTlshStr(claimed);
         } catch (RuntimeException e) {
             return new Assessment(null, null, null, "UNAVAILABLE", token);
+        }
+        if (memory && T1_FORMAT.matcher(claimed).matches()) {
+            var snapshot = memoryCorpus.snapshotFor(token);
+            if (snapshot.isPresent()) {
+                TlshCorpusSnapshot.Match match = snapshot.get().nearest(claimed);
+                return match == null ? new Assessment(null, null, null, "NONE", token)
+                        : new Assessment(match.sha(), match.tlsh(), match.distance(), "NONE", token);
+            }
         }
         Assessment[] best = {new Assessment(null, null, null, "NONE", token)};
         // PostgreSQL 커서로 전 후보를 읽는다. fetchSize는 전송 묶음이지 후보 수 상한이 아니다.
