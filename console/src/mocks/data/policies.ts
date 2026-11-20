@@ -1,6 +1,7 @@
 import type {
   BypassDomainItem,
   FileTypePolicyItem,
+  SimilarityPolicy,
 } from '../../lib/api/policies'
 
 export const mockBypassDomains: BypassDomainItem[] = [
@@ -49,3 +50,22 @@ export const mockFileTypePolicies: FileTypePolicyItem[] = [
     createdAt: '2026-09-01T09:00:00+09:00',
   },
 ]
+
+// 서버 기본값(차단 30, 경고 70)과 허용 범위다. 허용 범위는 서버가 응답에 실어 주는 값이다.
+export const defaultSimilarityPolicy: SimilarityPolicy = {
+  blockDistance: 30,
+  warnDistance: 70,
+  limits: { blockMin: 0, blockMax: 50, warnMax: 70 },
+}
+
+// mock 핸들러가 PUT으로 바꾸는 현재 값이다. 위 목록들처럼 모듈 안의 상태를 직접 고친다.
+export const mockSimilarityPolicy: SimilarityPolicy = {
+  ...defaultSimilarityPolicy,
+  limits: { ...defaultSimilarityPolicy.limits },
+}
+
+// 테스트가 값을 바꾸고 나면 기본값으로 되돌릴 때 쓴다. 서버 통합 테스트의 @AfterEach와 같은 이유다.
+export function resetMockSimilarityPolicy() {
+  mockSimilarityPolicy.blockDistance = defaultSimilarityPolicy.blockDistance
+  mockSimilarityPolicy.warnDistance = defaultSimilarityPolicy.warnDistance
+}

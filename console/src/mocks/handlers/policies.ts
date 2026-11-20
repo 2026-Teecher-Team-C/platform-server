@@ -1,10 +1,14 @@
 import { http, HttpResponse } from 'msw'
 import { API_BASE_URL } from '../../lib/api/client'
 import { validateBypassInput } from '../../lib/bypass'
+// [추가] 화면과 mock이 같은 범위 검사 함수를 쓴다.
+import { validateSimilarityRange } from '../../lib/similarityPolicy'
 import { authorizeMockRequest } from '../http'
+import { appendMockAuditLog } from '../data/auditLogs'
 import {
   mockBypassDomains,
   mockFileTypePolicies,
+  mockSimilarityPolicy, // [추가]
 } from '../data/policies'
 
 function parseBoolean(value: string | null, fallback: boolean) {
@@ -19,6 +23,11 @@ function createBypassId() {
   bytes[8] = (bytes[8] & 0x3f) | 0x80
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
+}
+
+// [추가] 응답은 복사본으로 준다. 테스트가 응답 객체를 고쳐도 mock의 현재 값이 바뀌지 않게 하기 위해서다.
+function similarityPolicyResponse() {
+  return { ...mockSimilarityPolicy, limits: { ...mockSimilarityPolicy.limits } }
 }
 
 export const policyHandlers = [
@@ -104,5 +113,59 @@ export const policyHandlers = [
     })
 
     return HttpResponse.json({ items })
+  }),
+
+  // [추가] 조회: ADMIN, ANALYST. 서버와 같이 USER는 403이다.
+  http.get(API_BASE_URL + '/api/admin/similarity-policy', ({ request }) => {
+    const auth = authorizeMockRequest(request, 'ANALYST')
+    if (auth.error) return auth.error
+    return HttpResponse.json(similarityPolicyResponse())
+  }),
+
+  // [추가] 변경: ADMIN만. 서버와 같이 두 값을 한 번에 바꾸고, 바뀐 전체 정책을 응답으로 돌려준다.
+  http.put(API_BASE_URL + '/api/admin/similarity-policy', async ({ request }) => {
+    const auth = authorizeMockRequest(request, 'ADMIN')
+    if (auth.error) return auth.error
+    let input
+    try {
+      const body = await request.json() as Record<string, unknown> | null
+      // 문자열이나 빠진 값은 범위 검사 전에 막는다. 서버도 숫자가 아니면 400을 준다.
+      if (!body || typeof body.blockDistance !== 'number' || typeof body.warnDistance !== 'number') {
+        throw new Error('차단·경고 임계값을 숫자로 입력해 주세요.')
+      }
+      input = validateSimilarityRange(
+        { blockDistance: body.blockDistance, warnDistance: body.warnDistance },
+        mockSimilarityPolicy.limits,
+      )
+    } catch (error) {
+      return HttpResponse.json({ code: 'INVALID_INPUT', message: error instanceof Error ? error.message : '입력을 확인해 주세요.' }, { status: 400 })
+    }
+    // 서버와 같이 값이 실제로 바뀐 경우에만 감사 로그를 남긴다. 같은 값으로 저장하면 기록하지 않는다.
+    // 이전 값은 덮어쓰기 전에 따로 보관해 둬야 한다.
+    const previous = {
+      blockDistance: mockSimilarityPolicy.blockDistance,
+      warnDistance: mockSimilarityPolicy.warnDistance,
+    }
+    mockSimilarityPolicy.blockDistance = input.blockDistance
+    mockSimilarityPolicy.warnDistance = input.warnDistance
+    if (previous.blockDistance !== input.blockDistance || previous.warnDistance !== input.warnDistance) {
+      const { adminId, username, role } = auth.account!
+      appendMockAuditLog({
+        action: 'UPDATE_SIMILARITY_THRESHOLD',
+        dangerous: false,
+        actor: { adminId, username, role },
+        targetType: 'SIMILARITY_POLICY',
+        targetId: 'TLSH',
+        // 서버 기록과 같은 키다. "무엇에서 무엇으로 바뀌었나"를 이 로그만으로 알 수 있다.
+        detail: {
+          previousBlockDistance: previous.blockDistance,
+          previousWarnDistance: previous.warnDistance,
+          blockDistance: input.blockDistance,
+          warnDistance: input.warnDistance,
+        },
+        ipAddress: '127.0.0.1',
+      })
+    }
+    return HttpResponse.json(similarityPolicyResponse())
   }),
 ]
