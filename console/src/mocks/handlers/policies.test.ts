@@ -1,9 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest' // [추가] afterEach
 import { setupServer } from 'msw/node'
 import { policyHandlers } from './policies'
 import { API_BASE_URL } from '../../lib/api/client'
-import { mockBypassDomains } from '../data/policies'
-import { createBypassDomain, deactivateBypassDomain, getBypassDomains } from '../../lib/api/policies'
+import { mockBypassDomains, resetMockSimilarityPolicy } from '../data/policies' // [추가] resetMockSimilarityPolicy
+import {
+  createBypassDomain,
+  deactivateBypassDomain,
+  getBypassDomains,
+  getSimilarityPolicy, // [추가]
+  updateSimilarityPolicy, // [추가]
+} from '../../lib/api/policies'
 
 // 인증 자체가 아닌 목록 계약을 검증한다. 인증/401 흐름은 공통 인증 모듈의 책임이다.
 vi.mock('../http', () => ({ authorizeMockRequest: () => ({ account: {}, error: null }) }))
@@ -91,5 +97,58 @@ describe('바이패스 도메인 mock 목록', () => {
     expect(data.content[0].host).toBe('pinned.example.org')
     const next = await (await fetch(API_BASE_URL + '/api/admin/bypass-domains?page=1&size=1')).json()
     expect(next.content[0].host).toBe('updates.vendor.example')
+  })
+})
+
+describe('유사도 임계값 mock', () => {
+  // PUT 테스트가 mock 현재 값을 바꾸므로, 매 테스트 뒤에 기본값(30/70)으로 되돌린다.
+  afterEach(() => resetMockSimilarityPolicy())
+
+  it('기본값 30/70과 허용 범위를 서버 응답과 같은 모양으로 돌려준다', async () => {
+    expect(await getSimilarityPolicy()).toEqual({
+      blockDistance: 30,
+      warnDistance: 70,
+      limits: { blockMin: 0, blockMax: 50, warnMax: 70 },
+    })
+  })
+
+  it('PUT은 바뀐 전체 정책을 돌려주고 이후 GET에도 반영된다', async () => {
+    const updated = await updateSimilarityPolicy({ blockDistance: 40, warnDistance: 60 })
+    expect(updated).toEqual({
+      blockDistance: 40,
+      warnDistance: 60,
+      limits: { blockMin: 0, blockMax: 50, warnMax: 70 },
+    })
+    expect(await getSimilarityPolicy()).toMatchObject({ blockDistance: 40, warnDistance: 60 })
+  })
+
+  it('허용 범위의 양 끝(차단 50, 경고 70)도 저장된다', async () => {
+    await updateSimilarityPolicy({ blockDistance: 50, warnDistance: 70 })
+    expect(await getSimilarityPolicy()).toMatchObject({ blockDistance: 50, warnDistance: 70 })
+  })
+
+  it.each([
+    { blockDistance: 51, warnDistance: 60 }, // 차단 상한 초과
+    { blockDistance: -1, warnDistance: 60 }, // 차단 하한 미만
+    { blockDistance: 30, warnDistance: 30 }, // 경고가 차단과 같음
+    { blockDistance: 30, warnDistance: 71 }, // 경고 상한 초과
+    { blockDistance: 30.5, warnDistance: 60 }, // 정수가 아님
+  ])('범위를 벗어난 값은 400 INVALID_INPUT이고 현재 값은 그대로다: %j', async (input) => {
+    await expect(updateSimilarityPolicy(input)).rejects.toMatchObject({ status: 400, body: { code: 'INVALID_INPUT' } })
+    expect(await getSimilarityPolicy()).toMatchObject({ blockDistance: 30, warnDistance: 70 })
+  })
+
+  it.each([
+    { blockDistance: '30', warnDistance: 70 }, // 문자열
+    { blockDistance: 30 }, // 경고 값 없음
+    {},
+  ])('숫자가 아니거나 빠진 값은 400이다: %j', async (input) => {
+    const response = await fetch(API_BASE_URL + '/api/admin/similarity-policy', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'INVALID_INPUT' })
   })
 })
