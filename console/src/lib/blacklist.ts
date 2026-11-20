@@ -1,5 +1,17 @@
 import { ApiError } from './api/client'
-import type { BlacklistQuery } from './api/hashlists'
+import type { AffectedDevice, BlacklistQuery } from './api/hashlists'
+
+// IMP-10: 등록 직후 이 해시를 이미 받은 기기가 있으면 알려준다. 호스트명이 많으면 일부만 보여주고 나머지는 개수로 요약한다.
+const MAX_HOSTNAMES_IN_NOTICE = 3
+
+export function buildBlacklistCreateNotice(affectedDevices: AffectedDevice[]): string {
+  if (affectedDevices.length === 0) return '블랙리스트에 등록했습니다.'
+  const hostnames = affectedDevices.map((device) => device.hostname)
+  const shown = hostnames.slice(0, MAX_HOSTNAMES_IN_NOTICE).join(', ')
+  const rest = hostnames.length - MAX_HOSTNAMES_IN_NOTICE
+  const suffix = rest > 0 ? shown + ' 외 ' + rest + '대' : shown
+  return '블랙리스트에 등록했습니다. 이미 받은 기기 ' + affectedDevices.length + '대: ' + suffix
+}
 
 // 새로 등록한 항목은 별도 검색 대신 활성 목록 첫 페이지에서 확인한다.
 export function getBlacklistQueryAfterCreate(query: BlacklistQuery): BlacklistQuery {
