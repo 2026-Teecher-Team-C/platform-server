@@ -3,6 +3,7 @@ import { setupServer } from 'msw/node'
 import { policyHandlers } from './policies'
 import { API_BASE_URL } from '../../lib/api/client'
 import { mockBypassDomains, resetMockSimilarityPolicy } from '../data/policies' // [추가] resetMockSimilarityPolicy
+import { mockAuditLogs } from '../data/auditLogs'
 import {
   createBypassDomain,
   deactivateBypassDomain,
@@ -101,8 +102,12 @@ describe('바이패스 도메인 mock 목록', () => {
 })
 
 describe('유사도 임계값 mock', () => {
-  // PUT 테스트가 mock 현재 값을 바꾸므로, 매 테스트 뒤에 기본값(30/70)으로 되돌린다.
-  afterEach(() => resetMockSimilarityPolicy())
+  // PUT 테스트가 mock 현재 값과 감사 로그를 바꾸므로, 매 테스트 뒤에 처음 상태로 되돌린다.
+  const originalAudit = mockAuditLogs.slice()
+  afterEach(() => {
+    resetMockSimilarityPolicy()
+    mockAuditLogs.splice(0, mockAuditLogs.length, ...originalAudit)
+  })
 
   it('기본값 30/70과 허용 범위를 서버 응답과 같은 모양으로 돌려준다', async () => {
     expect(await getSimilarityPolicy()).toEqual({
@@ -150,5 +155,29 @@ describe('유사도 임계값 mock', () => {
     })
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('값이 바뀌면 감사 로그에 이전 값과 새 값을 남기고, 같은 값이면 남기지 않는다', async () => {
+    const before = mockAuditLogs.length
+    await updateSimilarityPolicy({ blockDistance: 41, warnDistance: 61 })
+    expect(mockAuditLogs).toHaveLength(before + 1)
+    // 새 기록은 목록 맨 앞에 들어간다. 대상은 서버와 같이 SIMILARITY_POLICY / TLSH이고 위험 작업이 아니다.
+    expect(mockAuditLogs[0]).toMatchObject({
+      action: 'UPDATE_SIMILARITY_THRESHOLD',
+      dangerous: false,
+      targetType: 'SIMILARITY_POLICY',
+      targetId: 'TLSH',
+      detail: { previousBlockDistance: 30, previousWarnDistance: 70, blockDistance: 41, warnDistance: 61 },
+    })
+
+    // 같은 값으로 다시 저장해도 성공하지만 기록은 늘지 않는다.
+    await updateSimilarityPolicy({ blockDistance: 41, warnDistance: 61 })
+    expect(mockAuditLogs).toHaveLength(before + 1)
+  })
+
+  it('검증에 실패한 요청은 감사 로그를 남기지 않는다', async () => {
+    const before = mockAuditLogs.length
+    await expect(updateSimilarityPolicy({ blockDistance: 51, warnDistance: 60 })).rejects.toMatchObject({ status: 400 })
+    expect(mockAuditLogs).toHaveLength(before)
   })
 })
