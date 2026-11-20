@@ -4,6 +4,7 @@ import { validateBypassInput } from '../../lib/bypass'
 // [추가] 화면과 mock이 같은 범위 검사 함수를 쓴다.
 import { validateSimilarityRange } from '../../lib/similarityPolicy'
 import { authorizeMockRequest } from '../http'
+import { appendMockAuditLog } from '../data/auditLogs'
 import {
   mockBypassDomains,
   mockFileTypePolicies,
@@ -139,8 +140,32 @@ export const policyHandlers = [
     } catch (error) {
       return HttpResponse.json({ code: 'INVALID_INPUT', message: error instanceof Error ? error.message : '입력을 확인해 주세요.' }, { status: 400 })
     }
+    // 서버와 같이 값이 실제로 바뀐 경우에만 감사 로그를 남긴다. 같은 값으로 저장하면 기록하지 않는다.
+    // 이전 값은 덮어쓰기 전에 따로 보관해 둬야 한다.
+    const previous = {
+      blockDistance: mockSimilarityPolicy.blockDistance,
+      warnDistance: mockSimilarityPolicy.warnDistance,
+    }
     mockSimilarityPolicy.blockDistance = input.blockDistance
     mockSimilarityPolicy.warnDistance = input.warnDistance
+    if (previous.blockDistance !== input.blockDistance || previous.warnDistance !== input.warnDistance) {
+      const { adminId, username, role } = auth.account!
+      appendMockAuditLog({
+        action: 'UPDATE_SIMILARITY_THRESHOLD',
+        dangerous: false,
+        actor: { adminId, username, role },
+        targetType: 'SIMILARITY_POLICY',
+        targetId: 'TLSH',
+        // 서버 기록과 같은 키다. "무엇에서 무엇으로 바뀌었나"를 이 로그만으로 알 수 있다.
+        detail: {
+          previousBlockDistance: previous.blockDistance,
+          previousWarnDistance: previous.warnDistance,
+          blockDistance: input.blockDistance,
+          warnDistance: input.warnDistance,
+        },
+        ipAddress: '127.0.0.1',
+      })
+    }
     return HttpResponse.json(similarityPolicyResponse())
   }),
 ]
