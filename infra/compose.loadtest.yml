@@ -48,7 +48,7 @@ services:
       # JVM은 컨테이너 cgroup 제한을 읽는다(JDK 21 기본 UseContainerSupport).
       # - 힙: 기본 MaxRAMPercentage=25면 1536m의 25% = 384MB다. 운영 api-server는 메모리 상한이 없어서
       #   호스트 3.8GB의 25% ≈ 950MB를 힙으로 잡는다. 60%(≈ 920MB)로 올려 운영 힙 크기에 맞춘다.
-      #   나머지 약 600MB는 메타스페이스·스레드 스택·Netty 다이렉트 버퍼 몫(다이렉트 상한 기본값 = 최대 힙).
+      #   나머지 약 600MB는 메타스페이스·스레드 스택·Netty 다이렉트 버퍼 몫(다이렉트 상한은 Dockerfile의 256m).
       # - CPU 수: 운영 JVM은 2개로 본다. cpuset이 2개라 그대로 2가 되지만, CPU_SPLIT=1(cpus 0.65)에서도 같게 2로 고정한다.
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:ActiveProcessorCount=${LOADTEST_API_CPUS:-2}"
     mem_limit: 1536m
