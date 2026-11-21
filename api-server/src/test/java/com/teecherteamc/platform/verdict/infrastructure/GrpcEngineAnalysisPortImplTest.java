@@ -30,6 +30,7 @@ import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -133,7 +134,8 @@ class GrpcEngineAnalysisPortImplTest {
         when(rulesets.activeSnapshot()).thenReturn(new RulesetSnapshot(1, "rule a { condition: true }", List.of()));
         DetectionEngineGrpc.DetectionEngineStub stub = DetectionEngineGrpc.newStub(channel)
                 .withInterceptors(countingSends(sentCounter));
-        return new GrpcEngineAnalysisPortImpl(stub, rulesets, mock(EngineRulesetPort.class));
+        return new GrpcEngineAnalysisPortImpl(stub, rulesets, mock(EngineRulesetPort.class),
+                new EngineAdmission(4, Duration.ofSeconds(10)));
     }
 
     private static ClientInterceptor countingSends(AtomicInteger counter) {

@@ -44,16 +44,23 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
     private final DetectionEngineGrpc.DetectionEngineStub stub;
     private final ActiveRulesetService activeRulesetService;
     private final EngineRulesetPort engineRulesetPort;
+    private final EngineAdmission admission;
 
     GrpcEngineAnalysisPortImpl(DetectionEngineGrpc.DetectionEngineStub stub,
-            ActiveRulesetService activeRulesetService, EngineRulesetPort engineRulesetPort) {
+            ActiveRulesetService activeRulesetService, EngineRulesetPort engineRulesetPort,
+            EngineAdmission admission) {
         this.stub = stub;
         this.activeRulesetService = activeRulesetService;
         this.engineRulesetPort = engineRulesetPort;
+        this.admission = admission;
     }
 
     @Override
     public AnalysisOutcome analyze(Path spoolFile, long fileSize) {
+        return admission.run(() -> analyzeAdmitted(spoolFile, fileSize));
+    }
+
+    private AnalysisOutcome analyzeAdmitted(Path spoolFile, long fileSize) {
         // 이 메서드 안에서 나는 예외는 전부 EngineUnavailableException으로 모은다 — 스트림 전송 실패,
         // 엔진이 보낸 status/verdict가 이상한 값이라 toOutcome()이 못 알아듣는 경우까지 전부 포함해서.
         // 호출자(SubmitFileUseCase)가 이 타입 하나만 잡아서 감사 기록(file_verdicts ERROR/analyses
