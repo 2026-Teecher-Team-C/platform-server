@@ -52,6 +52,14 @@ ruleset:
   # 엔진 CompileRules/LoadRuleset 호출 시간 제한. 큰 룰셋은 1CPU에서 컴파일에 수 초 걸린다(full 약 4초).
   engine-timeout: 60s
 
+verdict:
+  engine:
+    # 엔진에 동시에 넣는 Analyze 호출 수. 엔진 gRPC worker 수(detection-engine server.py max_workers)와 맞춘다.
+    max-concurrent: ${VERDICT_ENGINE_MAX_CONCURRENT:4}
+    # 엔진 차례를 기다리는 최대 시간. 넘으면 UNAVAILABLE(fail-close). 에이전트 대기 120초 안에
+    # 업로드 + 대기 + 분석(엔진 deadline 60초)이 들어가도록 잡는다.
+    max-queue-wait: ${VERDICT_ENGINE_MAX_QUEUE_WAIT:50s}
+
 lookup:
   bloom-filter:
     # n: 블룸이 추적할 것으로 예상하는 file_verdicts 전체 해시 수. 실제 개수가 이 값을 크게 넘으면
