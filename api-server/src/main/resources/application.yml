@@ -52,6 +52,10 @@ ruleset:
   # 엔진 CompileRules/LoadRuleset 호출 시간 제한. 큰 룰셋은 1CPU에서 컴파일에 수 초 걸린다(full 약 4초).
   engine-timeout: 60s
 
+grpc-server:
+  # 스트림당 수신 흐름 제어 창(바이트). 기본 1MiB를 256KiB로 줄여 동시 업로드 때 다이렉트 메모리를 묶는다.
+  flow-control-window: ${GRPC_SERVER_FLOW_CONTROL_WINDOW:262144}
+
 verdict:
   engine:
     # 엔진에 동시에 넣는 Analyze 호출 수. 엔진 gRPC worker 수(detection-engine server.py max_workers)와 맞춘다.
