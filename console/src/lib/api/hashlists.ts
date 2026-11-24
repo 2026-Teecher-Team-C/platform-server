@@ -94,6 +94,19 @@ export type CreateBlacklistRequest = {
   reason: string
 }
 
+// IMP-10: 등록한 해시를 이미 받은 적 있는 기기. 받은 적 없으면 빈 배열.
+export type AffectedDevice = {
+  deviceId: string
+  hostname: string
+  receivedCount: number
+  lastReceivedAt: string
+}
+
+export type BlacklistRegisterResponse = {
+  entry: BlacklistItem
+  affectedDevices: AffectedDevice[]
+}
+
 export function getBlacklist(query: BlacklistQuery = {}) {
   // 검색은 해시 앞부분 일치, page는 0부터 시작한다. mock/real 모두 같은 계약을 사용한다.
   return apiRequest<PageResponse<BlacklistItem>>(
@@ -102,7 +115,7 @@ export function getBlacklist(query: BlacklistQuery = {}) {
 }
 
 export function createBlacklist(body: CreateBlacklistRequest) {
-  return apiRequest<BlacklistItem>('/api/admin/blacklist', {
+  return apiRequest<BlacklistRegisterResponse>('/api/admin/blacklist', {
     method: 'POST',
     body: JSON.stringify(body),
   })

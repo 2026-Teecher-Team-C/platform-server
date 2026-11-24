@@ -52,6 +52,17 @@ class BlacklistRegisterRestIntegrationTest {
         return adminApi.postForEntity(URL, Map.of("sha256", sha256, "reason", reason), mapType());
     }
 
+    // 응답이 {entry, affectedDevices}로 감싸져 있다(IMP-10). entry는 기존 BlacklistItem과 같은 모양이다.
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> entry(ResponseEntity<Map<String, Object>> response) {
+        return (Map<String, Object>) response.getBody().get("entry");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> affectedDevices(ResponseEntity<Map<String, Object>> response) {
+        return (List<Map<String, Object>>) response.getBody().get("affectedDevices");
+    }
+
     private int countBlacklist(String hash) {
         return jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM hash_blacklist WHERE hash_value = ?", Integer.class, hash);
@@ -71,6 +82,46 @@ class BlacklistRegisterRestIntegrationTest {
                 hash, adminApi.adminId(), expiresAt == null ? null : Timestamp.from(expiresAt));
     }
 
+    // IMP-10: 영향받은 기기 조회 테스트용 — device/agent/download_event 픽스처.
+    private UUID seedDevice(String hostname) {
+        UUID deviceId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO devices (device_id, hostname, os_platform) VALUES (?, ?, 'WINDOWS')",
+                deviceId, hostname);
+        return deviceId;
+    }
+
+    private UUID seedAgent(UUID deviceId) {
+        UUID agentId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO agents (agent_id, device_id, agent_version, enrollment_token_hash)
+                VALUES (?, ?, '0.0.1', ?)
+                """,
+                agentId, deviceId, "hash-" + agentId);
+        return agentId;
+    }
+
+    private void seedDownloadEvent(UUID agentId, String sha256, String decision, Instant createdAt) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO download_events
+                    (event_id, agent_id, sha256, request_host, url, pipeline_status,
+                     decision, decision_source, held_at, decided_at, created_at)
+                VALUES (?, ?, ?, 'example.com', 'https://example.com/f', 'COMPLETED', ?, 'CACHE', ?, ?, ?)
+                """,
+                UUID.randomUUID(), agentId, sha256, decision,
+                Timestamp.from(createdAt), Timestamp.from(createdAt), Timestamp.from(createdAt));
+    }
+
+    // 받은 걸로 칠 기본 fixture: 호스트 하나가 특정 시각에 그 해시를 RELEASED로 받았다.
+    private UUID seedReceivedDevice(String sha256, String hostname, Instant receivedAt) {
+        UUID deviceId = seedDevice(hostname);
+        UUID agentId = seedAgent(deviceId);
+        seedDownloadEvent(agentId, sha256, "RELEASED", receivedAt);
+        return deviceId;
+    }
+
     @Test
     void 정상_등록하면_201과_BlacklistItem을_돌려주고_로그인한_관리자가_등록자다() {
         String hash = randomSha256();
@@ -78,7 +129,7 @@ class BlacklistRegisterRestIntegrationTest {
         ResponseEntity<Map<String, Object>> response = post(hash, "알려진 악성 해시");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        Map<String, Object> body = response.getBody();
+        Map<String, Object> body = entry(response);
         assertThat(body.get("hashType")).isEqualTo("SHA256");
         assertThat(body.get("hashValue")).isEqualTo(hash);
         assertThat(body.get("reason")).isEqualTo("알려진 악성 해시");
@@ -96,6 +147,8 @@ class BlacklistRegisterRestIntegrationTest {
         UUID savedAddedBy = jdbcTemplate.queryForObject(
                 "SELECT added_by FROM hash_blacklist WHERE hash_value = ?", UUID.class, hash);
         assertThat(savedAddedBy).isEqualTo(adminApi.adminId());
+        // 받은 기기가 없으면 빈 배열(IMP-10)
+        assertThat(affectedDevices(response)).isEmpty();
     }
 
     @Test
@@ -105,7 +158,7 @@ class BlacklistRegisterRestIntegrationTest {
         ResponseEntity<Map<String, Object>> response = post("  " + hash.toUpperCase() + "  ", "사유");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(response.getBody().get("hashValue")).isEqualTo(hash);
+        assertThat(entry(response).get("hashValue")).isEqualTo(hash);
         assertThat(countBlacklist(hash)).isEqualTo(1);
     }
 
@@ -161,7 +214,7 @@ class BlacklistRegisterRestIntegrationTest {
         ResponseEntity<Map<String, Object>> response = post(hash, "다시 등록한 사유");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        Map<String, Object> body = response.getBody();
+        Map<String, Object> body = entry(response);
         assertThat(body.get("isActive")).isEqualTo(true);
         assertThat(body.get("deactivatedAt")).isNull();
         assertThat(body.get("reason")).isEqualTo("다시 등록한 사유");
@@ -219,5 +272,91 @@ class BlacklistRegisterRestIntegrationTest {
         assertThat(row.get("target_id")).isEqualTo("SHA256:" + hash);
         assertThat(row.get("actor_id")).isEqualTo(adminApi.adminId());
         assertThat(row.get("ip")).isNotNull();   // 테스트에서는 로컬 주소(127.0.0.1 또는 ::1)가 남는다
+    }
+
+    // IMP-10: 악성 지정 시 이미 받은 기기 조회
+    @Test
+    void 이미_받은_기기가_여러_대면_등록_응답에_전부_포함된다() {
+        String hash = randomSha256();
+        seedReceivedDevice(hash, "DESKTOP-A", Instant.now().minusSeconds(3600));
+        seedReceivedDevice(hash, "DESKTOP-B", Instant.now());
+
+        ResponseEntity<Map<String, Object>> response = post(hash, "뒤늦게 악성 확인됨");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(affectedDevices(response))
+                .extracting(d -> d.get("hostname"))
+                .containsExactlyInAnyOrder("DESKTOP-A", "DESKTOP-B");
+    }
+
+    @Test
+    void BLOCKED로_끝난_이벤트는_실제로_못_받은_것이라_포함되지_않는다() {
+        String hash = randomSha256();
+        UUID deviceId = seedDevice("DESKTOP-BLOCKED");
+        seedDownloadEvent(seedAgent(deviceId), hash, "BLOCKED", Instant.now());
+
+        ResponseEntity<Map<String, Object>> response = post(hash, "사유");
+
+        assertThat(affectedDevices(response)).isEmpty();
+    }
+
+    @Test
+    void 받은_기기가_없으면_affectedDevices가_빈_배열이다() {
+        String hash = randomSha256();
+
+        ResponseEntity<Map<String, Object>> response = post(hash, "사유");
+
+        assertThat(affectedDevices(response)).isNotNull().isEmpty();
+    }
+
+    @Test
+    void 같은_기기가_여러_번_받았으면_한_번만_나오고_받은_횟수가_맞다() {
+        String hash = randomSha256();
+        UUID deviceId = seedDevice("DESKTOP-REPEAT");
+        UUID agentId = seedAgent(deviceId);
+        Instant first = Instant.now().minusSeconds(7200);
+        Instant last = Instant.now();
+        seedDownloadEvent(agentId, hash, "RELEASED", first);
+        seedDownloadEvent(agentId, hash, "RELEASED", last);
+
+        ResponseEntity<Map<String, Object>> response = post(hash, "사유");
+
+        List<Map<String, Object>> devices = affectedDevices(response);
+        assertThat(devices).hasSize(1);
+        assertThat(devices.get(0).get("hostname")).isEqualTo("DESKTOP-REPEAT");
+        assertThat(devices.get(0).get("receivedCount")).isEqualTo(2);
+        Instant lastReceivedAt = Instant.parse((String) devices.get(0).get("lastReceivedAt"));
+        assertThat(lastReceivedAt).isAfter(first);   // 두 번 중 더 늦은 시각이 나와야 한다
+
+    }
+
+    @Test
+    void 해제됐던_해시를_재등록해도_affectedDevices가_똑같이_채워진다() {
+        String hash = randomSha256();
+        seedReceivedDevice(hash, "DESKTOP-REACTIVATE", Instant.now());
+        post(hash, "처음 사유");
+        jdbcTemplate.update(
+                "UPDATE hash_blacklist SET is_active = false, deactivated_at = now() WHERE hash_value = ?",
+                hash);
+
+        ResponseEntity<Map<String, Object>> response = post(hash, "다시 등록한 사유");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(affectedDevices(response))
+                .extracting(d -> d.get("hostname"))
+                .containsExactly("DESKTOP-REACTIVATE");
+    }
+
+    @Test
+    // 바이패스는 검사를 통째로 생략하는 경로라 "통과시켰던 파일이 나중에 악성으로 밝혀짐" 시나리오
+    // 자체가 성립하지 않는다 — 일부러 제외한다(이슈 #111).
+    void BYPASSED는_sha256이_남아있어도_포함되지_않는다() {
+        String hash = randomSha256();
+        UUID deviceId = seedDevice("DESKTOP-BYPASSED");
+        seedDownloadEvent(seedAgent(deviceId), hash, "BYPASSED", Instant.now());
+
+        ResponseEntity<Map<String, Object>> response = post(hash, "사유");
+
+        assertThat(affectedDevices(response)).isEmpty();
     }
 }

@@ -1,6 +1,7 @@
 package com.teecherteamc.platform.hashlist.interfaces;
 
 import com.teecherteamc.platform.admin.interfaces.AdminPrincipal;
+import com.teecherteamc.platform.admin.interfaces.BlacklistRegisterResponse;
 import com.teecherteamc.platform.common.ApiException;
 import com.teecherteamc.platform.common.ClientIp;
 import com.teecherteamc.platform.common.ErrorCode;
@@ -121,17 +122,21 @@ public class BlacklistController {
                         ClientIp.resolve(httpRequest))));
     }
 
-    /** 알려진 악성 해시를 블랙리스트에 등록한다. 등록 즉시 그 파일은 차단된다. */
+    /**
+     * 알려진 악성 해시를 블랙리스트에 등록한다. 등록 즉시 그 파일은 차단된다.
+     * 응답의 affectedDevices는 이 해시를 이미 받은 적 있는 기기 목록이다(IMP-10 — 통과시켰던 파일이
+     * 뒤늦게 악성으로 밝혀진 경우를 관리자가 바로 알 수 있게 한다). 받은 적 없으면 빈 배열.
+     */
     @PostMapping("/api/admin/blacklist")
     @ResponseStatus(HttpStatus.CREATED)   // 성공 시 200이 아니라 201
-    public BlacklistItem create(@Valid @RequestBody CreateBlacklistRequest request,
-                                @AuthenticationPrincipal AdminPrincipal principal,
-                                HttpServletRequest httpRequest) {
+    public BlacklistRegisterResponse create(@Valid @RequestBody CreateBlacklistRequest request,
+                                            @AuthenticationPrincipal AdminPrincipal principal,
+                                            HttpServletRequest httpRequest) {
         try {
             // addedBy: 로그인한 관리자 / ip: 감사 로그에 남길 클라이언트 IP (X-Forwarded-For의 첫 주소)
-            BlacklistEntry entry = addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(
+            AddBlacklistEntryUseCase.Result result = addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(
                     request.sha256(), request.reason(), principal.adminId(), ClientIp.resolve(httpRequest)));
-            return BlacklistItem.from(entry, principal.username());
+            return BlacklistRegisterResponse.from(result, principal.username());
         } catch (InvalidHashException e) {
             // SHA-256 형식이 틀림 → 400. 메시지는 HashKey가 쓴 문장을 그대로 쓴다.
             throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());

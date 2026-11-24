@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createBlacklist, getBlacklist, removeBlacklist, updateBlacklistReason } from '../lib/api/hashlists'
-import type { BlacklistItem, BlacklistQuery, BlacklistSeverity, BlacklistSource } from '../lib/api/hashlists'
+import type { BlacklistItem, BlacklistQuery, BlacklistRegisterResponse, BlacklistSeverity, BlacklistSource } from '../lib/api/hashlists'
 import type { PageResponse } from '../lib/api/types'
-import { blacklistErrorMessage, getBlacklistQueryAfterCreate, getBlacklistQueryAfterStatusChange } from '../lib/blacklist'
+import { blacklistErrorMessage, buildBlacklistCreateNotice, getBlacklistQueryAfterCreate, getBlacklistQueryAfterStatusChange } from '../lib/blacklist'
 import { BlacklistCreateForm } from '../components/blacklist/BlacklistCreateForm'
 import { ClearableHashInput } from '../components/blacklist/ClearableHashInput'
 import { BlacklistNotice } from '../components/blacklist/BlacklistNotice'
@@ -135,7 +135,7 @@ export function BlacklistPage() {
   }
 
   function submitCreate(sha256: string, reason: string) {
-    return runChange(() => createBlacklist({ sha256, reason }), () => {
+    return runChange(() => createBlacklist({ sha256, reason }), (response) => {
       // 등록 후 단건 검색하지 않고 검색 조건을 비운 활성 목록 첫 페이지로 이동한다.
       // 재등록 항목의 최초 등록 시각은 서버 정책대로 유지하므로 맨 위로 올리지는 않는다.
       setHash('')
@@ -143,7 +143,7 @@ export function BlacklistPage() {
       setSource('')
       setIsActive(true)
       setQuery(getBlacklistQueryAfterCreate(query))
-      setNotice('블랙리스트에 등록했습니다.')
+      setNotice(buildBlacklistCreateNotice(response.affectedDevices))
     }, setCreateError)
   }
 
@@ -165,7 +165,7 @@ export function BlacklistPage() {
       : target.mode === 'activate'
         ? () => createBlacklist({ sha256: target.item.hashValue, reason: draftReason.trim() })
         : () => removeBlacklist(target.item.hashValue)
-    void runChange(operation, () => {
+    void runChange(operation, (result) => {
       if (target.mode === 'edit') { setNotice('사유를 수정했습니다.'); return }
       const nextQuery = getBlacklistQueryAfterStatusChange(query, target.item.hashValue, target.mode === 'activate')
       // 입력값과 실제 조회 조건을 함께 복원해 화면에 서로 다른 조건이 남지 않도록 한다.
@@ -174,7 +174,10 @@ export function BlacklistPage() {
       setSource(nextQuery.source ?? '')
       setIsActive(nextQuery.isActive ?? true)
       setQuery(nextQuery)
-      setNotice(target.mode === 'activate' ? '블랙리스트를 활성화했습니다.' : '블랙리스트를 비활성화했습니다.')
+      // 활성화도 createBlacklist(재등록)를 타므로 이미 받은 기기가 있으면 같이 알려준다.
+      setNotice(target.mode === 'activate'
+        ? buildBlacklistCreateNotice((result as BlacklistRegisterResponse).affectedDevices)
+        : '블랙리스트를 비활성화했습니다.')
     }, setActionError)
   }
 

@@ -3,15 +3,18 @@ package com.teecherteamc.platform.hashlist.application;
 import com.teecherteamc.platform.audit.application.AuditLogRecorder;
 import com.teecherteamc.platform.audit.domain.AuditAction;
 import com.teecherteamc.platform.audit.domain.AuditTargetType;
+import com.teecherteamc.platform.hashlist.domain.AffectedDeviceRow;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntry;
 import com.teecherteamc.platform.hashlist.domain.BlacklistEntryRepository;
 import com.teecherteamc.platform.hashlist.domain.EntrySource;
+import com.teecherteamc.platform.hashlist.domain.FindAffectedDevicesPort;
 import com.teecherteamc.platform.hashlist.domain.HashKey;
 import com.teecherteamc.platform.hashlist.domain.Severity;
 import com.teecherteamc.platform.hashlist.domain.WhitelistEntryRepository;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -31,17 +34,20 @@ public class AddBlacklistEntryUseCase {
     private final Clock clock;   // 현재 시각을 밖에서 받아야 테스트에서 고정할 수 있다
     private final BloomFilterPort bloomFilter;
     private final AuditLogRecorder auditLogRecorder;   // 관리자 쓰기 API가 공통으로 쓰는 감사 로그 기록기(#42)
+    private final FindAffectedDevicesPort findAffectedDevicesPort;   // IMP-10: 악성 지정 시 영향받은 기기 조회
 
     public AddBlacklistEntryUseCase(BlacklistEntryRepository blacklist,
                                     WhitelistEntryRepository whitelist,
                                     Clock clock,
                                     AuditLogRecorder auditLogRecorder,
-                                    BloomFilterPort bloomFilter) {
+                                    BloomFilterPort bloomFilter,
+                                    FindAffectedDevicesPort findAffectedDevicesPort) {
         this.bloomFilter = bloomFilter;
         this.blacklist = blacklist;
         this.whitelist = whitelist;
         this.clock = clock;
         this.auditLogRecorder = auditLogRecorder;
+        this.findAffectedDevicesPort = findAffectedDevicesPort;
     }
 
     /**
@@ -52,8 +58,12 @@ public class AddBlacklistEntryUseCase {
     public record Command(String sha256, String reason, UUID addedBy, String ip) {
     }
 
+    /** affectedDevices: 이 해시를 이미 받은 적 있는 기기 목록(IMP-10). 없으면 빈 리스트. */
+    public record Result(BlacklistEntry entry, List<AffectedDeviceRow> affectedDevices) {
+    }
+
     @Transactional   // 검사와 저장과 감사 로그가 한 트랜잭션이라 중간에 예외가 나면 모두 취소된다
-    public BlacklistEntry add(Command command) {
+    public Result add(Command command) {
         // 1. 형식 검증 + 정규화. 틀리면 InvalidHashException (컨트롤러가 400으로 바꾼다)
         HashKey key = HashKey.sha256(command.sha256());
         Instant now = clock.instant();
@@ -83,7 +93,7 @@ public class AddBlacklistEntryUseCase {
             blacklist.save(entry);
             BloomAfterCommit.add(bloomFilter, key.getHashValue());
             recordAudit(command, key);
-            return entry;
+            return new Result(entry, findAffectedDevicesPort.findBySha256(key.getHashValue()));
         }
 
         // 5. 처음 등록. severity는 요청에 없어서 HIGH, source는 MANUAL
@@ -92,7 +102,8 @@ public class AddBlacklistEntryUseCase {
         blacklist.save(entry);
         BloomAfterCommit.add(bloomFilter, key.getHashValue());
         recordAudit(command, key);
-        return entry;
+        // 7. 이 해시를 이미 받은 기기가 있는지 확인한다(IMP-10) — 통과시켰던 파일이 뒤늦게 악성으로 밝혀진 경우.
+        return new Result(entry, findAffectedDevicesPort.findBySha256(key.getHashValue()));
     }
 
     /**
