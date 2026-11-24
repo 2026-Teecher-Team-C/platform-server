@@ -16,7 +16,8 @@ import com.teecherteamc.platform.verdict.domain.EngineMatch;
 import com.teecherteamc.platform.verdict.domain.EngineUnavailableException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import io.grpc.stub.StreamObserver;
+import io.grpc.stub.ClientCallStreamObserver;
+import io.grpc.stub.ClientResponseObserver;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -43,16 +44,23 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
     private final DetectionEngineGrpc.DetectionEngineStub stub;
     private final ActiveRulesetService activeRulesetService;
     private final EngineRulesetPort engineRulesetPort;
+    private final EngineAdmission admission;
 
     GrpcEngineAnalysisPortImpl(DetectionEngineGrpc.DetectionEngineStub stub,
-            ActiveRulesetService activeRulesetService, EngineRulesetPort engineRulesetPort) {
+            ActiveRulesetService activeRulesetService, EngineRulesetPort engineRulesetPort,
+            EngineAdmission admission) {
         this.stub = stub;
         this.activeRulesetService = activeRulesetService;
         this.engineRulesetPort = engineRulesetPort;
+        this.admission = admission;
     }
 
     @Override
     public AnalysisOutcome analyze(Path spoolFile, long fileSize) {
+        return admission.run(() -> analyzeAdmitted(spoolFile, fileSize));
+    }
+
+    private AnalysisOutcome analyzeAdmitted(Path spoolFile, long fileSize) {
         // 이 메서드 안에서 나는 예외는 전부 EngineUnavailableException으로 모은다 — 스트림 전송 실패,
         // 엔진이 보낸 status/verdict가 이상한 값이라 toOutcome()이 못 알아듣는 경우까지 전부 포함해서.
         // 호출자(SubmitFileUseCase)가 이 타입 하나만 잡아서 감사 기록(file_verdicts ERROR/analyses
@@ -105,27 +113,35 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
     /** 새 스트림을 열어 스풀 파일을 처음부터 보내고 응답을 기다린다. 엔진이 오류로 끝내면 ExecutionException. */
     private AnalyzeResponse send(Path spoolFile, long fileSize, String rulesetKey) throws ExecutionException {
         CompletableFuture<AnalyzeResponse> future = new CompletableFuture<>();
-        StreamObserver<AnalyzeRequest> requestObserver = stub.withDeadlineAfter(
-                        ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .analyze(new StreamObserver<>() {
+        ReadyGate gate = new ReadyGate();
+        stub.withDeadlineAfter(ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .analyze(new ClientResponseObserver<AnalyzeRequest, AnalyzeResponse>() {
+                    @Override
+                    public void beforeStart(ClientCallStreamObserver<AnalyzeRequest> requestStream) {
+                        gate.attach(requestStream);
+                    }
+
                     @Override
                     public void onNext(AnalyzeResponse value) {
                         future.complete(value);
+                        gate.signal();
                     }
 
                     @Override
                     public void onError(Throwable t) {
                         future.completeExceptionally(t);
+                        gate.signal();
                     }
 
                     @Override
                     public void onCompleted() {
                         // 응답은 onNext로 이미 받는다 — 단일 응답 스트림이라 여기선 할 일이 없다.
+                        gate.signal();
                     }
                 });
 
         try {
-            streamSpoolFile(spoolFile, fileSize, rulesetKey, requestObserver);
+            streamSpoolFile(spoolFile, fileSize, rulesetKey, gate, future);
         } catch (RuntimeException e) {
             // 엔진이 먼저 abort하면 전송 쪽도 같이 깨질 수 있다 — 엔진이 준 오류가 있으면 그쪽이 원인이다.
             if (!future.isCompletedExceptionally()) {
@@ -143,9 +159,18 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
         }
     }
 
-    private void streamSpoolFile(Path spoolFile, long fileSize, String rulesetKey,
-            StreamObserver<AnalyzeRequest> requestObserver) {
+    /**
+     * 엔진이 받을 수 있을 때만(isReady) 다음 청크를 보낸다. 확인 없이 onNext를 이어 부르면 엔진이 바쁠 때
+     * 못 보낸 청크가 전부 api-server 메모리(Netty 송신 큐)에 쌓인다 — 동시 업로드 수 × 파일 크기만큼.
+     * 엔진이 먼저 끝내면(응답·오류·deadline) 더 보내지 않는다.
+     */
+    private void streamSpoolFile(Path spoolFile, long fileSize, String rulesetKey, ReadyGate gate,
+            CompletableFuture<AnalyzeResponse> engineDone) {
+        ClientCallStreamObserver<AnalyzeRequest> requestObserver = gate.stream();
         try {
+            if (!gate.awaitReady(engineDone)) {
+                return;
+            }
             requestObserver.onNext(AnalyzeRequest.newBuilder()
                     .setMetadata(AnalyzeMetadata.newBuilder()
                             .setFileSize(fileSize)
@@ -156,6 +181,9 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
                 byte[] buffer = new byte[CHUNK_SIZE];
                 int read;
                 while ((read = in.read(buffer)) != -1) {
+                    if (!gate.awaitReady(engineDone)) {
+                        return;
+                    }
                     requestObserver.onNext(AnalyzeRequest.newBuilder()
                             .setChunk(ByteString.copyFrom(buffer, 0, read))
                             .build());
@@ -165,9 +193,50 @@ class GrpcEngineAnalysisPortImpl implements EngineAnalysisPort {
         } catch (IOException e) {
             requestObserver.onError(e);
             throw new UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            requestObserver.onError(e);
+            throw new EngineUnavailableException("엔진 전송 대기 중 인터럽트됐다", e);
         } catch (RuntimeException e) {
             requestObserver.onError(e);
             throw e;
+        }
+    }
+
+    /** 요청 스트림의 onReady 신호를 기다리는 문. isReady 확인과 신호를 같은 잠금 안에서 해 깨움을 놓치지 않는다. */
+    private static final class ReadyGate {
+
+        private final Object lock = new Object();
+        private ClientCallStreamObserver<AnalyzeRequest> stream;
+
+        void attach(ClientCallStreamObserver<AnalyzeRequest> requestStream) {
+            this.stream = requestStream;
+            requestStream.setOnReadyHandler(this::signal);
+        }
+
+        ClientCallStreamObserver<AnalyzeRequest> stream() {
+            return stream;
+        }
+
+        void signal() {
+            synchronized (lock) {
+                lock.notifyAll();
+            }
+        }
+
+        /** 보낼 수 있으면 true. 엔진 쪽이 이미 끝났거나 대기 한도를 넘기면 false. */
+        boolean awaitReady(CompletableFuture<?> engineDone) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(ANALYZE_TIMEOUT_SECONDS + 5);
+            synchronized (lock) {
+                while (!stream.isReady()) {
+                    long left = deadline - System.nanoTime();
+                    if (engineDone.isDone() || left <= 0) {
+                        return false;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(lock, left);
+                }
+                return true;
+            }
         }
     }
 
