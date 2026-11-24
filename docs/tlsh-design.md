@@ -30,6 +30,16 @@ SubmitFile은 짧은 트랜잭션의 corpus -> file -> 활성 룰 경계를 유�
 
 콘솔 refresh는 자격 거절 401/403에만 세션 삭제, 네트워크/5xx는 요청 오류만 전달한다. 단일 flight, 재시도 한 번, 로그아웃/새 세션 뒤 늦은 성공/실패 AbortError 처리와 새 refresh 폐기를 유지한다.
 
+## 유사 파일 검색 (IMP-12 구성요소)
+
+`FindSimilarFiles`(verdict)는 기준 TLSH, 또는 sha256의 계산된 지문과의 거리가 임계값 이하인 `file_fingerprints`를 가까운 순으로 돌려준다. 판정(CheckHash/SubmitFile)과 별개이며 소급 조회가 "비슷한 파일"의 SHA 집합을 얻는 용도다. 이 집합으로 기기를 찾고 알리는 일은 호출하는 쪽(IMP-10)의 몫이다.
+
+- 거리는 Java(`Tlsh.totalDiff`)에서 계산하고 DB는 행만 커서(fetch 256)로 넘긴다. 전체를 읽는 O(N) 스캔이며 캐시가 없다. `ParsedSimilarityCorpus`는 쓰지 않는다. `visit` 전체가 synchronized라 긴 스캔이 판정 비교를 막고, 토큰이 일반 지문 INSERT에 바뀌지 않아 전체 테이블 캐시의 키가 될 수 없다.
+- advisory 잠금을 잡지 않는다. readOnly 트랜잭션의 단일 SELECT라 문장 시작 시점 스냅샷을 본다. 호출자는 블랙리스트 등록 같은 쓰기 트랜잭션 안에서 부르지 않고 커밋 뒤에 부른다. 등록 트랜잭션은 코퍼스 배타 락을 커밋까지 쥐고 있고, CheckHash는 그 락을 못 얻으면 UNKNOWN으로 내려가기 때문이다. 일괄 가져오기에서 건마다 부르지 않는다.
+- 입력은 sha256과 TLSH 둘 다다. 스캔 대상 출처는 인자로 고르며 기본은 기기가 받은 파일(`VERIFIED_UPLOAD`)이다. 기준 자신만 결과에서 빼고, 화이트리스트·블랙리스트 여부는 거르지 않는다(소급 알림 정책은 호출자가 정한다).
+- 결과는 상태(OK, NO_REFERENCE_FINGERPRINT, INVALID_TLSH), 거리 오름차순(같으면 SHA 오름차순) 최대 limit개(상한 1000), 더 있으면 truncated, 스캔한 행 수다. 요청 가능한 거리는 100까지다. 지문이 없는 SHA는 빈 결과가 아니라 NO_REFERENCE_FINGERPRINT다.
+- 한계: 지문은 서버가 검증한 업로드와 관리자 가져오기만 저장된다. 업로드 없이 통과한 다운로드와 에이전트가 주장한 TLSH는 저장되지 않아 찾지 못한다. 스캔 비용은 측정하지 않았다(스캔 행 수와 시간은 서비스 로그에 남는다). 느리면 길이 항 사전 필터(새 마이그레이션 필요)를 검토한다. REST 엔드포인트는 두지 않았다.
+
 ## 명시적 비범위
 
-MalwareBazaar 자동 공급, 외부 악성 바이너리 다운로드, 사후 소급 경고 알림 연동, 지문 조회/삭제 CRUD 추가는 구현하지 않는다. CheckHash-only WARN은 event correlation이 없어 이벤트 근거로 연결하지 않는다. 이 PR의 실제 무해 padding 검증은 real DB + fake engine/storage, 별도 브라우저 QA 행은 수동 대입한 메타데이터다. 실제 Agent/Python-YARA/S3 전체 종단 검증과 로그인 폼의 수동 입력 검증은 별도다.
+MalwareBazaar 자동 공급, 외부 악성 바이너리 다운로드, 사후 소급 경고 알림 연동(유사 파일 검색 구성요소만 있고 알림 연동은 IMP-10), 지문 조회/삭제 CRUD 추가는 구현하지 않는다. CheckHash-only WARN은 event correlation이 없어 이벤트 근거로 연결하지 않는다. 이 PR의 실제 무해 padding 검증은 real DB + fake engine/storage, 별도 브라우저 QA 행은 수동 대입한 메타데이터다. 실제 Agent/Python-YARA/S3 전체 종단 검증과 로그인 폼의 수동 입력 검증은 별도다.

@@ -1,5 +1,6 @@
 package com.teecherteamc.platform;
 
+import static com.teecherteamc.platform.TlshFixtures.digestAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import com.google.protobuf.ByteString;
 import com.teecherteamc.platform.proto.verdict.v1.*;
@@ -236,20 +237,6 @@ class TlshSimilarityGrpcIntegrationTest {
                 .setDecision(block ? FinalDecision.FINAL_DECISION_BLOCKED : FinalDecision.FINAL_DECISION_RELEASED)
                 .setDecisionSourceValue(block ? 6 : 3)
                 .setHeldAt(com.google.protobuf.Timestamp.newBuilder().setSeconds(java.time.Instant.now().getEpochSecond())).build());
-    }
-
-    static String digestAt(int distance) {
-        String original = FingerprintImportRestIntegrationTest.TLSH;
-        var reference = com.trendmicro.tlsh.Tlsh.fromTlshStr(original);
-        Random random = new Random(713);
-        // 정책 경계용 메타데이터만 합성한다. 실제 바이트 변종 검증은 padding distance17 테스트가 맡는다.
-        for (int i=0; i<100000; i++) {
-            char[] candidate = original.toCharArray();
-            for (int j=0, n=1+random.nextInt(30); j<n; j++) candidate[8+random.nextInt(64)] = "0123456789ABCDEF".charAt(random.nextInt(16));
-            String value = new String(candidate);
-            if (reference.totalDiff(com.trendmicro.tlsh.Tlsh.fromTlshStr(value), true)==distance) return value;
-        }
-        throw new AssertionError("fixture not found: " + distance);
     }
 
     @Test

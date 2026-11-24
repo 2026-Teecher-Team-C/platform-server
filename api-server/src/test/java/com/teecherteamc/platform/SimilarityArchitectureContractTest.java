@@ -23,4 +23,19 @@ class SimilarityArchitectureContractTest {
                 .contains("similarity_lock_key", "IMMUTABLE", "STRICT");
     }
 
+    /** 유사 파일 검색은 판정 경로(코퍼스 캐시, advisory 잠금)와 상태를 공유하지 않는다(설계 G2-A, G7-A). */
+    @Test
+    void similar_file_search_shares_no_cache_or_lock_with_the_judgement_path() throws Exception {
+        String service = Files.readString(Path.of(
+                "src/main/java/com/teecherteamc/platform/verdict/application/FindSimilarFiles.java"));
+        String adapter = Files.readString(Path.of(
+                "src/main/java/com/teecherteamc/platform/verdict/infrastructure/JdbcSimilarFingerprintSearch.java"));
+
+        assertThat(service).doesNotContain("JdbcTemplate", "SELECT ", "INSERT ", "UPDATE ", "DELETE ")
+                .doesNotContain("ParsedSimilarityCorpus", "SimilarityDecisions", "similarity_lock_key", "pg_advisory")
+                .contains("SimilarFingerprintSearchPort");
+        assertThat(adapter).doesNotContain("ParsedSimilarityCorpus", "similarity_lock_key", "pg_advisory",
+                "current_similarity_corpus_token", "INSERT ", "UPDATE ", "DELETE ");
+    }
+
 }
