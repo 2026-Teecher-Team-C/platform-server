@@ -67,3 +67,79 @@ def select_malicious(lines: Iterable[str], blacklist: set[str], since: datetime)
                           family=_value(row.get("signature")), file_type=_value(row.get("file_type_guess")),
                           variant="", origin_sha256=""))
     return items, counts
+
+
+MIN_TLSH_BYTES = 50
+SIZE_BUCKETS = (100_000, 1_000_000, 10_000_000)
+
+
+def file_record(path, data: bytes, set_name: str, **extra) -> Item | None:
+    """에이전트와 같은 py-tlsh로 지문을 계산한다. 계산이 안 되면(TNULL) None."""
+    import hashlib
+
+    import tlsh
+
+    digest = tlsh.hash(data)
+    if not TLSH.match(digest):
+        return None
+    sha256 = hashlib.sha256(data).hexdigest()
+    fields = {"item_id": f"{set_name}-{sha256[:12]}", "set": set_name, "sha256": sha256, "tlsh": digest,
+              "file_size": len(data), "family": "", "file_type": path.suffix.lstrip(".").lower(), "variant": "",
+              "origin_sha256": ""}
+    fields.update(extra)
+    return Item(**fields)
+
+
+def scan_benign(root, blacklist: set[str]) -> tuple[list[Item], Counter]:
+    """정상 파일 폴더를 훑는다. family 열에는 root 기준 상대 경로를 둔다(어떤 파일인지 되짚기 위해)."""
+    counts: Counter = Counter()
+    items: list[Item] = []
+    seen: set[str] = set()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        data = path.read_bytes()
+        if len(data) < MIN_TLSH_BYTES:
+            counts["too_small"] += 1
+            continue
+        item = file_record(path, data, "B", family=str(path.relative_to(root)))
+        if item is None:
+            counts["tnull"] += 1
+            continue
+        if item.sha256 in seen:
+            counts["duplicate"] += 1
+            continue
+        seen.add(item.sha256)
+        if item.sha256 in blacklist:
+            counts["in_blacklist"] += 1
+            items.append(Item(**{**item.__dict__, "variant": "in_blacklist"}))
+            continue
+        counts["selected"] += 1
+        items.append(item)
+    return items, counts
+
+
+def pick_variant_origins(items: list[Item], root, installer_names: set[str], count: int = 50,
+                         seed: int = 0) -> list:
+    """변종 원본: 설치 파일 자체는 빼고(사용자가 직접 받는 파일), PE(MZ)만, 크기 구간을 돌아가며 고른다."""
+    import bisect
+    import random
+
+    buckets: list[list] = [[] for _ in range(len(SIZE_BUCKETS) + 1)]
+    for item in items:
+        if item.variant:
+            continue
+        path = root / item.family
+        if path.name in installer_names:
+            continue
+        with open(path, "rb") as src:
+            if src.read(2) != b"MZ":
+                continue
+        buckets[bisect.bisect_right(SIZE_BUCKETS, item.file_size)].append(path)
+    rng = random.Random(seed)
+    for bucket in buckets:
+        rng.shuffle(bucket)
+    picked: list = []
+    while len(picked) < count and any(buckets):
+        for bucket in buckets:
+            if bucket and len(picked) < count:
+                picked.append(bucket.pop())
+    return picked
