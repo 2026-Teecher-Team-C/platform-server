@@ -1,5 +1,8 @@
 package com.teecherteamc.platform.verdict.interfaces;
 
+import com.teecherteamc.platform.proto.verdict.v1.EvidenceKind;
+import com.teecherteamc.platform.proto.verdict.v1.MatchedRule;
+import com.teecherteamc.platform.verdict.domain.VerdictEvidence;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import com.teecherteamc.platform.fleet.interfaces.AgentAuthContext;
@@ -104,11 +107,14 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         // 측정 결과(event_id)와 서버 로그를 이어 붙이려고 요청 동안 MDC에 둔다.
         try (MDC.MDCCloseable ignored = MDC.putCloseable(EVENT_ID_MDC, eventId == null ? "-" : eventId.toString())) {
             CheckHashResult result = checkHashUseCase.checkHash(query);
-            responseObserver.onNext(CheckHashResponse.newBuilder()
+            CheckHashResponse.Builder response = CheckHashResponse.newBuilder()
                     .setDecision(toProtoDecision(result.decision()))
                     .setSource(toProtoDecisionSource(result.source()))
-                    .setReason(result.reason() == null ? "" : result.reason())
-                    .build());
+                    .setReason(result.reason() == null ? "" : result.reason());
+            if (hasEvidence(result.decision(), result.evidence())) {
+                response.setEvidence(toProtoEvidence(result.evidence()));
+            }
+            responseObserver.onNext(response.build());
             responseObserver.onCompleted();
         } catch (SecurityException e) {
             responseObserver.onError(
@@ -449,5 +455,32 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                     .addAllMatchedRules(result.matchedRules())
                     .build();
         }
+    }
+
+    /** 근거는 차단(BLOCK)이고 종류가 정해진 경우에만 싣는다. */
+    static boolean hasEvidence(String decision, VerdictEvidence evidence) {
+        return "BLOCK".equals(decision) && evidence != null && evidence.kind() != VerdictEvidence.Kind.NONE;
+    }
+
+    static com.teecherteamc.platform.proto.verdict.v1.VerdictEvidence toProtoEvidence(VerdictEvidence evidence) {
+        var builder = com.teecherteamc.platform.proto.verdict.v1.VerdictEvidence.newBuilder()
+                .setKind(switch (evidence.kind()) {
+                    case BLACKLIST -> EvidenceKind.EVIDENCE_KIND_BLACKLIST;
+                    case SIMILARITY -> EvidenceKind.EVIDENCE_KIND_SIMILARITY;
+                    case YARA -> EvidenceKind.EVIDENCE_KIND_YARA;
+                    case CACHE -> EvidenceKind.EVIDENCE_KIND_CACHE;
+                    case NONE -> EvidenceKind.EVIDENCE_KIND_UNSPECIFIED;
+                })
+                .setLabel(evidence.label())
+                .setFamily(evidence.family())
+                .setMatchedSampleSha256(evidence.matchedSampleSha256())
+                .setPreviousVerdict(evidence.previousVerdict());
+        if (evidence.tlshDistance() != null) {
+            builder.setTlshDistance(evidence.tlshDistance());
+        }
+        evidence.rules().forEach(rule -> builder.addRules(MatchedRule.newBuilder()
+                .setName(rule.name() == null ? "" : rule.name())
+                .setSeverity(rule.severity() == null ? "" : rule.severity())));
+        return builder.build();
     }
 }

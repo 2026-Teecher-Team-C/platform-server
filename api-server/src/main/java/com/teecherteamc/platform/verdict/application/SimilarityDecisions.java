@@ -34,6 +34,10 @@ public class SimilarityDecisions {
         if (whitelist.isEffective(sha, clock.instant())) return new SubmitFileResult("ALLOW", "WHITELIST", null, List.of());
         return blacklist.findActiveReason(sha).map(reason -> new SubmitFileResult("BLOCK", "BLACKLIST", reason, List.of())).orElse(null);
     }
+    /** 최근접 악성 샘플의 활성 블랙리스트 사유. 판정 근거(패밀리)에 쓴다. 없으면 null. */
+    public String sampleLabel(String sampleSha256) {
+        return sampleSha256 == null ? null : blacklist.findActiveReason(sampleSha256).orElse(null);
+    }
     public void lockCorpus() { store.lockCorpus(); }
     public boolean tryLockCorpus() { return store.tryLockCorpus(); }
     public void lockFile(String sha) { store.lockFile(sha); }
