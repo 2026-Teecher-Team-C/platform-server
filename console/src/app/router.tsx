@@ -3,6 +3,7 @@ import { ProtectedRoute } from '../components/auth/ProtectedRoute'
 import { RoleGuard } from '../components/auth/RoleGuard'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AgentsPage } from '../pages/AgentsPage'
+import { AppealPage } from '../pages/AppealPage'
 import { AuditLogsPage } from '../pages/AuditLogsPage'
 import { BlacklistPage } from '../pages/BlacklistPage'
 import { DashboardPage } from '../pages/DashboardPage'
@@ -22,6 +23,11 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    // 차단 페이지에서 들어오는 직원용 화면. 로그인·사이드바 없이 토큰으로만 연다.
+    path: '/appeal/:token',
+    element: <AppealPage />,
   },
   {
     path: '/',

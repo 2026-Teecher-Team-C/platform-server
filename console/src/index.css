@@ -2414,3 +2414,359 @@ a {
 .ruleset-layout .events-table th:last-child {
   padding-right: 24px;
 }
+
+/* 소명 페이지(/appeal/:token). 에이전트 차단 페이지와 같은 카드·색으로 두 화면이 이어져 보이게 한다. */
+.appeal-page {
+  --appeal-bg: #f4f6f8;
+  --appeal-danger: #b42318;
+  --appeal-tone: var(--appeal-danger);
+  --appeal-warning: #b54708;
+  --appeal-success: #067647;
+  --appeal-danger-soft: #fef3f2;
+  --appeal-warning-soft: #fffaeb;
+  --appeal-success-soft: #ecfdf3;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  padding: 24px 16px;
+  background: var(--appeal-bg);
+  color: var(--text);
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.appeal-card {
+  width: 100%;
+  max-width: 520px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--appeal-tone);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 12px 36px rgb(15 23 42 / 7%);
+  transition: border-top-color 480ms ease, box-shadow 480ms ease;
+}
+
+.appeal-card[data-state='pending'] {
+  --appeal-tone: var(--appeal-warning);
+}
+
+.appeal-card[data-state='approved'] {
+  --appeal-tone: #12b76a;
+  box-shadow: 0 12px 36px rgb(18 183 106 / 14%);
+}
+
+.appeal-card[data-state='loading'],
+.appeal-card[data-state='notFound'] {
+  --appeal-tone: var(--border);
+}
+
+.appeal-header {
+  padding: 28px 24px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.appeal-header:last-child {
+  border-bottom: 0;
+}
+
+.appeal-eyebrow {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appeal-header h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.appeal-header p:not(.appeal-eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.appeal-summary {
+  margin: 0;
+}
+
+.appeal-summary > div {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.appeal-summary dt {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appeal-summary dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.appeal-threat {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 16px;
+}
+
+.appeal-why {
+  color: var(--muted);
+}
+
+.appeal-summary dd.appeal-filename {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+.appeal-form {
+  display: grid;
+  gap: 12px;
+  padding: 20px 24px 24px;
+}
+
+.appeal-field {
+  display: grid;
+  gap: 8px;
+}
+
+.appeal-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appeal-field textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.appeal-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.appeal-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.appeal-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.appeal-count.is-over {
+  color: var(--appeal-danger);
+  font-weight: 700;
+}
+
+.appeal-submit {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, opacity 160ms ease;
+}
+
+.appeal-submit:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.appeal-submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.appeal-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.appeal-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--appeal-danger-soft);
+  color: var(--appeal-danger);
+  font-size: 13px;
+}
+
+/* 상태가 바뀌면 key가 바뀌어 새로 그려진다. 그때 한 번 떠오르듯 나타난다. */
+.appeal-status {
+  display: grid;
+  gap: 14px;
+  padding: 20px 24px 24px;
+  animation: appeal-status-enter 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.appeal-status-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--appeal-warning-soft);
+  color: var(--appeal-warning);
+}
+
+.appeal-status--approved .appeal-status-head {
+  background: var(--appeal-success-soft);
+  color: var(--appeal-success);
+}
+
+.appeal-status--rejected .appeal-status-head {
+  background: var(--appeal-danger-soft);
+  color: var(--appeal-danger);
+}
+
+.appeal-status-head p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.appeal-status-icon {
+  flex-shrink: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.appeal-status--approved .appeal-status-icon {
+  animation: appeal-icon-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 120ms both;
+}
+
+.appeal-decision {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.appeal-mine span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appeal-mine p {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border);
+  background: var(--surface-muted);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.appeal-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.appeal-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--appeal-warning);
+  animation: appeal-live-pulse 1.6s ease-in-out infinite;
+}
+
+.appeal-footnote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+@keyframes appeal-status-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes appeal-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(181 71 8 / 45%);
+  }
+
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px rgb(181 71 8 / 0%);
+  }
+}
+
+@keyframes appeal-icon-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .appeal-page {
+    --appeal-bg: #101827;
+    --appeal-danger: #f97066;
+    --appeal-warning: #fdb022;
+    --appeal-success: #32d583;
+    --appeal-danger-soft: rgb(249 112 102 / 12%);
+    --appeal-warning-soft: rgb(253 176 34 / 12%);
+    --appeal-success-soft: rgb(50 213 131 / 12%);
+    --surface: #1b2638;
+    --surface-muted: #162032;
+    --border: #263449;
+    --text: #e8edf5;
+    --muted: #aebbc9;
+    --accent-soft: rgb(96 165 250 / 18%);
+    color-scheme: dark;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appeal-card,
+  .appeal-status,
+  .appeal-status--approved .appeal-status-icon,
+  .appeal-live-dot {
+    transition: none;
+    animation: none;
+  }
+}
