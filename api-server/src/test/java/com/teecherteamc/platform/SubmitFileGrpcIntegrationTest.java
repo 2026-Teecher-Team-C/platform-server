@@ -157,6 +157,10 @@ class SubmitFileGrpcIntegrationTest {
 
         assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
         assertThat(response.getMatchedRulesList()).containsExactly("fake_rule");
+        assertThat(response.getEvidence().getKind())
+                .isEqualTo(com.teecherteamc.platform.proto.verdict.v1.EvidenceKind.EVIDENCE_KIND_YARA);
+        assertThat(response.getEvidence().getRulesList())
+                .extracting(r -> r.getName() + ":" + r.getSeverity()).containsExactly("fake_rule:HIGH");
 
         Map<String, Object> verdictRow =
                 jdbcTemplate.queryForMap("SELECT * FROM file_verdicts WHERE sha256 = ?", sha256);
@@ -205,6 +209,42 @@ class SubmitFileGrpcIntegrationTest {
         Integer pendingCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM pending_quarantine_uploads WHERE sha256 = ?", Integer.class, sha256);
         assertThat(pendingCount).isZero();
+    }
+
+    @Test
+    void 악성_캐시로_막으면_이전_판정을_근거로_돌려준다() throws Exception {
+        byte[] content = ("캐시 악성" + FakeDetectionEngineService.MALICIOUS_MARKER).getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+        submitFile(sha256, content);
+
+        SubmitFileResponse second = submitFile(sha256, content);
+
+        assertThat(second.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_CACHE);
+        assertThat(second.getEvidence().getKind())
+                .isEqualTo(com.teecherteamc.platform.proto.verdict.v1.EvidenceKind.EVIDENCE_KIND_CACHE);
+        assertThat(second.getEvidence().getPreviousVerdict()).isEqualTo("MALICIOUS");
+    }
+
+    @Test
+    void 업로드한_파일이_블랙리스트에_있으면_등록_사유를_근거로_돌려준다() throws Exception {
+        byte[] content = "업로드 블랙리스트".getBytes(StandardCharsets.UTF_8);
+        String sha256 = sha256Hex(content);
+        jdbcTemplate.update("INSERT INTO hash_blacklist (hash_value, reason) VALUES (?, 'MalwareBazaar: AgentTesla')",
+                sha256);
+
+        SubmitFileResponse response = submitFile(sha256, content);
+
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
+        assertThat(response.getEvidence().getKind())
+                .isEqualTo(com.teecherteamc.platform.proto.verdict.v1.EvidenceKind.EVIDENCE_KIND_BLACKLIST);
+        assertThat(response.getEvidence().getFamily()).isEqualTo("AgentTesla");
+    }
+
+    @Test
+    void 정상_파일_응답에는_근거가_없다() throws Exception {
+        byte[] content = "근거 없는 정상".getBytes(StandardCharsets.UTF_8);
+
+        assertThat(submitFile(sha256Hex(content), content).hasEvidence()).isFalse();
     }
 
     @Test

@@ -68,6 +68,11 @@ class TlshSimilarityGrpcIntegrationTest {
         var evidence = jdbc.queryForMap("SELECT * FROM similarity_assessments WHERE assessment_id = (SELECT assessment_id FROM event_decision_evidence WHERE event_id = ?)", event);
         assertThat(evidence.get("distance")).isEqualTo(17);
         assertThat(evidence.get("matched_sample_sha256")).isEqualTo(baseline);
+        assertThat(response.getEvidence().getKind())
+                .isEqualTo(com.teecherteamc.platform.proto.verdict.v1.EvidenceKind.EVIDENCE_KIND_SIMILARITY);
+        assertThat(response.getEvidence().getTlshDistance()).isEqualTo(17);
+        assertThat(response.getEvidence().getMatchedSampleSha256()).isEqualTo(baseline);
+        assertThat(response.getEvidence().getLabel()).isEqualTo("harmless baseline fixture");
         assertThat(evidence.get("classification")).isEqualTo("BLOCK");
         assertThat(jdbc.queryForObject("SELECT verdict FROM analyses WHERE analysis_id = ?", String.class, evidence.get("analysis_id"))).isEqualTo("CLEAN");
         assertThat(jdbc.queryForObject("SELECT verdict_source FROM file_verdicts WHERE sha256 = ?", String.class, sha)).isEqualTo("SIMILARITY");
@@ -113,9 +118,14 @@ class TlshSimilarityGrpcIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, forged)).isZero();
     }
 
+    /** 사유를 바꾼 기준 샘플은 아래 정리 조건(사유)에 걸리지 않으므로 따로 지운다. */
+    final List<String> cleanupSamples = new java.util.ArrayList<>();
+
     @org.junit.jupiter.api.AfterEach
     void removeBaseline() {
         jdbc.update("DELETE FROM hash_blacklist WHERE reason = 'harmless baseline fixture'");
+        cleanupSamples.forEach(sha -> jdbc.update("DELETE FROM hash_blacklist WHERE hash_value = ?", sha));
+        cleanupSamples.clear();
     }
 
     @Test
@@ -969,6 +979,52 @@ class TlshSimilarityGrpcIntegrationTest {
             assertThat(claimedRows(sha)).as(bad).isZero();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM event_decision_evidence WHERE event_id=?", Integer.class, event)).as(bad).isZero();
         }
+    }
+
+    @Test
+    void 에이전트_TLSH로_차단하면_가장_가까운_샘플과_패밀리를_근거로_돌려준다() {
+        String sample = baseline(TlshFixtures.digestAt(12));
+        jdbc.update("UPDATE hash_blacklist SET reason = 'MalwareBazaar: Mirai' WHERE hash_value = ?", sample);
+        cleanupSamples.add(sample);
+
+        var response = blocking.checkHash(CheckHashRequest.newBuilder()
+                .setSha256(FingerprintImportRestIntegrationTest.randomSha()).setTlsh(TlshFixtures.REFERENCE)
+                .setEventId(UUID.randomUUID().toString()).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getReason()).isEqualTo("TLSH distance: 12");
+        var evidence = response.getEvidence();
+        assertThat(evidence.getKind())
+                .isEqualTo(com.teecherteamc.platform.proto.verdict.v1.EvidenceKind.EVIDENCE_KIND_SIMILARITY);
+        assertThat(evidence.getTlshDistance()).isEqualTo(12);
+        assertThat(evidence.getMatchedSampleSha256()).isEqualTo(sample);
+        assertThat(evidence.getLabel()).isEqualTo("MalwareBazaar: Mirai");
+        assertThat(evidence.getFamily()).isEqualTo("Mirai");
+    }
+
+    @Test
+    void 가장_가까운_샘플에_패밀리_라벨이_없어도_차단과_근거는_그대로다() {
+        String sample = baseline(TlshFixtures.digestAt(20));
+        jdbc.update("UPDATE hash_blacklist SET reason = 'MalwareBazaar' WHERE hash_value = ?", sample);
+        cleanupSamples.add(sample);
+
+        var response = blocking.checkHash(CheckHashRequest.newBuilder()
+                .setSha256(FingerprintImportRestIntegrationTest.randomSha()).setTlsh(TlshFixtures.REFERENCE)
+                .setEventId(UUID.randomUUID().toString()).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getEvidence().getMatchedSampleSha256()).isEqualTo(sample);
+        assertThat(response.getEvidence().getFamily()).isEmpty();
+    }
+
+    @Test
+    void 비슷한_샘플이_없으면_근거를_싣지_않는다() {
+        var response = blocking.checkHash(CheckHashRequest.newBuilder()
+                .setSha256(FingerprintImportRestIntegrationTest.randomSha()).setTlsh(TlshFixtures.REFERENCE)
+                .setEventId(UUID.randomUUID().toString()).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
+        assertThat(response.hasEvidence()).isFalse();
     }
 
     String baseline(String tlsh) {

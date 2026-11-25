@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.lookup.application;
 
+import com.teecherteamc.platform.verdict.domain.VerdictEvidence;
 import com.teecherteamc.platform.lookup.domain.BlacklistLookupPort;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.CachedVerdict;
@@ -108,13 +109,17 @@ public class CheckHashUseCase {
             // 블룸이 목록 해시를 놓쳐도(예: Redis 초기화 뒤 재구축 전) TLSH가 정확 목록을 이기지 않게, 저장·차단
             // 직전에만 정확 목록을 한 번 더 본다. 블룸 miss의 대부분(NONE·TLSH 없음)은 이 조회를 하지 않는다.
             SubmitFileResult exact = metrics.stage("lists", () -> similarity.exactOverride(sha256));
-            if (exact != null) return new CheckHashResult(exact.decision(), exact.source(), exact.reason());
+            if (exact != null) {
+                return new CheckHashResult(exact.decision(), exact.source(), exact.reason(), exact.evidence());
+            }
         }
         // claim()을 이미 같은 sha·agent로 했으므로 연결 대상 evidence 행이 있다. event_id가 없는 구형 요청은
         // 붙일 이벤트가 없어 저장하지 않는다(판정만 돌려준다).
         if (claimable) metrics.stage("tlsh_save", () -> similarity.saveClaimed(sha256, query.eventId(), assessment));
         return "BLOCK".equals(classification)
-                ? new CheckHashResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance())
+                ? new CheckHashResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(),
+                        VerdictEvidence.similarity(assessment.distance(), assessment.sample(),
+                                similarity.sampleLabel(assessment.sample())))
                 : UNKNOWN;
     }
 
@@ -137,7 +142,9 @@ public class CheckHashUseCase {
             return new CheckHashResult("ALLOW", "WHITELIST", null);
         }
         Optional<String> blacklistReason = blacklistLookupPort.findActiveReason(sha256);
-        return blacklistReason.map(reason -> new CheckHashResult("BLOCK", "BLACKLIST", reason)).orElse(null);
+        return blacklistReason
+                .map(reason -> new CheckHashResult("BLOCK", "BLACKLIST", reason, VerdictEvidence.blacklist(reason)))
+                .orElse(null);
     }
 
     /** 결론 있는 캐시면 결과, 미결(없음·stale·UNKNOWN/ERROR)이면 null. */
@@ -145,12 +152,14 @@ public class CheckHashUseCase {
         Optional<CachedVerdict> cached = verdictCacheLookupPort.find(sha256);
         if (cached.isEmpty() || cached.get().stale()) return null;
         if ("SIMILARITY".equals(cached.get().source())) {
-            return new CheckHashResult("BLOCK", "SIMILARITY", "cached similarity verdict");
+            return new CheckHashResult("BLOCK", "SIMILARITY", "cached similarity verdict",
+                    VerdictEvidence.cache(cached.get().verdict()));
         }
         return switch (cached.get().verdict()) {
             case "CLEAN" -> new CheckHashResult("ALLOW", "CACHE", null);
             case "MALICIOUS", "SUSPICIOUS" ->
-                    new CheckHashResult("BLOCK", "CACHE", "cached verdict: " + cached.get().verdict());
+                    new CheckHashResult("BLOCK", "CACHE", "cached verdict: " + cached.get().verdict(),
+                            VerdictEvidence.cache(cached.get().verdict()));
             // UNKNOWN/ERROR는 과거 분석이 결론을 못 낸 것 — 캐시 미스로 취급해 재검사를 유도한다.
             default -> null;
         };

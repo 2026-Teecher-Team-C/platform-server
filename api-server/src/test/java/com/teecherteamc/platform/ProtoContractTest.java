@@ -48,4 +48,25 @@ class ProtoContractTest {
         assertThat(DetectionEngineGrpc.getServiceDescriptor().getName())
                 .isEqualTo("teecher.engine.v1.DetectionEngine");
     }
+
+    @Test
+    void 판정_근거_필드_번호가_고정되어_있다() {
+        var file = com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse.getDescriptor().getFile();
+        assertThat(file.findMessageTypeByName("CheckHashResponse").findFieldByName("evidence"))
+                .isNotNull().extracting(f -> f.getNumber()).isEqualTo(4);
+        assertThat(file.findMessageTypeByName("SubmitFileResponse").findFieldByName("evidence"))
+                .isNotNull().extracting(f -> f.getNumber()).isEqualTo(5);
+        var evidence = file.findMessageTypeByName("VerdictEvidence");
+        assertThat(evidence).isNotNull();
+        assertThat(evidence.getFields()).extracting(f -> f.getName() + "=" + f.getNumber()).containsExactly(
+                "kind=1", "label=2", "family=3", "tlsh_distance=4", "matched_sample_sha256=5", "rules=6",
+                "previous_verdict=7");
+        var rule = file.findMessageTypeByName("MatchedRule");
+        assertThat(rule.getFields()).extracting(f -> f.getName() + "=" + f.getNumber())
+                .containsExactly("name=1", "severity=2");
+        var kind = file.findEnumTypeByName("EvidenceKind");
+        assertThat(kind.getValues()).extracting(v -> v.getName() + "=" + v.getNumber()).containsExactly(
+                "EVIDENCE_KIND_UNSPECIFIED=0", "EVIDENCE_KIND_BLACKLIST=1", "EVIDENCE_KIND_SIMILARITY=2",
+                "EVIDENCE_KIND_YARA=3", "EVIDENCE_KIND_CACHE=4");
+    }
 }

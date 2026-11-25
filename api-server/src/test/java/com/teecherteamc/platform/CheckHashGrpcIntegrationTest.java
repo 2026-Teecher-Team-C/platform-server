@@ -9,6 +9,7 @@ import com.teecherteamc.platform.lookup.application.BloomFilterRebuildService;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.WhitelistLookupPort;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
+import com.teecherteamc.platform.proto.verdict.v1.EvidenceKind;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse;
 import com.teecherteamc.platform.proto.verdict.v1.Decision;
 import com.teecherteamc.platform.proto.verdict.v1.DecisionSource;
@@ -149,6 +150,7 @@ class CheckHashGrpcIntegrationTest {
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
         assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
         assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+        assertThat(response.hasEvidence()).isFalse();
     }
 
     // Redis(블룸) 장애에도 목록 판정은 Postgres만으로 나와야 한다 — 블룸 예외는 "있을 수 있음"으로 취급한다.
@@ -235,6 +237,23 @@ class CheckHashGrpcIntegrationTest {
         assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
         assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
         assertThat(response.getReason()).isEqualTo("EICAR test string");
+        assertThat(response.getEvidence().getKind()).isEqualTo(EvidenceKind.EVIDENCE_KIND_BLACKLIST);
+        assertThat(response.getEvidence().getLabel()).isEqualTo("EICAR test string");
+        assertThat(response.getEvidence().getFamily()).isEqualTo("EICAR test string");
+    }
+
+    @Test
+    void 블랙리스트_근거의_패밀리는_출처_접두를_뗀다() {
+        String sha256 = "a1".repeat(32);
+        jdbcTemplate.update(
+                "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'MalwareBazaar: Mirai')",
+                sha256);
+        bloomFilterRebuildService.rebuild();
+
+        CheckHashResponse response = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getEvidence().getLabel()).isEqualTo("MalwareBazaar: Mirai");
+        assertThat(response.getEvidence().getFamily()).isEqualTo("Mirai");
     }
 
     @Test
@@ -281,6 +300,8 @@ class CheckHashGrpcIntegrationTest {
 
         assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
         assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_CACHE);
+        assertThat(response.getEvidence().getKind()).isEqualTo(EvidenceKind.EVIDENCE_KIND_CACHE);
+        assertThat(response.getEvidence().getPreviousVerdict()).isEqualTo("MALICIOUS");
     }
 
     @Test

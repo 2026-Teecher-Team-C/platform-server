@@ -60,6 +60,8 @@ message CheckHashResponse {
   DecisionSource source = 2;
   // 차단 사유 (룰 이름, 블랙리스트 사유 등). 브라우저 403 페이지에 쓴다.
   string reason = 3;
+  // 차단(BLOCK)일 때만 채우는 구조화된 판정 근거. 비어 있으면 reason만 쓴다(proto-v0.4.0).
+  VerdictEvidence evidence = 4;
 }
 
 message SubmitFileRequest {
@@ -85,6 +87,44 @@ message SubmitFileResponse {
   DecisionSource source = 2;
   string reason = 3;
   repeated string matched_rules = 4;
+  // 차단(BLOCK)일 때만 채우는 구조화된 판정 근거. 비어 있으면 reason·matched_rules만 쓴다(proto-v0.4.0).
+  VerdictEvidence evidence = 5;
+}
+
+// 판정 근거의 종류.
+enum EvidenceKind {
+  EVIDENCE_KIND_UNSPECIFIED = 0;
+  // SHA-256이 블랙리스트와 정확히 일치.
+  EVIDENCE_KIND_BLACKLIST = 1;
+  // TLSH가 알려진 악성 샘플과 가까움.
+  EVIDENCE_KIND_SIMILARITY = 2;
+  // YARA 룰 매칭.
+  EVIDENCE_KIND_YARA = 3;
+  // 이전 판정(file_verdicts) 재사용.
+  EVIDENCE_KIND_CACHE = 4;
+}
+
+message MatchedRule {
+  string name = 1;
+  // LOW / MEDIUM / HIGH / CRITICAL.
+  string severity = 2;
+}
+
+// 차단 페이지·콘솔이 "왜 막혔는지" 보여 주는 데 쓰는 구조화된 근거. kind에 해당하는 필드만 채운다.
+message VerdictEvidence {
+  EvidenceKind kind = 1;
+  // 블랙리스트 사유 원문 (예: "MalwareBazaar: Mirai"). BLACKLIST는 그 파일, SIMILARITY는 최근접 샘플의 사유.
+  string label = 2;
+  // label에서 출처 접두를 뗀 패밀리 (예: "Mirai"). 모르면 빈 문자열.
+  string family = 3;
+  // SIMILARITY: TLSH 거리(낮을수록 비슷함).
+  int32 tlsh_distance = 4;
+  // SIMILARITY: 비교한 최근접 악성 샘플의 SHA-256.
+  string matched_sample_sha256 = 5;
+  // YARA: 매칭된 룰.
+  repeated MatchedRule rules = 6;
+  // CACHE: 이전 판정 (MALICIOUS / SUSPICIOUS).
+  string previous_verdict = 7;
 }
 
 // download_events.decision
