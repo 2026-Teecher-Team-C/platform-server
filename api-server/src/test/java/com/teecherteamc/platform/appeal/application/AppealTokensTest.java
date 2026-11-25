@@ -61,9 +61,11 @@ class AppealTokensTest {
 
     @Test
     void tampered_signature_is_rejected() {
-        String token = issue();
-        char last = token.charAt(token.length() - 1);
-        String forged = token.substring(0, token.length() - 1) + (last == 'A' ? 'B' : 'A');
+        String[] parts = issue().split("\\.");
+        // 마지막 글자만 바꾸면 base64 채움 비트라 같은 바이트로 디코딩될 수 있다. 바이트를 뒤집어 다시 인코딩한다.
+        byte[] signature = Base64.getUrlDecoder().decode(parts[1]);
+        signature[0] ^= 0x01;
+        String forged = parts[0] + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(signature);
 
         assertThat(tokens(SECRET, NOW).verify(forged)).isEmpty();
     }
