@@ -45,7 +45,9 @@ public enum AuditAction {
     ISSUE_ENROLLMENT_TOKEN,
     REVOKE_AGENT,
     INVALIDATE_CACHE,
-    IMPORT_FILE_FINGERPRINT;
+    IMPORT_FILE_FINGERPRINT,
+    // 소명 (직원이 차단에 이의를 제기. 관리자가 아니므로 actor_id는 null). 위험 조작이 아니다.
+    APPEAL_SUBMITTED;
 
     // 검사를 약하게 만드는 조작. 기능 API 명세 "감사 로그 조회" 조회 로직 3번의 4종이다.
     // (감사 로그 규격 2장의 ⚠️ 7종 중 이번 범위에서 실제로 기록하는 것만 남겼다)
