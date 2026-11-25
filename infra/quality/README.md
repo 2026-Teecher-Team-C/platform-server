@@ -5,7 +5,7 @@
 `docs/superpowers/specs/2026-11-25-detection-quality-measurement-design.md`.
 
 - 악성 파일은 내려받지 않는다. 악성 쪽은 MalwareBazaar 메타데이터(SHA-256, TLSH, 패밀리)만 쓴다
-- 측정 데이터와 결과는 `infra/quality/out/`에만 둔다. **커밋하지 않는다**(공개 레포)
+- 측정 데이터와 결과 파일은 `infra/quality/out/`에만 둔다. **커밋하지 않는다**(공개 레포). 운영 DB의 측정 기록은 남긴다(6장)
 - 관리자 계정은 `QUALITY_ADMIN_USER` / `QUALITY_ADMIN_PASSWORD` 환경 변수로만 넘긴다. 토큰은 출력·파일에 남지 않는다
 - localhost가 아닌 대상은 `--i-know-this-is-prod`가 있어야 보낸다
 
@@ -77,23 +77,19 @@ bash infra/quality/prod_sql.sh infra/quality/sql/export_evidence.sql agent_id=$(
     > infra/quality/out/evidence-v1.csv
 ```
 
-## 6. 정리 — 실행 전 확인 받기
+## 6. 마무리 (기록은 남긴다) — 실행 전 확인 받기
 
-근거를 모두 CSV로 뽑은 뒤에 한다. `cleanup.sql`은 `agent_version = 'quality-harness'`인 에이전트가 아니면 아무것도 지우지 않고 멈춘다.
-측정 에이전트 id는 손으로 붙여 넣지 말고 `out/agent-<pass>.txt`에서 읽는다:
+측정 기록(근거·평가, TLSH 차단 건의 다운로드 이벤트, 감사 로그)은 운영에 남겨 나중에 다시 분석한다.
+`run`은 TLSH로 차단된 항목만 `ReportEvent`로 남긴다(호스트 `quality-test.local`, 파일명 `quality-<묶음>-<패밀리>-<item_id>`).
+UNKNOWN은 실제라면 업로드·YARA로 이어지는데 파일이 없어 하지 못하므로 이벤트를 만들지 않는다. 끄려면 `--no-report`.
+
+측정 에이전트는 토큰만 다시 못 쓰게 막는다. `revoke_agent.sql`은 `agent_version = 'quality-harness'`가 아니면 멈춘다:
 
 ```bash
-for p in p1 p2 v1; do
-  a=$(cat infra/quality/out/agent-$p.txt)
-  bash infra/quality/prod_sql.sh infra/quality/sql/cleanup_preview.sql agent_id=$a    # 지울 건수 확인
-done
-# 확인 받은 뒤
-for p in p1 p2 v1; do bash infra/quality/prod_sql.sh infra/quality/sql/cleanup.sql agent_id=$(cat infra/quality/out/agent-$p.txt); done
+for p in p1 p2 v1; do bash infra/quality/prod_sql.sh infra/quality/sql/revoke_agent.sql agent_id=$(cat infra/quality/out/agent-$p.txt); done
 ```
 
-마지막으로 `policy get`이 30/70인지, 변종 원본이 모두 해제됐는지 확인한다. 서버는 사유를 `quality-test: quality-test-r1`
-형태(가져오기 source + label)로 저장하므로 `SELECT count(*) FROM hash_blacklist WHERE is_active AND reason LIKE '%quality-test-r1'`이
-0이어야 하고, 같은 조건에서 `is_active`를 빼면 등록 건수와 같아야 한다. 감사 로그는 남긴다.
+측정 데이터를 지워야 할 때만 `cleanup_preview.sql` → `cleanup.sql`을 같은 방식으로 쓴다(같은 가드가 있다).
 
 ## 7. 결과 문서
 

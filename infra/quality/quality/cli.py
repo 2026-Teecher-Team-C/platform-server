@@ -91,9 +91,12 @@ def cmd_run(args) -> None:
             sink.flush()
 
         responses = asyncio.run(run_checks(args.grpc, args.tls, token, items, args.pass_id, args.concurrency,
-                                           on_result=append))
+                                           on_result=append, report_blocked=not args.no_report))
     errors = sum(1 for r in responses if r.error)
-    print(f"완료: 응답 {len(responses)}개, 오류 {errors}개 → {responses_file.name}")
+    reported = sum(1 for r in responses if r.source == "DECISION_SOURCE_SIMILARITY" and "report-failed" not in r.reason)
+    failed = sum(1 for r in responses if "report-failed" in r.reason)
+    print(f"완료: 응답 {len(responses)}개, 오류 {errors}개, 다운로드 이벤트 {0 if args.no_report else reported}개"
+          f"(보고 실패 {failed}개) → {responses_file.name}")
 
 
 def cmd_policy(args) -> None:
@@ -201,6 +204,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--items", nargs="+", required=True)
     s.add_argument("--pass-id", required=True)
     s.add_argument("--concurrency", type=int, default=4)
+    s.add_argument("--no-report", action="store_true", help="TLSH 차단 건을 다운로드 이벤트로 남기지 않는다")
     s.add_argument("--out-dir", default="out")
     s.set_defaults(func=cmd_run)
 

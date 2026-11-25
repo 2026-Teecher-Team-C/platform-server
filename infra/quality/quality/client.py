@@ -115,9 +115,37 @@ def register_agent(grpc_target: str, enrollment_token: str, tls: bool) -> tuple[
     return resp.agent_id, resp.agent_token
 
 
+SIMILARITY_SOURCE = "DECISION_SOURCE_SIMILARITY"
+TEST_HOST = "quality-test.local"
+
+
+async def _report_blocked(stub, meta, it: Item, result: Response, timeout: float) -> Response:
+    from google.protobuf.timestamp_pb2 import Timestamp
+
+    now = Timestamp()
+    now.GetCurrentTime()
+    label = it.family.replace("/", "_") or it.file_type or "unknown"
+    try:
+        await stub.ReportEvent(verdict_pb2.ReportEventRequest(
+            event_id=result.event_id, sha256=it.sha256, url=f"https://{TEST_HOST}/{it.set}/{it.item_id}",
+            request_host=TEST_HOST, filename=f"quality-{it.set}-{label}-{it.item_id}"[:500],
+            mime_type="application/octet-stream", file_size=it.file_size,
+            decision=verdict_pb2.FINAL_DECISION_BLOCKED, decision_source=verdict_pb2.DECISION_SOURCE_SIMILARITY,
+            held_at=now, decided_at=now, hold_duration_ms=0), timeout=timeout, metadata=meta)
+        return result
+    except grpc.aio.AioRpcError as err:
+        return Response(**{**result.__dict__, "reason": f"{result.reason} report-failed:{err.code().name}"})
+
+
 async def run_checks(grpc_target: str, tls: bool, agent_token: str, items: list[Item], pass_id: str,
-                     concurrency: int = 4, timeout: float = 30, on_result=None) -> list[Response]:
-    """on_result는 응답이 올 때마다 불린다(중간에 끊겨도 받은 응답을 잃지 않게 파일에 이어 쓰는 용도)."""
+                     concurrency: int = 4, timeout: float = 30, on_result=None,
+                     report_blocked: bool = False) -> list[Response]:
+    """on_result는 응답이 올 때마다 불린다(중간에 끊겨도 받은 응답을 잃지 않게 파일에 이어 쓰는 용도).
+
+    report_blocked면 CheckHash가 TLSH로 차단(BLOCK/SIMILARITY)한 항목만 ReportEvent로 다운로드 이벤트를 남긴다.
+    UNKNOWN은 실제 흐름이라면 업로드·YARA로 이어지는데 하네스는 파일이 없어 그 단계를 못 하므로 남기지 않는다.
+    호스트는 quality-test.local로 두어 콘솔에서 측정 데이터임을 알 수 있게 한다. 보고 실패는 reason에 적는다.
+    """
     meta = (("authorization", "Bearer " + agent_token),)
     gate = asyncio.Semaphore(concurrency)
     results: list[Response] = []
@@ -136,6 +164,8 @@ async def run_checks(grpc_target: str, tls: bool, agent_token: str, items: list[
                                       verdict_pb2.DecisionSource.Name(resp.source), resp.reason, "", pass_id)
                 except grpc.aio.AioRpcError as err:
                     result = Response(it.item_id, event_id, "", "", "", err.code().name, pass_id)
+                if report_blocked and result.decision == "DECISION_BLOCK" and result.source == SIMILARITY_SOURCE:
+                    result = await _report_blocked(stub, meta, it, result, timeout)
             results.append(result)
             if on_result:
                 on_result(result)

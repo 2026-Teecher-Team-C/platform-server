@@ -77,6 +77,18 @@ def test_블랙리스트_sha_내보내기는_해제된_것도_포함(psql):
     assert sorted(psql(file=SQL_DIR / "blacklist_shas.sql").split()) == ["a" * 64, "d" * 64]
 
 
+def test_측정_에이전트를_막기만_하고_기록은_남긴다(psql):
+    with pytest.raises(subprocess.CalledProcessError):
+        psql(file=SQL_DIR / "revoke_agent.sql", agent_id=OTHER)
+    assert psql(f"SELECT status FROM agents WHERE agent_id = '{OTHER}'").strip() == "ACTIVE"
+
+    psql(file=SQL_DIR / "revoke_agent.sql", agent_id=TARGET)
+
+    assert psql(f"SELECT status FROM agents WHERE agent_id = '{TARGET}'").strip() == "REVOKED"
+    assert psql(f"SELECT count(*) FROM event_decision_evidence WHERE agent_id = '{TARGET}'").strip() == "2"
+    psql(f"UPDATE agents SET status = 'ACTIVE' WHERE agent_id = '{TARGET}'")
+
+
 def test_측정_에이전트가_아니면_정리를_거부하고_아무것도_지우지_않는다(psql):
     with pytest.raises(subprocess.CalledProcessError):
         psql(file=SQL_DIR / "cleanup.sql", agent_id=OTHER)

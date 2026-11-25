@@ -25,6 +25,11 @@ def item(prefix, n):
 class FakeVerdict(verdict_pb2_grpc.VerdictServiceServicer):
     def __init__(self):
         self.requests = []
+        self.reports = []
+
+    def ReportEvent(self, request, context):
+        self.reports.append((request, dict(context.invocation_metadata())))
+        return verdict_pb2.ReportEventResponse()
 
     def CheckHash(self, request, context):
         self.requests.append((request, dict(context.invocation_metadata())))
@@ -145,6 +150,35 @@ def test_run_checks는_응답마다_콜백을_부른다(grpc_server):
                                               on_result=seen.append))
 
     assert sorted(r.item_id for r in seen) == sorted(r.item_id for r in responses) == ["X-1", "X-2"]
+
+
+def test_TLSH로_차단된_항목만_다운로드_이벤트로_보고한다(grpc_server):
+    target, verdict = grpc_server
+    blocked, unknown = item("aa", 1), item("cc", 2)
+    blocked = blocked.__class__(**{**blocked.__dict__, "family": "Mirai"})
+
+    responses = asyncio.run(client.run_checks(target, False, AGENT_TOKEN, [blocked, unknown], "p1",
+                                              report_blocked=True))
+
+    assert len(verdict.reports) == 1
+    report, meta = verdict.reports[0]
+    sent = next(r for r in responses if r.item_id == blocked.item_id)
+    assert report.event_id == sent.event_id
+    assert report.sha256 == blocked.sha256
+    assert report.decision == verdict_pb2.FINAL_DECISION_BLOCKED
+    assert report.decision_source == verdict_pb2.DECISION_SOURCE_SIMILARITY
+    assert report.request_host == "quality-test.local"
+    assert "Mirai" in report.filename and blocked.item_id in report.filename
+    assert report.file_size == blocked.file_size
+    assert meta["authorization"] == "Bearer " + AGENT_TOKEN
+
+
+def test_보고를_끄면_ReportEvent를_보내지_않는다(grpc_server):
+    target, verdict = grpc_server
+
+    asyncio.run(client.run_checks(target, False, AGENT_TOKEN, [item("aa", 1)], "p1"))
+
+    assert verdict.reports == []
 
 
 def test_관리_api(rest, grpc_server):
