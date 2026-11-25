@@ -36,7 +36,10 @@ import org.springframework.test.context.TestPropertySource;
 // 기동 시 1차 재구축(initialDelay=0)은 그대로 돈다. 주기만 테스트 실행 시간보다 훨씬 길게 둬서,
 // 테스트 중간에 스케줄러가 다시 돌면서 방금 INSERT한 fixture를 멋대로 반영해버리는 비결정성을
 // 없앤다 — 블룸 재구축은 각 테스트가 BloomFilterRebuildService.rebuild()로 직접 트리거한다.
-@TestPropertySource(properties = "lookup.bloom-filter.rebuild-interval-ms=86400000")
+@TestPropertySource(properties = {
+        "lookup.bloom-filter.rebuild-interval-ms=86400000",
+        "platform.appeal.secret=0123456789abcdef0123456789abcdef-test-secret",
+        "platform.appeal.base-url=http://console.test"})
 class CheckHashGrpcIntegrationTest {
     @org.junit.jupiter.api.BeforeEach
     void authenticateVerdictClient() {
@@ -462,5 +465,41 @@ class CheckHashGrpcIntegrationTest {
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'known bad')",
                 sha256);
         bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
+    }
+
+    @Test
+    void blacklisted_hash_with_event_id_returns_appeal_url() {
+        String sha256 = "d1".repeat(32);
+        seedBlacklist(sha256);
+
+        CheckHashResponse response = verdictStub.checkHash(CheckHashRequest.newBuilder()
+                .setSha256(sha256).setEventId(UUID.randomUUID().toString()).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getAppealUrl()).startsWith("http://console.test/appeal/");
+    }
+
+    @Test
+    void blacklisted_hash_without_event_id_has_no_appeal_url() {
+        String sha256 = "d2".repeat(32);
+        seedBlacklist(sha256);
+
+        CheckHashResponse response = verdictStub.checkHash(
+                CheckHashRequest.newBuilder().setSha256(sha256).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_BLOCK);
+        assertThat(response.getAppealUrl()).isEmpty();
+    }
+
+    @Test
+    void allowed_hash_has_no_appeal_url() {
+        String sha256 = "d3".repeat(32);
+        seedWhitelist(sha256, true, null);
+
+        CheckHashResponse response = verdictStub.checkHash(CheckHashRequest.newBuilder()
+                .setSha256(sha256).setEventId(UUID.randomUUID().toString()).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getAppealUrl()).isEmpty();
     }
 }
