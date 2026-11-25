@@ -69,4 +69,13 @@ class ProtoContractTest {
                 "EVIDENCE_KIND_UNSPECIFIED=0", "EVIDENCE_KIND_BLACKLIST=1", "EVIDENCE_KIND_SIMILARITY=2",
                 "EVIDENCE_KIND_YARA=3", "EVIDENCE_KIND_CACHE=4");
     }
+
+    @Test
+    void appeal_url_field_numbers_are_fixed() {
+        var file = com.teecherteamc.platform.proto.verdict.v1.CheckHashResponse.getDescriptor().getFile();
+        assertThat(file.findMessageTypeByName("CheckHashResponse").findFieldByName("appeal_url"))
+                .isNotNull().extracting(f -> f.getNumber()).isEqualTo(5);
+        assertThat(file.findMessageTypeByName("SubmitFileResponse").findFieldByName("appeal_url"))
+                .isNotNull().extracting(f -> f.getNumber()).isEqualTo(6);
+    }
 }
