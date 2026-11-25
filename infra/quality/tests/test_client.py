@@ -137,6 +137,16 @@ def test_run_checks(grpc_server, capsys):
     assert AGENT_TOKEN not in capsys.readouterr().out
 
 
+def test_run_checks는_응답마다_콜백을_부른다(grpc_server):
+    target, _ = grpc_server
+    seen = []
+
+    responses = asyncio.run(client.run_checks(target, False, AGENT_TOKEN, [item("cc", 1), item("cc", 2)], "p1",
+                                              on_result=seen.append))
+
+    assert sorted(r.item_id for r in seen) == sorted(r.item_id for r in responses) == ["X-1", "X-2"]
+
+
 def test_관리_api(rest, grpc_server):
     target, _ = grpc_server
     admin = client.Admin(rest)

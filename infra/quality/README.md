@@ -36,7 +36,7 @@ bash infra/quality/prod_sql.sh infra/quality/sql/blacklist_shas.sql > infra/qual
 make quality ARGS="build-malicious --csv out/full.csv.zip --blacklist-shas out/blacklist-shas.txt"
 docker run --rm -v "$PWD/infra/quality":/app --entrypoint bash platform-quality /app/fetch_benign.sh /app/out/benign
 cp infra/quality/out/benign/items-B.csv infra/quality/out/items-B.csv
-make quality ARGS="build-variants"
+make quality ARGS="build-variants --blacklist-shas out/blacklist-shas.txt"   # 내부 DLL만, 설치 파일과 TLSH 70 이하는 제외
 ```
 
 `build-malicious` 출력의 `in_blacklist`(운영 블랙리스트와 겹쳐 뺀 수)를 결과 문서에 적는다.
@@ -54,33 +54,41 @@ make quality ARGS="analyze --items out/items-M.csv out/items-B.csv --responses o
 
 ## 4. 2회차 (제안 정책) — 실행 전 확인 받기
 
+정책은 측정이 끝나는 즉시 되돌린다. 대조(predict)에서 문제가 나와도 운영이 제안값에 머물지 않게 하기 위해서다.
+
 ```bash
 make quality ARGS="policy set PROD --block <제안 차단> --warn <제안 경고>"
 make quality ARGS="run PROD PRODG --items out/items-M.csv out/items-B.csv --pass-id p2"
+make quality ARGS="policy set PROD --block 30 --warn 70"           # run이 실패해도 바로 이 줄을 실행한다
 bash infra/quality/prod_sql.sh infra/quality/sql/export_evidence.sql agent_id=$(cat infra/quality/out/agent-p2.txt) \
     > infra/quality/out/evidence-p2.csv
 make quality ARGS="predict --items out/items-M.csv out/items-B.csv --base-responses out/responses-p1.csv \
-    --base-evidence out/evidence-p1.csv --responses out/responses-p2.csv --block <제안 차단>"   # 불일치 0건이어야 함
-make quality ARGS="policy set PROD --block 30 --warn 70"           # 되돌린 뒤 policy get으로 확인
+    --base-evidence out/evidence-p1.csv --responses out/responses-p2.csv --evidence out/evidence-p2.csv \
+    --block <제안 차단> --warn <제안 경고>"                          # 불일치 0건이어야 함(차단·경고 모두, 빠진 항목 포함)
 ```
 
 ## 5. 변종 — 실행 전 확인 받기
 
 ```bash
-make quality ARGS="variants register PROD --run-id r1"             # 원본만 등록(사유 quality-test-r1)
+make quality ARGS="variants register PROD --run-id r1"             # 원본만 등록. 전부 새로 추가돼야 registered-r1.txt를 남긴다
 make quality ARGS="run PROD PRODG --items out/items-V.csv --pass-id v1"
-make quality ARGS="variants release PROD --run-id r1"              # 실패 0이어야 종료 코드 0
+make quality ARGS="variants release PROD --run-id r1"              # registered-r1.txt에 적힌(새로 추가된) 원본만 해제
 bash infra/quality/prod_sql.sh infra/quality/sql/export_evidence.sql agent_id=$(cat infra/quality/out/agent-v1.txt) \
     > infra/quality/out/evidence-v1.csv
 ```
 
 ## 6. 정리 — 실행 전 확인 받기
 
-근거를 모두 CSV로 뽑은 뒤에 한다. 측정 에이전트(p1, p2, v1)마다:
+근거를 모두 CSV로 뽑은 뒤에 한다. `cleanup.sql`은 `agent_version = 'quality-harness'`인 에이전트가 아니면 아무것도 지우지 않고 멈춘다.
+측정 에이전트 id는 손으로 붙여 넣지 말고 `out/agent-<pass>.txt`에서 읽는다:
 
 ```bash
-bash infra/quality/prod_sql.sh infra/quality/sql/cleanup_preview.sql agent_id=<agent_id>   # 지울 건수 확인
-bash infra/quality/prod_sql.sh infra/quality/sql/cleanup.sql agent_id=<agent_id>           # 삭제 + REVOKED
+for p in p1 p2 v1; do
+  a=$(cat infra/quality/out/agent-$p.txt)
+  bash infra/quality/prod_sql.sh infra/quality/sql/cleanup_preview.sql agent_id=$a    # 지울 건수 확인
+done
+# 확인 받은 뒤
+for p in p1 p2 v1; do bash infra/quality/prod_sql.sh infra/quality/sql/cleanup.sql agent_id=$(cat infra/quality/out/agent-$p.txt); done
 ```
 
 마지막으로 `policy get`이 30/70인지, 변종 원본이 모두 해제됐는지 확인한다. 서버는 사유를 `quality-test: quality-test-r1`

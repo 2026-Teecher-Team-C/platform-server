@@ -1,4 +1,4 @@
-from quality.analyze import curve, join, predict_mismatches, propose, report
+from quality.analyze import curve, join, missing_evidence, predict_mismatches, propose, report, same_family
 from quality.records import Evidence, Item, Response
 
 TLSH = "T1" + "D" * 70
@@ -7,7 +7,7 @@ BLOCK = "DECISION_BLOCK"
 SIM = "DECISION_SOURCE_SIMILARITY"
 
 
-def build(specs):
+def build(specs, with_empty_evidence=False):
     """specs: (set, distance|None, family, source, error, variant)"""
     items, responses, evidence = [], [], []
     for n, (set_name, distance, family, source, error, variant) in enumerate(specs):
@@ -19,6 +19,8 @@ def build(specs):
         if distance is not None:
             cls = "BLOCK" if distance <= 30 else "WARN"
             evidence.append(Evidence(f"e{n}", distance, "f" * 64, cls, "tlsh-30-70-v1", family))
+        elif with_empty_evidence:
+            evidence.append(Evidence(f"e{n}", None, "", "", "", ""))
     return join(items, responses, evidence)
 
 
@@ -67,13 +69,52 @@ def test_정상_파일이_멀면_차단은_상한_50():
     assert proposal.warn > proposal.block
 
 
+def _second(base, **changes_by_index):
+    rows = []
+    for n, r in enumerate(base):
+        d = r.distance
+        cls = "BLOCK" if d is not None and d <= 25 else ("WARN" if d is not None and d <= 60 else "")
+        decision, source = (BLOCK, SIM) if cls == "BLOCK" else (UNKNOWN, "DECISION_SOURCE_UNSPECIFIED")
+        row = r.__class__(**{**r.__dict__, "decision": decision, "source": source, "classification": cls})
+        rows.append(row.__class__(**{**row.__dict__, **changes_by_index.get(f"i{n}", {})}))
+    return rows
+
+
 def test_예측_대조는_1회차_거리와_2회차_판정을_item_id로_맞춘다():
     base = build([spec("M", 20), spec("M", 20), spec("M", 28), spec("M")])
-    second = [r.__class__(**{**r.__dict__, "distance": None, "classification": ""}) for r in base]
-    second[0] = second[0].__class__(**{**second[0].__dict__, "decision": UNKNOWN,
-                                      "source": "DECISION_SOURCE_UNSPECIFIED"})
+    second = _second(base, i0={"decision": UNKNOWN, "source": "DECISION_SOURCE_UNSPECIFIED"},
+                     i2={"decision": BLOCK, "source": SIM, "classification": "BLOCK"})
 
-    assert predict_mismatches(base, second, block=25) == [base[0].item_id, base[2].item_id]
+    assert predict_mismatches(base, second, block=25, warn=60) == [base[0].item_id, base[2].item_id]
+
+
+def test_예측_대조는_경고도_본다():
+    base = build([spec("M", 40), spec("M", 65)])
+    second = _second(base, i1={"classification": "WARN"})
+
+    assert predict_mismatches(base, second, block=25, warn=60) == [base[1].item_id]
+
+
+def test_예측_대조는_2회차에_빠지거나_오류난_항목도_불일치로_센다():
+    base = build([spec("M", 10), spec("M", 10)])
+    second = _second(base, i0={"error": "UNAVAILABLE"})[:1]
+
+    assert predict_mismatches(base, second, block=25, warn=60) == [base[0].item_id, base[1].item_id]
+
+
+def test_근거_행이_없는_요청을_센다():
+    rows_ok = build([spec("M", 10), spec("M")], with_empty_evidence=True)
+    rows_bad = build([spec("M", 10), spec("M")])
+
+    assert missing_evidence(rows_ok) == 0
+    assert missing_evidence(rows_bad) == 1
+
+
+def test_같은_패밀리_비교는_서버_사유_접두를_뗀다():
+    assert same_family("AgentTesla", "MalwareBazaar: AgentTesla")
+    assert same_family("Mirai", "Mirai")
+    assert not same_family("Mirai", "MalwareBazaar: Gafgyt")
+    assert not same_family("", "MalwareBazaar: ")
 
 
 def test_결정_문장과_표():

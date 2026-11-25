@@ -41,10 +41,10 @@ def psql():
 def seed(run):
     device = str(uuid.uuid4())
     run(f"INSERT INTO devices(device_id, hostname, os_platform) VALUES ('{device}', 'h', 'LINUX')")
-    for agent in (TARGET, OTHER):
+    for agent, version in ((TARGET, "quality-harness"), (OTHER, "0.3.0")):
         run(f"INSERT INTO agents(agent_id, device_id, agent_version, enrollment_token_hash) "
-            f"VALUES ('{agent}', '{device}', 'q', 'x')")
-    run(f"INSERT INTO hash_blacklist(hash_value, reason) VALUES ('{'a' * 64}', 'Mirai')")
+            f"VALUES ('{agent}', '{device}', '{version}', 'x')")
+    run(f"INSERT INTO hash_blacklist(hash_value, reason) VALUES ('{'a' * 64}', 'MalwareBazaar: Mirai')")
     run(f"INSERT INTO hash_blacklist(hash_value, reason, is_active) VALUES ('{'d' * 64}', 'old', false)")
     run(f"INSERT INTO hash_blacklist(hash_type, hash_value, reason) VALUES ('TLSH', '{TLSH}', 'tlsh row')")
     for agent, distance in ((TARGET, 12), (TARGET, None), (OTHER, 20)):
@@ -69,12 +69,20 @@ def test_근거_내보내기는_대상_에이전트만(psql):
     assert set(out[0]) == {"event_id", "distance", "matched_sample_sha256", "classification", "policy_version",
                            "matched_label"}
     matched = next(r for r in out if r["distance"])
-    assert (matched["distance"], matched["matched_label"], matched["classification"]) == ("12", "Mirai", "BLOCK")
+    assert (matched["distance"], matched["matched_label"], matched["classification"]) == ("12", "MalwareBazaar: Mirai", "BLOCK")
     assert next(r for r in out if not r["distance"])["matched_sample_sha256"] == ""
 
 
 def test_블랙리스트_sha_내보내기는_해제된_것도_포함(psql):
     assert sorted(psql(file=SQL_DIR / "blacklist_shas.sql").split()) == ["a" * 64, "d" * 64]
+
+
+def test_측정_에이전트가_아니면_정리를_거부하고_아무것도_지우지_않는다(psql):
+    with pytest.raises(subprocess.CalledProcessError):
+        psql(file=SQL_DIR / "cleanup.sql", agent_id=OTHER)
+
+    assert psql(f"SELECT count(*) FROM event_decision_evidence WHERE agent_id = '{OTHER}'").strip() == "1"
+    assert psql(f"SELECT status FROM agents WHERE agent_id = '{OTHER}'").strip() == "ACTIVE"
 
 
 def test_정리는_대상_에이전트만_지운다(psql):

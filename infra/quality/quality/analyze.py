@@ -28,6 +28,7 @@ class Row:
     distance: int | None
     classification: str
     matched_label: str
+    has_evidence: bool = False
 
 
 @dataclass
@@ -49,8 +50,19 @@ def join(items: list[Item], responses: list[Response], evidence: list[Evidence])
         ev = by_event.get(resp.event_id)
         rows.append(Row(item.item_id, item.set, item.sha256, item.family, item.file_type, item.variant,
                         resp.decision, resp.source, resp.error, ev.distance if ev else None,
-                        ev.classification if ev else "", ev.matched_label if ev else ""))
+                        ev.classification if ev else "", ev.matched_label if ev else "", ev is not None))
     return rows
+
+
+def missing_evidence(rows: list[Row]) -> int:
+    """TLSH와 event_id를 보낸 요청은 서버가 근거 행을 반드시 만든다. 없으면 근거 파일이 다른 회차·에이전트 것이다."""
+    return sum(1 for r in rows if not r.error and r.source not in LISTED and not r.has_evidence)
+
+
+def same_family(family: str, matched_label: str) -> bool:
+    """운영 블랙리스트 사유는 'MalwareBazaar: AgentTesla'처럼 출처가 앞에 붙는다."""
+    label = matched_label.split(": ", 1)[-1].strip()
+    return bool(family) and label == family
 
 
 def eligible(rows: list[Row], set_name: str) -> list[Row]:
@@ -86,20 +98,29 @@ def propose(rows: list[Row]) -> Proposal:
     return Proposal(block, warn, clipped, notes)
 
 
-def predict_mismatches(base_rows: list[Row], pass_rows: list[Row], block: int) -> list[str]:
-    """1회차(base)의 서버 거리로 '임계값 block이면 차단'을 예측하고, 2회차 판정과 item_id로 맞춰 본다.
+def _classify(distance: int | None, block: int, warn: int) -> str:
+    if distance is None or distance > warn:
+        return ""
+    return "BLOCK" if distance <= block else "WARN"
 
-    2회차 요청은 event_id가 새로 생기므로 거리는 반드시 1회차 근거에서 가져온다.
+
+def predict_mismatches(base_rows: list[Row], pass_rows: list[Row], block: int, warn: int) -> list[str]:
+    """1회차(base)의 서버 거리로 (block, warn) 정책의 판정을 예측하고 2회차와 item_id로 맞춰 본다.
+
+    차단은 응답(BLOCK/SIMILARITY)으로, 경고는 2회차 근거의 classification으로 본다. 2회차에 빠졌거나 오류가 난
+    항목도 불일치로 센다(스펙: 모든 항목에서 같아야 한다). 2회차 요청은 event_id가 새로 생기므로 거리는 1회차에서 온다.
     """
-    second = {r.item_id: r for r in pass_rows if not r.error}
+    second = {r.item_id: r for r in pass_rows}
     out = []
     for r in eligible(base_rows, "M") + eligible(base_rows, "B"):
-        actual_row = second.get(r.item_id)
-        if actual_row is None:
+        got = second.get(r.item_id)
+        if got is None or got.error:
+            out.append(r.item_id)
             continue
-        predicted = r.distance is not None and r.distance <= block
-        actual = actual_row.decision == "DECISION_BLOCK" and actual_row.source == SIMILARITY
-        if predicted != actual:
+        expected = _classify(r.distance, block, warn)
+        blocked = got.decision == "DECISION_BLOCK" and got.source == SIMILARITY
+        actual = "BLOCK" if blocked else ("WARN" if got.classification == "WARN" else "")
+        if expected != actual:
             out.append(r.item_id)
     order = {r.item_id: n for n, r in enumerate(base_rows)}
     return sorted(out, key=order.__getitem__)
@@ -144,7 +165,7 @@ def report(rows: list[Row], proposal: Proposal, meta: dict) -> str:
     for family, count in Counter(r.family or "(없음)" for r in m).most_common(10):
         pool = [r for r in m if (r.family or "(없음)") == family]
         blocked = [r for r in pool if r.distance is not None and r.distance <= CURRENT_BLOCK]
-        same = sum(1 for r in blocked if r.matched_label == r.family)
+        same = sum(1 for r in blocked if same_family(r.family, r.matched_label))
         lines.append(f"| {family} | {count} | {_pct(len(blocked), count)} | "
                      f"{_pct(_within(pool, CURRENT_BLOCK, CURRENT_WARN), count)} | {_pct(same, len(blocked))} |")
 

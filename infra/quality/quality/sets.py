@@ -117,18 +117,29 @@ def scan_benign(root, blacklist: set[str]) -> tuple[list[Item], Counter]:
     return items, counts
 
 
-def pick_variant_origins(items: list[Item], root, installer_names: set[str], count: int = 50,
-                         seed: int = 0) -> list:
-    """변종 원본: 설치 파일 자체는 빼고(사용자가 직접 받는 파일), PE(MZ)만, 크기 구간을 돌아가며 고른다."""
+# 사용자가 직접 받거나 여러 프로그램이 같이 쓰는 런타임은 가짜 악성으로 등록하면 실제 다운로드를 막을 수 있다.
+RISKY_NAME = re.compile(r"^(vcruntime|msvcp|msvcr|ucrtbase|api-ms-|concrt|vccorlib|mfc)", re.IGNORECASE)
+INSTALLER_MIN_DISTANCE = 70
+
+
+def pick_variant_origins(items: list[Item], root, installer_names: set[str], count: int = 50, seed: int = 0,
+                         exclude_shas: set[str] = frozenset(), installer_tlsh: Iterable[str] = ()) -> list:
+    """변종 원본: 설치 파일 안의 내부 DLL(PE)만, 공용 런타임·블랙리스트에 있는 파일·설치 파일과 TLSH 거리 70 이하인
+    파일은 뺀다(등록하는 동안 실제 설치 파일 다운로드가 막히지 않게). 크기 구간을 돌아가며 고른다."""
     import bisect
     import random
 
+    import tlsh as py_tlsh
+
+    installers = list(installer_tlsh)
     buckets: list[list] = [[] for _ in range(len(SIZE_BUCKETS) + 1)]
     for item in items:
-        if item.variant:
+        if item.variant or item.sha256 in exclude_shas:
             continue
         path = root / item.family
-        if path.name in installer_names:
+        if path.name in installer_names or path.suffix.lower() != ".dll" or RISKY_NAME.match(path.name):
+            continue
+        if any(py_tlsh.diff(item.tlsh, other) <= INSTALLER_MIN_DISTANCE for other in installers):
             continue
         with open(path, "rb") as src:
             if src.read(2) != b"MZ":

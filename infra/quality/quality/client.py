@@ -116,7 +116,8 @@ def register_agent(grpc_target: str, enrollment_token: str, tls: bool) -> tuple[
 
 
 async def run_checks(grpc_target: str, tls: bool, agent_token: str, items: list[Item], pass_id: str,
-                     concurrency: int = 4, timeout: float = 30) -> list[Response]:
+                     concurrency: int = 4, timeout: float = 30, on_result=None) -> list[Response]:
+    """on_result는 응답이 올 때마다 불린다(중간에 끊겨도 받은 응답을 잃지 않게 파일에 이어 쓰는 용도)."""
     meta = (("authorization", "Bearer " + agent_token),)
     gate = asyncio.Semaphore(concurrency)
     results: list[Response] = []
@@ -131,10 +132,13 @@ async def run_checks(grpc_target: str, tls: bool, agent_token: str, items: list[
                     resp = await stub.CheckHash(verdict_pb2.CheckHashRequest(
                         sha256=it.sha256, file_size=it.file_size, tlsh=it.tlsh, event_id=event_id),
                         timeout=timeout, metadata=meta)
-                    results.append(Response(it.item_id, event_id, verdict_pb2.Decision.Name(resp.decision),
-                                            verdict_pb2.DecisionSource.Name(resp.source), resp.reason, "", pass_id))
+                    result = Response(it.item_id, event_id, verdict_pb2.Decision.Name(resp.decision),
+                                      verdict_pb2.DecisionSource.Name(resp.source), resp.reason, "", pass_id)
                 except grpc.aio.AioRpcError as err:
-                    results.append(Response(it.item_id, event_id, "", "", "", err.code().name, pass_id))
+                    result = Response(it.item_id, event_id, "", "", "", err.code().name, pass_id)
+            results.append(result)
+            if on_result:
+                on_result(result)
 
         await asyncio.gather(*(one(it) for it in items))
     return results
