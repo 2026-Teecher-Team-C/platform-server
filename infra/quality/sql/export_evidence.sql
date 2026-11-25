@@ -1,0 +1,2 @@
+-- 측정 에이전트(:agent_id)가 보낸 CheckHash의 TLSH 근거. 근거가 없는 요청(거리 70 초과 등)은 distance가 빈칸이다.
+COPY (SELECT e.event_id, a.distance, a.matched_sample_sha256, a.classification, a.policy_version, b.reason AS matched_label FROM event_decision_evidence e LEFT JOIN similarity_assessments a USING (assessment_id) LEFT JOIN hash_blacklist b ON b.hash_type = 'SHA256' AND b.hash_value = a.matched_sample_sha256 WHERE e.agent_id = :'agent_id' ORDER BY e.recorded_at) TO STDOUT WITH CSV HEADER;

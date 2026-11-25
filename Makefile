@@ -81,8 +81,8 @@ QUALITY_BUILD = docker build -q -f infra/quality/Dockerfile -t $(QUALITY_IMAGE) 
 
 test-quality:   ## 탐지 품질 측정 하네스 테스트
 	$(QUALITY_BUILD)
-	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$(CURDIR)/infra/quality":/app \
-		-v "$(CURDIR)/api-server/src/main/resources/db/migration":/migrations:ro \
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
+		-v "$(CURDIR)/infra/quality":/app -v "$(CURDIR)/api-server/src/main/resources/db/migration":/migrations:ro \
 		--entrypoint pytest $(QUALITY_IMAGE) -q tests
 
 quality:        ## 탐지 품질 측정 (예: make quality ARGS="build-malicious --csv out/full.csv.zip ..."), 런북은 infra/quality/README.md
