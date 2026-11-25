@@ -86,14 +86,23 @@ def propose(rows: list[Row]) -> Proposal:
     return Proposal(block, warn, clipped, notes)
 
 
-def predict_mismatches(rows: list[Row], block: int) -> list[str]:
+def predict_mismatches(base_rows: list[Row], pass_rows: list[Row], block: int) -> list[str]:
+    """1회차(base)의 서버 거리로 '임계값 block이면 차단'을 예측하고, 2회차 판정과 item_id로 맞춰 본다.
+
+    2회차 요청은 event_id가 새로 생기므로 거리는 반드시 1회차 근거에서 가져온다.
+    """
+    second = {r.item_id: r for r in pass_rows if not r.error}
     out = []
-    for r in eligible(rows, "M") + eligible(rows, "B"):
+    for r in eligible(base_rows, "M") + eligible(base_rows, "B"):
+        actual_row = second.get(r.item_id)
+        if actual_row is None:
+            continue
         predicted = r.distance is not None and r.distance <= block
-        actual = r.decision == "DECISION_BLOCK" and r.source == SIMILARITY
+        actual = actual_row.decision == "DECISION_BLOCK" and actual_row.source == SIMILARITY
         if predicted != actual:
             out.append(r.item_id)
-    return sorted(out, key=lambda i: [r.item_id for r in rows].index(i))
+    order = {r.item_id: n for n, r in enumerate(base_rows)}
+    return sorted(out, key=order.__getitem__)
 
 
 def _pct(n: int, total: int) -> str:

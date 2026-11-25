@@ -65,14 +65,14 @@ def test_analyze가_보고서를_만든다(tmp_path):
 
 
 def test_predict는_불일치가_있으면_종료_코드_1(tmp_path):
-    items, responses, evidence = tmp_path / "i.csv", tmp_path / "r.csv", tmp_path / "e.csv"
+    items, r1, r2, evidence = (tmp_path / n for n in ("i.csv", "r1.csv", "r2.csv", "e1.csv"))
     write_items(items, [Item("M-1", "M", "c" * 64, TLSH, 0, "", "", "", "")])
-    write_responses(responses, [Response("M-1", "e1", "DECISION_UNKNOWN", "DECISION_SOURCE_UNSPECIFIED", "", "",
-                                         "p2")])
-    write_evidence(evidence, [Evidence("e1", 20, "f" * 64, "WARN", "tlsh-25-60-v1", "")])
+    write_responses(r1, [Response("M-1", "e1", "DECISION_BLOCK", "DECISION_SOURCE_SIMILARITY", "", "", "p1")])
+    write_responses(r2, [Response("M-1", "e2", "DECISION_UNKNOWN", "DECISION_SOURCE_UNSPECIFIED", "", "", "p2")])
+    write_evidence(evidence, [Evidence("e1", 20, "f" * 64, "BLOCK", "tlsh-30-70-v1", "")])
 
     with pytest.raises(SystemExit) as raised:
-        cli.main(["predict", "--items", str(items), "--responses", str(responses), "--evidence", str(evidence),
-                  "--block", "25"])
+        cli.main(["predict", "--items", str(items), "--base-responses", str(r1), "--base-evidence", str(evidence),
+                  "--responses", str(r2), "--block", "25"])
 
     assert raised.value.code == 1

@@ -111,7 +111,10 @@ def cmd_analyze(args) -> None:
 
 
 def cmd_predict(args) -> None:
-    mismatches = predict_mismatches(_rows(args), args.block)
+    items = _read_all_items(args.items)
+    base = join(items, read_responses(Path(args.base_responses)), read_evidence(Path(args.base_evidence)))
+    second = join(items, read_responses(Path(args.responses)), [])
+    mismatches = predict_mismatches(base, second, args.block)
     print(f"예측 불일치 {len(mismatches)}건")
     for item_id in mismatches[:50]:
         print("  " + item_id)
@@ -165,17 +168,21 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--run-id", required=True)
     s.set_defaults(func=cmd_variants)
 
-    for name, func in (("analyze", cmd_analyze), ("predict", cmd_predict)):
-        s = sub.add_parser(name)
-        s.add_argument("--items", nargs="+", required=True)
-        s.add_argument("--responses", required=True)
-        s.add_argument("--evidence", required=True)
-        if name == "analyze":
-            s.add_argument("--out", default="out/report.md")
-            s.add_argument("--meta", nargs="*", default=[])
-        else:
-            s.add_argument("--block", type=int, required=True)
-        s.set_defaults(func=func)
+    s = sub.add_parser("analyze")
+    s.add_argument("--items", nargs="+", required=True)
+    s.add_argument("--responses", required=True)
+    s.add_argument("--evidence", required=True)
+    s.add_argument("--out", default="out/report.md")
+    s.add_argument("--meta", nargs="*", default=[])
+    s.set_defaults(func=cmd_analyze)
+
+    s = sub.add_parser("predict", help="1회차 거리로 예측한 판정과 2회차 실제 판정 대조")
+    s.add_argument("--items", nargs="+", required=True)
+    s.add_argument("--base-responses", required=True)
+    s.add_argument("--base-evidence", required=True)
+    s.add_argument("--responses", required=True)
+    s.add_argument("--block", type=int, required=True)
+    s.set_defaults(func=cmd_predict)
     return p
 
 

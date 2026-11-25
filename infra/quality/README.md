@@ -59,8 +59,8 @@ make quality ARGS="policy set PROD --block <제안 차단> --warn <제안 경고
 make quality ARGS="run PROD PRODG --items out/items-M.csv out/items-B.csv --pass-id p2"
 bash infra/quality/prod_sql.sh infra/quality/sql/export_evidence.sql agent_id=$(cat infra/quality/out/agent-p2.txt) \
     > infra/quality/out/evidence-p2.csv
-make quality ARGS="predict --items out/items-M.csv out/items-B.csv --responses out/responses-p2.csv \
-    --evidence out/evidence-p1.csv --block <제안 차단>"             # 1회차 거리로 예측 → 2회차 판정과 0건 불일치
+make quality ARGS="predict --items out/items-M.csv out/items-B.csv --base-responses out/responses-p1.csv \
+    --base-evidence out/evidence-p1.csv --responses out/responses-p2.csv --block <제안 차단>"   # 불일치 0건이어야 함
 make quality ARGS="policy set PROD --block 30 --warn 70"           # 되돌린 뒤 policy get으로 확인
 ```
 
@@ -83,7 +83,9 @@ bash infra/quality/prod_sql.sh infra/quality/sql/cleanup_preview.sql agent_id=<a
 bash infra/quality/prod_sql.sh infra/quality/sql/cleanup.sql agent_id=<agent_id>           # 삭제 + REVOKED
 ```
 
-마지막으로 `policy get`이 30/70인지, `quality-test-r1` 사유의 활성 블랙리스트가 0건인지 확인한다. 감사 로그는 남긴다.
+마지막으로 `policy get`이 30/70인지, 변종 원본이 모두 해제됐는지 확인한다. 서버는 사유를 `quality-test: quality-test-r1`
+형태(가져오기 source + label)로 저장하므로 `SELECT count(*) FROM hash_blacklist WHERE is_active AND reason LIKE '%quality-test-r1'`이
+0이어야 하고, 같은 조건에서 `is_active`를 빼면 등록 건수와 같아야 한다. 감사 로그는 남긴다.
 
 ## 7. 결과 문서
 

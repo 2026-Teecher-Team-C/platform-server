@@ -67,11 +67,13 @@ def test_정상_파일이_멀면_차단은_상한_50():
     assert proposal.warn > proposal.block
 
 
-def test_예측_대조():
-    rows = build([spec("M", 20, source="DECISION_SOURCE_UNSPECIFIED"), spec("M", 20), spec("M", 28)])
-    rows[0] = rows[0].__class__(**{**rows[0].__dict__, "decision": UNKNOWN, "source": "DECISION_SOURCE_UNSPECIFIED"})
+def test_예측_대조는_1회차_거리와_2회차_판정을_item_id로_맞춘다():
+    base = build([spec("M", 20), spec("M", 20), spec("M", 28), spec("M")])
+    second = [r.__class__(**{**r.__dict__, "distance": None, "classification": ""}) for r in base]
+    second[0] = second[0].__class__(**{**second[0].__dict__, "decision": UNKNOWN,
+                                      "source": "DECISION_SOURCE_UNSPECIFIED"})
 
-    assert predict_mismatches(rows, block=25) == [rows[0].item_id, rows[2].item_id]
+    assert predict_mismatches(base, second, block=25) == [base[0].item_id, base[2].item_id]
 
 
 def test_결정_문장과_표():
