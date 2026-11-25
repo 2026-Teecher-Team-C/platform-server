@@ -73,7 +73,8 @@ public class SubmitAppealUseCase {
     private static String validReason(String reason) {
         String stripped = reason == null ? "" : reason.strip();
         int length = stripped.codePointCount(0, stripped.length());
-        if (length < 1 || length > MAX_REASON_CODE_POINTS) {
+        // PostgreSQL TEXT는 NUL을 저장하지 못해 500이 되므로 여기서 막는다.
+        if (stripped.indexOf('\u0000') >= 0 || length < 1 || length > MAX_REASON_CODE_POINTS) {
             throw new InvalidAppealReasonException("소명 사유는 1자 이상 " + MAX_REASON_CODE_POINTS + "자 이하로 써 주세요.");
         }
         return stripped;
