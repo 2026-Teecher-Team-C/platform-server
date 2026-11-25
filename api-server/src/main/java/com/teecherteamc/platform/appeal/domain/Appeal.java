@@ -80,6 +80,14 @@ public class Appeal implements Persistable<UUID> {
         return appeal;
     }
 
+    /**
+     * 토큰의 agent_id·sha256과 같은 소명인지. event_id만 같고 이것이 다르면 다른 사람의 소명이다
+     * (블랙리스트 해시만 보내도 남의 event_id로 토큰을 받을 수 있다).
+     */
+    public boolean isOwnedBy(UUID agentId, String sha256) {
+        return this.agentId.equals(agentId) && this.sha256.equals(sha256);
+    }
+
     @Override
     public UUID getId() {
         return appealId;

@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.appeal.application;
 
+import com.teecherteamc.platform.appeal.domain.Appeal;
 import com.teecherteamc.platform.appeal.domain.AppealClaims;
 import com.teecherteamc.platform.appeal.domain.AppealRepository;
 import com.teecherteamc.platform.appeal.domain.FindBlockedDownloadPort;
@@ -24,9 +25,14 @@ public class GetAppealUseCase {
     @Transactional(readOnly = true)
     public AppealView get(String token) {
         AppealClaims claims = appealLinks.tokens().verify(token).orElseThrow(AppealNotFoundException::new);
+        Appeal appeal = appealRepository.findByEventId(claims.eventId()).orElse(null);
+        // 다른 사람의 소명이면 appeal: null로 비우지 않고 404로 숨긴다(존재 자체를 알리지 않는다)
+        if (appeal != null && !appeal.isOwnedBy(claims.agentId(), claims.sha256())) {
+            throw new AppealNotFoundException();
+        }
         return AppealView.of(
                 claims,
                 findBlockedDownload.find(claims.eventId(), claims.agentId()).orElse(null),
-                appealRepository.findByEventId(claims.eventId()).orElse(null));
+                appeal);
     }
 }

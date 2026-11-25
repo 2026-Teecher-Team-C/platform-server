@@ -78,7 +78,11 @@ class AppealUseCaseIntegrationTest {
     }
 
     private String token(UUID eventId, UUID agentId) {
-        return appealLinks.tokens().issue(eventId, sha(), agentId,
+        return token(eventId, sha(), agentId);
+    }
+
+    private String token(UUID eventId, String sha256, UUID agentId) {
+        return appealLinks.tokens().issue(eventId, sha256, agentId,
                 VerdictEvidence.similarity(12, sha(), "MalwareBazaar: AgentTesla"));
     }
 
@@ -209,6 +213,43 @@ class AppealUseCaseIntegrationTest {
         }
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM appeals WHERE event_id = ?", Long.class, eventId))
                 .isEqualTo(1L);
+    }
+
+    // 다른 에이전트가 같은 event_id로 토큰을 받아도 남의 소명(사유·거절 사유)은 보이지 않는다. 존재 자체도 알리지 않는다.
+    @Test
+    void appeal_of_other_agent_is_not_visible() {
+        UUID eventId = UUID.randomUUID();
+        String sha256 = sha();
+        submitAppeal.submit(token(eventId, sha256, seedAgent()), "피해자의 사유", "10.0.0.7");
+
+        String attacker = token(eventId, sha256, seedAgent());
+
+        assertThatThrownBy(() -> getAppeal.get(attacker)).isInstanceOf(AppealNotFoundException.class);
+    }
+
+    @Test
+    void appeal_with_other_sha_is_not_visible() {
+        UUID eventId = UUID.randomUUID();
+        UUID agentId = seedAgent();
+        submitAppeal.submit(token(eventId, sha(), agentId), "원래 파일의 사유", "10.0.0.7");
+
+        String otherSha = token(eventId, sha(), agentId);
+
+        assertThatThrownBy(() -> getAppeal.get(otherSha)).isInstanceOf(AppealNotFoundException.class);
+    }
+
+    @Test
+    void submit_against_other_agents_appeal_is_not_found() {
+        UUID eventId = UUID.randomUUID();
+        String sha256 = sha();
+        submitAppeal.submit(token(eventId, sha256, seedAgent()), "피해자의 사유", "10.0.0.7");
+
+        String attacker = token(eventId, sha256, seedAgent());
+
+        assertThatThrownBy(() -> submitAppeal.submit(attacker, "공격자의 사유", "10.0.0.8"))
+                .isInstanceOf(AppealNotFoundException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM appeals WHERE event_id = ?", String.class, eventId))
+                .isEqualTo("피해자의 사유");
     }
 
     @Test

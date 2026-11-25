@@ -44,7 +44,12 @@ public class SubmitAppealUseCase {
     public AppealView submit(String token, String reason, String ipAddress) {
         AppealClaims claims = appealLinks.tokens().verify(token).orElseThrow(AppealNotFoundException::new);
         String stripped = validReason(reason);
-        if (appealRepository.findByEventId(claims.eventId()).isPresent()) {
+        Appeal existing = appealRepository.findByEventId(claims.eventId()).orElse(null);
+        if (existing != null) {
+            // 다른 사람의 소명이면 409로 존재를 알리지 않고 404로 숨긴다
+            if (!existing.isOwnedBy(claims.agentId(), claims.sha256())) {
+                throw new AppealNotFoundException();
+            }
             throw new AppealAlreadySubmittedException();
         }
         Appeal appeal;
