@@ -32,7 +32,10 @@ public class SimilarityDecisions {
     /** 정확 SHA 예외만 허용을 만들 수 있다. TLSH 유사 신호는 기존 악성 차단을 해제하지 않는다. */
     public SubmitFileResult exactOverride(String sha) {
         if (whitelist.isEffective(sha, clock.instant())) return new SubmitFileResult("ALLOW", "WHITELIST", null, List.of());
-        return blacklist.findActiveReason(sha).map(reason -> new SubmitFileResult("BLOCK", "BLACKLIST", reason, List.of())).orElse(null);
+        return blacklist.findActiveReason(sha)
+                .map(reason -> new SubmitFileResult("BLOCK", "BLACKLIST", reason, List.of(),
+                        com.teecherteamc.platform.verdict.domain.VerdictEvidence.blacklist(reason)))
+                .orElse(null);
     }
     /** 최근접 악성 샘플의 활성 블랙리스트 사유. 판정 근거(패밀리)에 쓴다. 없으면 null. */
     public String sampleLabel(String sampleSha256) {

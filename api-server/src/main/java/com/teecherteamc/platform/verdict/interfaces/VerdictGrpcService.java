@@ -448,12 +448,15 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         }
 
         private static SubmitFileResponse toResponse(SubmitFileResult result) {
-            return SubmitFileResponse.newBuilder()
+            SubmitFileResponse.Builder response = SubmitFileResponse.newBuilder()
                     .setDecision(toProtoDecision(result.decision()))
                     .setSource(toProtoDecisionSource(result.source()))
                     .setReason(result.reason() == null ? "" : result.reason())
-                    .addAllMatchedRules(result.matchedRules())
-                    .build();
+                    .addAllMatchedRules(result.matchedRules());
+            if (hasEvidence(result.decision(), result.evidence())) {
+                response.setEvidence(toProtoEvidence(result.evidence()));
+            }
+            return response.build();
         }
     }
 

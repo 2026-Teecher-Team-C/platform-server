@@ -110,9 +110,7 @@ public class CheckHashUseCase {
             // 직전에만 정확 목록을 한 번 더 본다. 블룸 miss의 대부분(NONE·TLSH 없음)은 이 조회를 하지 않는다.
             SubmitFileResult exact = metrics.stage("lists", () -> similarity.exactOverride(sha256));
             if (exact != null) {
-                VerdictEvidence evidence = "BLOCK".equals(exact.decision())
-                        ? VerdictEvidence.blacklist(exact.reason()) : VerdictEvidence.none();
-                return new CheckHashResult(exact.decision(), exact.source(), exact.reason(), evidence);
+                return new CheckHashResult(exact.decision(), exact.source(), exact.reason(), exact.evidence());
             }
         }
         // claim()을 이미 같은 sha·agent로 했으므로 연결 대상 evidence 행이 있다. event_id가 없는 구형 요청은

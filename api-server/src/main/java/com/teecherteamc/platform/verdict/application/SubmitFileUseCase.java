@@ -1,5 +1,7 @@
 package com.teecherteamc.platform.verdict.application;
 
+import com.teecherteamc.platform.verdict.domain.VerdictEvidence;
+import com.teecherteamc.platform.verdict.domain.SimilarityDecisionStore;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.verdict.domain.ActiveRulesetKeyPort;
 import com.teecherteamc.platform.verdict.domain.Analysis;
@@ -123,7 +125,7 @@ public class SubmitFileUseCase {
                         fileVerdictRepository.save(v);
                         similarity.save(command.verifiedSha256(), command.eventId(), cleanAnalysis.get(), assessment);
                         recomputedBlock[0] = block;
-                        return block ? new SubmitFileResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(), List.of())
+                        return block ? similarityBlock(assessment)
                                 : new SubmitFileResult("ALLOW", SOURCE_CACHE, null, List.of());
                     }
                 }
@@ -234,7 +236,7 @@ public class SubmitFileUseCase {
             if (!"SUCCESS".equals(outcome.status()) || isFreshMaliciousOrSuspicious(outcome)) return toResult(outcome);
             if (exact != null) return exact;
             return similarityBlock
-                    ? new SubmitFileResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(), List.of())
+                    ? similarityBlock(assessment)
                     : toResult(outcome);
         });
     }
@@ -283,11 +285,18 @@ public class SubmitFileUseCase {
         return analysis.getAnalysisId();
     }
 
+    private SubmitFileResult similarityBlock(SimilarityDecisionStore.Assessment assessment) {
+        return new SubmitFileResult("BLOCK", "SIMILARITY", "TLSH distance: " + assessment.distance(), List.of(),
+                VerdictEvidence.similarity(assessment.distance(), assessment.sample(),
+                        similarity.sampleLabel(assessment.sample())));
+    }
+
     private SubmitFileResult fromCachedVerdict(FileVerdict fileVerdict) {
         return switch (fileVerdict.getVerdict()) {
             case "CLEAN" -> new SubmitFileResult("ALLOW", SOURCE_CACHE, null, List.of());
             case "MALICIOUS", "SUSPICIOUS" -> new SubmitFileResult(
-                    "BLOCK", "SIMILARITY".equals(fileVerdict.getVerdictSource()) ? "SIMILARITY" : SOURCE_CACHE, "cached verdict: " + fileVerdict.getVerdict(), List.of());
+                    "BLOCK", "SIMILARITY".equals(fileVerdict.getVerdictSource()) ? "SIMILARITY" : SOURCE_CACHE, "cached verdict: " + fileVerdict.getVerdict(), List.of(),
+                    VerdictEvidence.cache(fileVerdict.getVerdict()));
             default -> null;
         };
     }
@@ -301,7 +310,10 @@ public class SubmitFileUseCase {
         return switch (outcome.verdict()) {
             case "CLEAN" -> new SubmitFileResult("ALLOW", SOURCE_ENGINE, null, ruleNames);
             case "MALICIOUS", "SUSPICIOUS" -> new SubmitFileResult(
-                    "BLOCK", SOURCE_ENGINE, String.join(", ", ruleNames), ruleNames);
+                    "BLOCK", SOURCE_ENGINE, String.join(", ", ruleNames), ruleNames,
+                    VerdictEvidence.yara(outcome.matches().stream()
+                            .map(match -> new VerdictEvidence.Rule(match.ruleName(), match.severity()))
+                            .toList()));
             // SubmitFile은 UNKNOWN을 돌려줄 수 없다(더 올려볼 데가 없다) — 안전한 쪽인 BLOCK으로 확정.
             default -> new SubmitFileResult(
                     "BLOCK", SOURCE_ENGINE, "엔진이 결론을 내지 못함: " + outcome.verdict(), ruleNames);

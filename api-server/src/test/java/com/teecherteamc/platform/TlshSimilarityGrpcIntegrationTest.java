@@ -68,6 +68,11 @@ class TlshSimilarityGrpcIntegrationTest {
         var evidence = jdbc.queryForMap("SELECT * FROM similarity_assessments WHERE assessment_id = (SELECT assessment_id FROM event_decision_evidence WHERE event_id = ?)", event);
         assertThat(evidence.get("distance")).isEqualTo(17);
         assertThat(evidence.get("matched_sample_sha256")).isEqualTo(baseline);
+        assertThat(response.getEvidence().getKind())
+                .isEqualTo(com.teecherteamc.platform.proto.verdict.v1.EvidenceKind.EVIDENCE_KIND_SIMILARITY);
+        assertThat(response.getEvidence().getTlshDistance()).isEqualTo(17);
+        assertThat(response.getEvidence().getMatchedSampleSha256()).isEqualTo(baseline);
+        assertThat(response.getEvidence().getLabel()).isEqualTo("harmless baseline fixture");
         assertThat(evidence.get("classification")).isEqualTo("BLOCK");
         assertThat(jdbc.queryForObject("SELECT verdict FROM analyses WHERE analysis_id = ?", String.class, evidence.get("analysis_id"))).isEqualTo("CLEAN");
         assertThat(jdbc.queryForObject("SELECT verdict_source FROM file_verdicts WHERE sha256 = ?", String.class, sha)).isEqualTo("SIMILARITY");
