@@ -18,6 +18,7 @@ export type SubmittedAppeal = {
 }
 
 export type AppealView = {
+  eventId: string
   blockedAt: string | null
   filename: string | null
   verdict: AppealVerdict | null

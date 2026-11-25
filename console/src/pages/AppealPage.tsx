@@ -14,12 +14,13 @@ function reasonLength(value: string) {
   return [...value.trim()].length
 }
 
+// 사내 알림처럼 "2026-11-26 01:53" 형태로 줄여 보여 준다(브라우저 시간대 기준).
 function formatBlockedAt(iso: string) {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
-  return date.toLocaleString('ko-KR', {
-    year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function isNotFound(error: unknown) {
@@ -98,8 +99,15 @@ export function AppealPage() {
   }, [polling, token])
 
   return (
-    <main className="appeal-page">
-      <article className="appeal-card" data-state={cardState(state)}>
+    <div className="appeal-page">
+      <header className="appeal-topbar">
+        <div className="appeal-frame appeal-topbar-inner">
+          <span className="appeal-brand-mark" aria-hidden="true">T</span>
+          <strong>Teecher</strong>
+          <span className="appeal-topbar-title">보안 정책 안내</span>
+        </div>
+      </header>
+      <main className="appeal-frame appeal-main">
         <AppealBody
           state={state}
           unstable={unstable}
@@ -107,15 +115,12 @@ export function AppealPage() {
           onView={(view) => setState({ kind: 'ready', view })}
           onNotFound={() => setState({ kind: 'notFound' })}
         />
-      </article>
-      <p className="appeal-footnote">Teecher Security</p>
-    </main>
+      </main>
+      <footer className="appeal-footer">
+        <p className="appeal-frame">문의: 보안 담당자에게 이벤트 ID를 알려 주세요.</p>
+      </footer>
+    </div>
   )
-}
-
-function cardState(state: PageState) {
-  if (state.kind !== 'ready') return state.kind
-  return state.view.appeal?.status.toLowerCase() ?? 'draft'
 }
 
 type BodyProps = {
@@ -129,64 +134,91 @@ type BodyProps = {
 function AppealBody({ state, unstable, token, onView, onNotFound }: BodyProps) {
   if (state.kind === 'loading') {
     return (
-      <header className="appeal-header">
+      <section className="appeal-message">
         <h1>소명 정보를 불러오는 중입니다</h1>
         <p role="status">
           {unstable ? '서버에 연결하지 못했습니다. 잠시 후 자동으로 다시 시도합니다.' : '잠시만 기다려 주세요.'}
         </p>
-      </header>
+      </section>
     )
   }
   if (state.kind === 'notFound') {
     return (
-      <header className="appeal-header">
+      <section className="appeal-message">
         <h1>소명 링크를 열 수 없습니다</h1>
         <p role="alert">링크가 만료되었거나 잘못되었습니다. 이벤트 ID를 보안 담당자에게 알려 주세요.</p>
-      </header>
+      </section>
     )
   }
 
   const { view } = state
+  const { appeal } = view
   return (
     <>
-      <header className="appeal-header">
-        <p className="appeal-eyebrow">다운로드 차단 소명</p>
-        <h1>{view.appeal ? '소명을 접수했습니다' : '이 파일이 업무에 필요하신가요?'}</h1>
-        <p>
-          {view.appeal
-            ? '보안 담당자의 결정이 이 화면에 바로 표시됩니다.'
-            : '필요한 이유를 적어 보내면 보안 담당자가 검토합니다.'}
+      <div className="appeal-heading">
+        <h1>다운로드 차단 소명</h1>
+        <p className="appeal-event-id">
+          이벤트 ID <code title={view.eventId}>{view.eventId.slice(0, 8)}</code>
         </p>
-      </header>
-      <BlockSummary view={view} />
-      {view.appeal
-        ? <AppealStatusPanel key={view.appeal.status} appeal={view.appeal} unstable={unstable} />
-        : <AppealForm token={token} onView={onView} onNotFound={onNotFound} />}
+      </div>
+      {appeal ? null : (
+        <p className="appeal-lead">업무에 필요한 파일이면 사유를 적어 보내 주세요. 보안 담당자가 검토합니다.</p>
+      )}
+      <BlockDetails view={view} />
+      <section className="appeal-section" aria-label="처리 상태">
+        <AppealProgress appeal={appeal} />
+        {/* 알림 영역은 고정해 두고 글자만 바꾼다. 다시 만들면 화면 읽기 프로그램이 바뀐 상태를 놓친다. */}
+        <div className={'appeal-status appeal-status--' + (appeal?.status.toLowerCase() ?? 'draft')}
+          role="status" aria-live="polite">
+          {appeal ? <StatusText appeal={appeal} /> : null}
+        </div>
+        {appeal?.status === 'PENDING' ? (
+          <p className="appeal-live">
+            {unstable ? '연결이 잠시 불안정합니다. 자동으로 다시 확인합니다.' : '결정이 나면 이 화면이 자동으로 바뀝니다.'}
+          </p>
+        ) : null}
+      </section>
+      {appeal ? (
+        <dl className="appeal-rows appeal-section">
+          <div>
+            <dt>사유</dt>
+            <dd className="appeal-reason">{appeal.reason}</dd>
+          </div>
+        </dl>
+      ) : (
+        <AppealForm token={token} onView={onView} onNotFound={onNotFound} />
+      )}
     </>
   )
 }
 
-function BlockSummary({ view }: { view: AppealView }) {
+function BlockDetails({ view }: { view: AppealView }) {
   return (
-    <dl className="appeal-summary">
-      <div>
-        <dt>차단 이유</dt>
-        <dd>
-          {view.verdict ? (
-            <>
-              <strong className="appeal-threat">{view.verdict.threat}</strong>
-              <span className="appeal-why">{view.verdict.summary}</span>
-            </>
-          ) : (
-            <span className="appeal-why">판정 근거를 불러오지 못했습니다</span>
-          )}
-        </dd>
-      </div>
-      <div>
-        <dt>파일</dt>
-        {/* 파일명은 공격자가 정할 수 있는 값이다. 링크로 만들지 않고 텍스트로만 보여 준다. */}
-        <dd className="appeal-filename">{view.filename ?? '파일 이름을 알 수 없습니다'}</dd>
-      </div>
+    <dl className="appeal-rows appeal-section">
+      {view.verdict ? (
+        <>
+          <div>
+            <dt>위협</dt>
+            <dd className="appeal-threat">{view.verdict.threat}</dd>
+          </div>
+          <div>
+            <dt>판정</dt>
+            <dd>{view.verdict.summary}</dd>
+          </div>
+        </>
+      ) : (
+        <div>
+          <dt>판정</dt>
+          <dd className="appeal-muted">판정 근거를 불러오지 못했습니다</dd>
+        </div>
+      )}
+      {view.filename ? (
+        <div>
+          <dt>파일</dt>
+          {/* 파일명은 공격자가 정할 수 있는 값이다. 링크로 만들지 않고 텍스트로만 보여 준다. */}
+          <dd className="appeal-filename">{view.filename}</dd>
+        </div>
+      ) : null}
       {view.blockedAt ? (
         <div>
           <dt>차단 시각</dt>
@@ -197,12 +229,71 @@ function BlockSummary({ view }: { view: AppealView }) {
   )
 }
 
+type StepState = 'todo' | 'done' | 'approved' | 'rejected'
+
+function progressSteps(appeal: SubmittedAppeal | null): { label: string; state: StepState; current: boolean }[] {
+  if (!appeal) {
+    return [
+      { label: '접수', state: 'todo', current: false },
+      { label: '검토 중', state: 'todo', current: false },
+      { label: '결정', state: 'todo', current: false },
+    ]
+  }
+  if (appeal.status === 'PENDING') {
+    return [
+      { label: '접수', state: 'done', current: false },
+      { label: '검토 중', state: 'done', current: true },
+      { label: '결정', state: 'todo', current: false },
+    ]
+  }
+  const approved = appeal.status === 'APPROVED'
+  return [
+    { label: '접수', state: 'done', current: false },
+    { label: '검토 중', state: 'done', current: false },
+    { label: approved ? '승인' : '거절', state: approved ? 'approved' : 'rejected', current: true },
+  ]
+}
+
+function AppealProgress({ appeal }: { appeal: SubmittedAppeal | null }) {
+  return (
+    <div className="appeal-rows">
+      <div>
+        <span className="appeal-row-label">진행</span>
+        <ol className="appeal-progress">
+          {progressSteps(appeal).map((step, index) => (
+            <li key={index} data-state={step.state} aria-current={step.current ? 'step' : undefined}>
+              <span className="appeal-progress-dot" aria-hidden="true" />
+              {step.label}
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  )
+}
+
+const STATUS_TEXT = {
+  PENDING: '보안 담당자가 검토하고 있습니다.',
+  APPROVED: '승인되었습니다. 원래 페이지로 돌아가 다시 받아 주세요.',
+  REJECTED: '거절되었습니다.',
+} as const
+
+function StatusText({ appeal }: { appeal: SubmittedAppeal }) {
+  return (
+    <>
+      <p className="appeal-status-text">{STATUS_TEXT[appeal.status]}</p>
+      {appeal.status === 'REJECTED' && appeal.decisionNote ? (
+        <p className="appeal-decision-note">담당자 의견: {appeal.decisionNote}</p>
+      ) : null}
+    </>
+  )
+}
+
 type FormProps = {
   token: string
   onView: (view: AppealView) => void
   onNotFound: () => void
 }
-
 function AppealForm({ token, onView, onNotFound }: FormProps) {
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -241,58 +332,30 @@ function AppealForm({ token, onView, onNotFound }: FormProps) {
   }
 
   return (
-    <form className="appeal-form" onSubmit={handleSubmit} noValidate>
-      <label className="appeal-field">
-        <span>소명 사유</span>
-        <textarea
-          name="reason"
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          placeholder="예: 거래처에서 받은 업무용 설치 파일입니다."
-          rows={5}
-          disabled={submitting}
-        />
-      </label>
-      <div className="appeal-form-footer">
-        <span className={'appeal-count' + (length > REASON_MAX ? ' is-over' : '')} aria-live="polite">
-          {length} / {REASON_MAX}
-        </span>
-        <button className="appeal-submit" type="submit" disabled={!valid || submitting}>
-          소명 제출
-        </button>
+    <form className="appeal-form appeal-rows appeal-section" onSubmit={handleSubmit} noValidate>
+      <div>
+        <label className="appeal-row-label" htmlFor="appeal-reason">사유</label>
+        <div className="appeal-form-body">
+          <textarea
+            id="appeal-reason"
+            name="reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="예: 거래처에서 받은 업무용 설치 파일입니다."
+            rows={5}
+            disabled={submitting}
+          />
+          <div className="appeal-form-footer">
+            <span className={'appeal-count' + (length > REASON_MAX ? ' is-over' : '')} aria-live="polite">
+              {length} / {REASON_MAX}
+            </span>
+            <button className="appeal-submit" type="submit" disabled={!valid || submitting}>
+              소명 제출
+            </button>
+          </div>
+          {error ? <p className="appeal-error" role="alert">{error}</p> : null}
+        </div>
       </div>
-      {error ? <p className="appeal-error" role="alert">{error}</p> : null}
     </form>
-  )
-}
-
-const STATUS_COPY = {
-  PENDING: { icon: '⏳', title: '보안 담당자가 검토하고 있습니다.' },
-  APPROVED: { icon: '✅', title: '승인되었습니다. 원래 페이지로 돌아가 다시 받아 주세요.' },
-  REJECTED: { icon: '⛔', title: '거절되었습니다.' },
-} as const
-
-function AppealStatusPanel({ appeal, unstable }: { appeal: SubmittedAppeal; unstable: boolean }) {
-  const copy = STATUS_COPY[appeal.status]
-  return (
-    <section className={'appeal-status appeal-status--' + appeal.status.toLowerCase()}>
-      <div className="appeal-status-head" role="status" aria-live="polite">
-        <span className="appeal-status-icon" aria-hidden="true">{copy.icon}</span>
-        <p>{copy.title}</p>
-      </div>
-      {appeal.status === 'REJECTED' && appeal.decisionNote ? (
-        <p className="appeal-decision">사유: {appeal.decisionNote}</p>
-      ) : null}
-      <div className="appeal-mine">
-        <span>내가 쓴 사유</span>
-        <p>{appeal.reason}</p>
-      </div>
-      {appeal.status === 'PENDING' ? (
-        <p className="appeal-live">
-          <span className="appeal-live-dot" aria-hidden="true" />
-          {unstable ? '연결이 잠시 불안정합니다. 자동으로 다시 확인합니다.' : '결정이 나면 이 화면이 자동으로 바뀝니다.'}
-        </p>
-      ) : null}
-    </section>
   )
 }

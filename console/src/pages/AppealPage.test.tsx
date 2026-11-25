@@ -11,7 +11,9 @@ vi.mock('../lib/api/appeals', () => ({ getAppeal: vi.fn(), submitAppeal: vi.fn()
 const get = vi.mocked(getAppeal)
 const submit = vi.mocked(submitAppeal)
 const token = 'eyJ2IjoxfQ.c2lnbmF0dXJl'
+const eventId = '0f8c2b9e-4d1a-4c7b-9a2e-5b3f6d7e8a91'
 const before: AppealView = {
+  eventId,
   blockedAt: '2026-11-26T10:12:03Z',
   filename: 'report.exe',
   verdict: { kind: 'SIMILARITY', threat: 'Mirai', summary: '알려진 악성코드와 매우 비슷한 파일입니다.' },
@@ -239,4 +241,81 @@ it('화면을_떠나면_조회를_멈춘다', async () => {
   root = createRoot(container)
   await advance(9000)
   expect(get).toHaveBeenCalledTimes(1)
+})
+
+const EMOJI = /\p{Extended_Pictographic}/u
+
+function progress() {
+  return [...container.querySelectorAll('.appeal-progress li')].map((li) => ({
+    label: li.textContent,
+    state: li.getAttribute('data-state'),
+    current: li.getAttribute('aria-current'),
+  }))
+}
+
+it('이벤트_ID_앞_8자리를_보여_주고_전체는_title에_둔다', async () => {
+  get.mockResolvedValue(before)
+  await mount()
+  const node = container.querySelector('.appeal-event-id code')!
+  expect(node.textContent).toBe('0f8c2b9e')
+  expect(node.getAttribute('title')).toBe(eventId)
+  expect(container.textContent).toContain('문의: 보안 담당자에게 이벤트 ID를 알려 주세요.')
+})
+
+it('소명_전에는_진행_단계가_모두_비어_있다', async () => {
+  get.mockResolvedValue(before)
+  await mount()
+  expect(progress()).toEqual([
+    { label: '접수', state: 'todo', current: null },
+    { label: '검토 중', state: 'todo', current: null },
+    { label: '결정', state: 'todo', current: null },
+  ])
+})
+
+it('검토_중이면_검토_중이_현재_단계다', async () => {
+  get.mockResolvedValue(pending)
+  await mount()
+  expect(progress()).toEqual([
+    { label: '접수', state: 'done', current: null },
+    { label: '검토 중', state: 'done', current: 'step' },
+    { label: '결정', state: 'todo', current: null },
+  ])
+})
+
+it('승인되면_결정_칸이_승인으로_채워진다', async () => {
+  get.mockResolvedValue(approved)
+  await mount()
+  expect(progress()[2]).toEqual({ label: '승인', state: 'approved', current: 'step' })
+  expect(progress().slice(0, 2).map((step) => step.state)).toEqual(['done', 'done'])
+})
+
+it('거절되면_결정_칸이_거절로_채워진다', async () => {
+  get.mockResolvedValue(rejected)
+  await mount()
+  expect(progress()[2]).toEqual({ label: '거절', state: 'rejected', current: 'step' })
+})
+
+it('어느_상태에서도_이모지를_쓰지_않는다', async () => {
+  for (const view of [before, pending, approved, rejected]) {
+    get.mockReset(); get.mockResolvedValue(view)
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await mount()
+    expect(container.textContent).not.toMatch(EMOJI)
+  }
+  get.mockReset(); get.mockRejectedValue(new ApiError(404, {}))
+  await act(async () => root.unmount())
+  root = createRoot(container)
+  await mount()
+  expect(container.textContent).not.toMatch(EMOJI)
+})
+
+it('상태가_바뀌어도_알림_영역은_그대로_두고_글자만_바꾼다', async () => {
+  get.mockResolvedValueOnce(pending).mockResolvedValue(approved)
+  await mount()
+  const live = container.querySelector('[aria-live=polite][role=status]')!
+  expect(live.textContent).toContain('보안 담당자가 검토하고 있습니다.')
+  await advance(3000)
+  expect(container.querySelector('[aria-live=polite][role=status]')).toBe(live)
+  expect(live.textContent).toContain('승인되었습니다. 원래 페이지로 돌아가 다시 받아 주세요.')
 })
