@@ -8,9 +8,9 @@ import java.time.Instant;
 
 /**
  * 소명 화면 한 장에 필요한 값. 공개 응답이므로 URL·호스트·장비 이름·에이전트 ID·샘플 SHA-256은 넣지 않는다.
- * 값이 없으면 null이다.
+ * 값이 없으면 null이다. eventId는 직원이 차단 페이지에서 이미 본 값이며, 문의할 때 보안 담당자에게 알려 주는 용도다.
  */
-public record AppealView(Instant blockedAt, String filename, Verdict verdict, Submitted appeal) {
+public record AppealView(String eventId, Instant blockedAt, String filename, Verdict verdict, Submitted appeal) {
 
     /** 차단 근거 요약. summary는 에이전트 차단 페이지(block_page._explain)와 같은 문구다. */
     public record Verdict(String kind, String threat, String summary) {
@@ -21,6 +21,7 @@ public record AppealView(Instant blockedAt, String filename, Verdict verdict, Su
 
     static AppealView of(AppealClaims claims, BlockedDownload blocked, Appeal appeal) {
         return new AppealView(
+                claims.eventId().toString(),
                 blocked == null ? null : blocked.blockedAt(),
                 blocked == null ? null : blocked.filename(),
                 verdictOf(claims.kind(), claims.threat()),

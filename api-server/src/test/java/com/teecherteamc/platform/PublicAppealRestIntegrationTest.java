@@ -108,6 +108,17 @@ class PublicAppealRestIntegrationTest {
     }
 
     @Test
+    void get_returns_event_id_from_token() {
+        UUID eventId = UUID.randomUUID();
+        String token = appealLinks.tokens().issue(eventId, sha(), seedAgent(), evidence());
+
+        ResponseEntity<Map> fetched = restTemplate.getForEntity(url(token), Map.class);
+
+        assertThat(fetched.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(fetched.getBody().get("eventId")).isEqualTo(eventId.toString());
+    }
+
+    @Test
     void second_post_is_409() {
         String token = freshToken();
 
