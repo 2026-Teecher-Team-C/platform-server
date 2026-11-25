@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -318,4 +320,28 @@ it('상태가_바뀌어도_알림_영역은_그대로_두고_글자만_바꾼다
   await advance(3000)
   expect(container.querySelector('[aria-live=polite][role=status]')).toBe(live)
   expect(live.textContent).toContain('승인되었습니다. 원래 페이지로 돌아가 다시 받아 주세요.')
+})
+
+it('제출해도_소명_전부터_있던_알림_영역을_그대로_쓴다', async () => {
+  get.mockResolvedValue(before)
+  submit.mockResolvedValue(pending)
+  await mount()
+  const live = container.querySelector('[aria-live=polite][role=status]')!
+  expect(live).not.toBeNull()
+  expect(live.textContent).toBe('')
+  await setReason('업무용 설치 파일입니다.')
+  await act(async () => button('소명 제출').click())
+  expect(container.querySelector('[aria-live=polite][role=status]')).toBe(live)
+  expect(live.textContent).toContain('보안 담당자가 검토하고 있습니다.')
+})
+
+it('알림_영역을_숨기는_CSS가_없다', () => {
+  // display:none·visibility:hidden이면 접근성 트리에서 빠져 role=status 변화가 읽히지 않는다.
+  // jsdom 환경에서는 import.meta.url이 file: 스킴이 아니라서 콘솔 루트 기준 경로로 읽는다.
+  const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+  const rules = [...css.matchAll(/\.appeal-status[^{,]*\{([^}]*)\}/g)].map((match) => match[1])
+  expect(rules.length).toBeGreaterThan(0)
+  for (const body of rules) {
+    expect(body).not.toMatch(/display:\s*none|visibility:\s*hidden/)
+  }
 })

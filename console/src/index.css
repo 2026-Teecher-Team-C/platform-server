@@ -2654,12 +2654,14 @@ a {
   margin-left: calc(var(--appeal-label) + 16px);
 }
 
-.appeal-status:empty {
-  display: none;
-}
-
 .appeal-status {
   margin-top: 14px;
+}
+
+/* 소명 전에는 비어 있다. display:none이면 접근성 트리에서 빠져 제출 직후 알림이 안 읽힐 수 있으므로 높이만 없앤다. */
+.appeal-status:empty {
+  min-height: 0;
+  margin-top: 0;
 }
 
 .appeal-status p {
