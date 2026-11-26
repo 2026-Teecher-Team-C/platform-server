@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.teecherteamc.platform.hashlist.application.AddBlacklistEntryUseCase;
 import com.teecherteamc.platform.hashlist.application.AddWhitelistEntryUseCase;
+import com.teecherteamc.platform.lookup.application.BloomFilterMetrics;
 import com.teecherteamc.platform.lookup.application.BloomFilterRebuildService;
+import com.teecherteamc.platform.lookup.application.BloomRebuildRequests;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.WhitelistLookupPort;
 import com.teecherteamc.platform.proto.verdict.v1.CheckHashRequest;
@@ -33,11 +35,13 @@ import org.springframework.test.context.TestPropertySource;
 @AutoConfigureTestGrpcTransport
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceBlockingStub.class)
 @Import(TestcontainersConfiguration.class)
-// 기동 시 1차 재구축(initialDelay=0)은 그대로 돈다. 주기만 테스트 실행 시간보다 훨씬 길게 둬서,
-// 테스트 중간에 스케줄러가 다시 돌면서 방금 INSERT한 fixture를 멋대로 반영해버리는 비결정성을
-// 없앤다 — 블룸 재구축은 각 테스트가 BloomFilterRebuildService.rebuild()로 직접 트리거한다.
+// 기동 시 1차 재구축(initialDelay=0)은 그대로 돈다. 주기·요청 폴링·채움 확인은 테스트 실행 시간보다 훨씬 길게 둬서,
+// 테스트 중간에 스케줄러가 다시 돌면서 방금 INSERT한 fixture를 멋대로 반영하거나 요청을 가져가 버리는 비결정성을
+// 없앤다 — 블룸 재구축은 각 테스트가 rebuild(reason)/runRequested()로 직접 트리거한다.
 @TestPropertySource(properties = {
         "lookup.bloom-filter.rebuild-interval-ms=86400000",
+        "lookup.bloom-filter.request-poll-ms=86400000",
+        "lookup.bloom-filter.fill-check-ms=86400000",
         "platform.appeal.secret=0123456789abcdef0123456789abcdef-test-secret",
         "platform.appeal.base-url=http://console.test"})
 class CheckHashGrpcIntegrationTest {
@@ -58,6 +62,9 @@ class CheckHashGrpcIntegrationTest {
     @Autowired
     private WhitelistLookupPort whitelistLookupPort;
 
+    @Autowired
+    private BloomRebuildRequests requests;
+
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     private BloomFilterPort bloomFilterPort;
 
@@ -77,7 +84,7 @@ class CheckHashGrpcIntegrationTest {
     // 직후의 블룸 add가 없으면 FAIL한다(Task 4에서 add를 끄고 FAIL→PASS를 다시 확인했다).
     @Test
     void addAll_puts_every_hash_in_one_call() {
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
         java.util.List<String> hashes = java.util.List.of("a1".repeat(32), "a2".repeat(32), "a3".repeat(32));
 
         bloomFilterPort.addAll(hashes);
@@ -93,7 +100,7 @@ class CheckHashGrpcIntegrationTest {
                 .mapToObj(i -> String.format("%064x", i)).toList();
 
         long started = System.nanoTime();
-        bloomFilterPort.rebuild(hashes);
+        rebuildBloom(hashes);
         long elapsedMs = (System.nanoTime() - started) / 1_000_000;
 
         assertThat(elapsedMs).isLessThan(10_000);
@@ -104,10 +111,10 @@ class CheckHashGrpcIntegrationTest {
     @Test
     void rebuild_does_not_reapply_list_hashes_bit_by_bit() {
         // 목록 117만 건을 SETBIT으로 다시 넣던 단계가 재구축 1회 344초로 CPU를 포화시켰다(2026-11-17).
-        // 스냅샷 뒤 들어온 비트는 rebuild가 live 블룸과 원자적으로 OR해 지킨다.
+        // 스냅샷 뒤 들어온 비트는 재구축 중 이중 쓰기(pending)가 지킨다.
         org.mockito.Mockito.clearInvocations(bloomFilterPort);
 
-        bloomFilterRebuildService.rebuild();
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY);
 
         org.mockito.Mockito.verify(bloomFilterPort, org.mockito.Mockito.never())
                 .add(org.mockito.ArgumentMatchers.anyString());
@@ -117,7 +124,7 @@ class CheckHashGrpcIntegrationTest {
 
     @Test
     void addAll_with_no_hashes_does_nothing() {
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
 
         bloomFilterPort.addAll(java.util.List.of());
 
@@ -127,7 +134,7 @@ class CheckHashGrpcIntegrationTest {
     @Test
     void added_blacklist_hash_is_blocked_before_rebuild() {
         String sha256 = "b1".repeat(32);
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
         UUID adminId = seedAdmin();
 
         addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(sha256, "known bad", adminId, null));
@@ -142,7 +149,7 @@ class CheckHashGrpcIntegrationTest {
     @Test
     void added_whitelist_hash_is_allowed_before_rebuild() {
         String sha256 = "c2".repeat(32);
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
         UUID adminId = seedAdmin();
 
         addWhitelistEntryUseCase.add(
@@ -182,21 +189,48 @@ class CheckHashGrpcIntegrationTest {
         String white = "e4".repeat(32);
         seedBlacklist(black);
         seedWhitelist(white, true, null);
-        // 재구축은 live와 OR하므로 비우지 않는다. Redis가 날아간 상황을 키 삭제로 재현한다.
+        // Redis가 날아간 상황을 키 삭제로 재현한다 — 목록 해시는 재구축 스냅숏으로만 다시 들어온다.
         try (var connection = redisConnectionFactory.getConnection()) {
-            connection.keyCommands().del("bloom:file_verdicts".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            connection.keyCommands().del(bloomFilterPort.keyName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
-        assertThat(bloomFilterPort.mightContain(black)).isFalse();
-        assertThat(bloomFilterPort.mightContain(white)).isFalse();
+        // 키가 없으면 "있을 수 있음"으로 답한다(거짓 음성 방지).
+        assertThat(bloomFilterPort.mightContain(black)).isTrue();
+        assertThat(bloomFilterPort.mightContain(white)).isTrue();
 
-        bloomFilterRebuildService.rebuild();
+        assertThat(bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY))
+                .hasValueSatisfying(r -> assertThat(r.swapped()).isTrue());
 
         assertThat(bloomFilterPort.mightContain(black)).isTrue();
         assertThat(bloomFilterPort.mightContain(white)).isTrue();
     }
 
+    // Redis가 초기화되면 키 없음 → mightContain=true라 목록 조회까지 가서 바로 ALLOW되고, 재구축이 요청된다.
+    // 요청 폴링(운영 10초)을 기다리는 대신 runRequested()를 직접 불러 live 키가 다시 생기는지 본다.
+    @Test
+    void Redis가_비워져도_화이트리스트_해시는_바로_ALLOW되고_재구축이_요청된다() {
+        String white = "1f".repeat(32);
+        seedWhitelist(white, true, null);
+        requests.take(); // 앞선 테스트가 남긴 요청을 비워, 아래 요청이 이 CheckHash에서 왔음을 보장한다.
+        try (var connection = redisConnectionFactory.getConnection()) {
+            connection.keyCommands().del(bloomFilterPort.keyName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        CheckHashResponse response = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(white).build());
+
+        assertThat(response.getDecision()).isEqualTo(Decision.DECISION_ALLOW);
+        assertThat(response.getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_WHITELIST);
+
+        bloomFilterRebuildService.runRequested();
+
+        try (var connection = redisConnectionFactory.getConnection()) {
+            assertThat(connection.keyCommands().exists(
+                    bloomFilterPort.keyName().getBytes(java.nio.charset.StandardCharsets.UTF_8))).isTrue();
+        }
+        assertThat(bloomFilterPort.mightContain(white)).isTrue();
+    }
+
     // 재구축 스냅샷 읽기 직후, RENAME 전에 목록 쓰기가 커밋·add되는 레이스를 결정적으로 재현한다.
-    // 교체가 live 블룸과 OR하지 않으면 이 해시가 블룸에서 사라진다.
+    // add가 pending에도 쓰여 교체 때 합쳐지지 않으면 이 해시가 블룸에서 사라진다.
     @Test
     void list_entry_committed_between_snapshot_and_rename_survives_rebuild() {
         String sha256 = "f5".repeat(32);
@@ -213,9 +247,19 @@ class CheckHashGrpcIntegrationTest {
                     }
                 };
 
-        new BloomFilterRebuildService(racing, bloomFilterPort).rebuild();
+        var service = new BloomFilterRebuildService(
+                racing, bloomFilterPort, requests,
+                new BloomFilterMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()), 0.01);
+        assertThat(service.rebuild(BloomRebuildRequests.DAILY))
+                .hasValueSatisfying(r -> assertThat(r.swapped()).isTrue());
 
         assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+    }
+
+    private void rebuildBloom(java.util.List<String> hashes) {
+        try (var rebuild = bloomFilterPort.beginRebuild().orElseThrow()) {
+            rebuild.complete(hashes);
+        }
     }
 
     private UUID seedAdmin() {
@@ -232,7 +276,7 @@ class CheckHashGrpcIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'EICAR test string')",
                 sha256);
-        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -251,7 +295,7 @@ class CheckHashGrpcIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'MalwareBazaar: Mirai')",
                 sha256);
-        bloomFilterRebuildService.rebuild();
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY);
 
         CheckHashResponse response = verdictStub.checkHash(CheckHashRequest.newBuilder().setSha256(sha256).build());
 
@@ -268,7 +312,7 @@ class CheckHashGrpcIntegrationTest {
                 VALUES ('SHA256', ?, 'revoked', false, now())
                 """,
                 sha256);
-        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -281,7 +325,7 @@ class CheckHashGrpcIntegrationTest {
         String sha256 = "c".repeat(64);
         jdbcTemplate.update(
                 "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'MANUAL')", sha256);
-        bloomFilterRebuildService.rebuild();
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY);
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -296,7 +340,7 @@ class CheckHashGrpcIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'MALICIOUS', 'ENGINE')",
                 sha256);
-        bloomFilterRebuildService.rebuild();
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY);
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -316,7 +360,7 @@ class CheckHashGrpcIntegrationTest {
                 VALUES (?, 'CLEAN', 'MANUAL', true)
                 """,
                 sha256);
-        bloomFilterRebuildService.rebuild();
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY);
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -329,7 +373,7 @@ class CheckHashGrpcIntegrationTest {
         String sha256 = "9".repeat(64);
         jdbcTemplate.update(
                 "INSERT INTO file_verdicts (sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'MANUAL')", sha256);
-        // bloomFilterRebuildService.rebuild() 호출 안 함 — 블룸이 이 해시를 아직 모른다.
+        // bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY) 호출 안 함 — 블룸이 이 해시를 아직 모른다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256).build());
@@ -354,7 +398,7 @@ class CheckHashGrpcIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'normalized match')",
                 sha256Lower);
-        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
 
         CheckHashResponse response = verdictStub.checkHash(
                 CheckHashRequest.newBuilder().setSha256(sha256Lower.toUpperCase()).build());
@@ -457,14 +501,14 @@ class CheckHashGrpcIntegrationTest {
                 VALUES ('SHA256', ?, 'test exception', ?, ?, ?)
                 """,
                 sha256, adminId, active, expiresAt == null ? null : Timestamp.from(expiresAt));
-        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
     }
 
     private void seedBlacklist(String sha256) {
         jdbcTemplate.update(
                 "INSERT INTO hash_blacklist (hash_type, hash_value, reason) VALUES ('SHA256', ?, 'known bad')",
                 sha256);
-        bloomFilterRebuildService.rebuild(); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
+        bloomFilterRebuildService.rebuild(BloomRebuildRequests.DAILY); // 목록 쓰기 use case가 하는 블룸 add를 대신한다.
     }
 
     @Test

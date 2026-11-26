@@ -70,11 +70,14 @@ verdict:
 lookup:
   bloom-filter:
     # n: 블룸이 추적할 것으로 예상하는 file_verdicts 전체 해시 수. 실제 개수가 이 값을 크게 넘으면
-    # 오탐률이 설정값보다 서서히 나빠진다(이번 스프린트 범위 밖 — 동적 재계산 없음).
+    # 오탐률이 설정값보다 서서히 나빠진다. 추정 오탐률이 목표를 넘으면 WARN → 이 값을 올리고 재시작하면 새 키로 깨끗하게 다시 만든다.
     expected-hash-count: 100000
     # p: 목표 오탐률. m/k는 이 둘로부터 계산한다(RedisBloomFilterPortImpl 참고).
     false-positive-rate: 0.01
-    rebuild-interval-ms: 300000
+    # 안전망 재구축 주기(하루). 평소엔 쓸 때 바로 추가하고, 키 없음·추가 실패는 요청으로 10초 안에 재구축한다.
+    rebuild-interval-ms: 86400000
+    request-poll-ms: 10000
+    fill-check-ms: 600000
 
 platform:
   auth:

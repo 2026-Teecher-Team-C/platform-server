@@ -20,7 +20,25 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @AutoConfigureTestGrpcTransport
 @ImportGrpcClients(types = {VerdictServiceGrpc.VerdictServiceStub.class, VerdictServiceGrpc.VerdictServiceBlockingStub.class})
 @Import({TestcontainersConfiguration.class, AdminApiClient.class})
+// 요청 폴링·채움 확인을 사실상 끈다 — 블룸 재구축은 각 테스트가 rebuildBloom()으로 직접 부르고, 교체됐는지 확인한다.
+@org.springframework.test.context.TestPropertySource(properties = {
+        "lookup.bloom-filter.request-poll-ms=86400000",
+        "lookup.bloom-filter.fill-check-ms=86400000"})
 class TlshSimilarityGrpcIntegrationTest {
+    @Autowired io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
+    /** 기동 재구축이 표시를 쥔 채면 조용히 건너뛰므로, 그것이 끝나기를 기다린 뒤 부르고 교체됐는지 확인한다. */
+    void rebuildBloom() {
+        try {
+            BloomTestSupport.awaitStartupRebuild(meterRegistry);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+        assertThat(bloom.rebuild(com.teecherteamc.platform.lookup.application.BloomRebuildRequests.DAILY)
+                .orElseThrow().swapped()).isTrue();
+    }
+
     @Autowired AdminApiClient adminClient;
     @Autowired VerdictServiceGrpc.VerdictServiceStub stub;
     @Autowired VerdictServiceGrpc.VerdictServiceBlockingStub blocking;
@@ -140,7 +158,7 @@ class TlshSimilarityGrpcIntegrationTest {
         jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", baseline);
         assertThat(upload(padded, UUID.randomUUID()).getSourceValue()).isEqualTo(6);
         assertThat(upload(padded, UUID.randomUUID()).getSourceValue()).isEqualTo(6);
-        bloom.rebuild();
+        rebuildBloom();
         assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(sha).build()).getSourceValue()).isEqualTo(6);
         jdbc.update("UPDATE hash_blacklist SET is_active = false WHERE hash_value = ?", baseline);
         assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(sha).build()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
@@ -272,7 +290,7 @@ class TlshSimilarityGrpcIntegrationTest {
         assertThat(row.get("distance")).isEqualTo(31);
         assertThat(row.get("matched_sample_sha256")).isEqualTo(near1.compareTo(near2)<0 ? near1 : near2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM hash_blacklist WHERE hash_value=?", Integer.class, TlshFingerprintGrpcIntegrationTest.sha(original))).isZero();
-        bloom.rebuild();
+        rebuildBloom();
         assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(TlshFingerprintGrpcIntegrationTest.sha(original)).build()).getDecision()).isEqualTo(Decision.DECISION_ALLOW);
         UUID lookupOnly = UUID.randomUUID();
         report(lookupOnly, TlshFingerprintGrpcIntegrationTest.sha(original), false);
@@ -286,7 +304,7 @@ class TlshSimilarityGrpcIntegrationTest {
         String sample = baseline(digestAt(71));
         UUID actor = jdbc.queryForObject("SELECT imported_by FROM file_fingerprints WHERE sha256=?", UUID.class, sample);
         assertThat(upload(original, UUID.randomUUID()).getDecision()).isEqualTo(Decision.DECISION_ALLOW);
-        bloom.rebuild();
+        rebuildBloom();
         importer.importFingerprint(sample, FingerprintImportRestIntegrationTest.TLSH.substring(2), "legacy normalized fixture", actor, null);
         assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(sha).build()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
         assertThat(upload(original, UUID.randomUUID()).getSourceValue()).isEqualTo(6);
@@ -351,7 +369,7 @@ class TlshSimilarityGrpcIntegrationTest {
             release.countDown();
             assertThat(upload.get(10, TimeUnit.SECONDS).getSourceValue()).isEqualTo(6);
             assertThat(writer.get(10, TimeUnit.SECONDS)).isEqualTo(1);
-            bloom.rebuild();
+            rebuildBloom();
             assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(sha).build()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
             report(event, sha, true);
             assertThat(jdbc.queryForObject("SELECT a.classification FROM download_events e JOIN similarity_assessments a ON e.similarity_assessment_id=a.assessment_id WHERE event_id=?", String.class, event)).isEqualTo("BLOCK");
@@ -410,7 +428,7 @@ class TlshSimilarityGrpcIntegrationTest {
             jdbc.update("DELETE FROM hash_whitelist WHERE hash_value=?", sha);
             FakeDetectionEngineService.verdictOverride = null;
         }
-        bloom.rebuild();
+        rebuildBloom();
         assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(sha).build()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
     }
 
@@ -435,7 +453,7 @@ class TlshSimilarityGrpcIntegrationTest {
         jdbc.update("INSERT INTO file_verdicts(sha256, verdict, verdict_source) VALUES (?, 'CLEAN', 'ENGINE')", sha);
         String sample = FingerprintImportRestIntegrationTest.randomSha();
         jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", sample);
-        bloom.rebuild();
+        rebuildBloom();
         assertThat(blocking.checkHash(CheckHashRequest.newBuilder().setSha256(sha).build()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
         assertThat(upload(bytes, UUID.randomUUID()).getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_ENGINE);
         UUID actor = UUID.randomUUID();
@@ -843,7 +861,7 @@ class TlshSimilarityGrpcIntegrationTest {
     void whitelist_beats_claimed_tlsh() {
         baseline(digestAt(10));
         String sha = whitelist(FingerprintImportRestIntegrationTest.randomSha());
-        bloom.rebuild();
+        rebuildBloom();
         UUID event = UUID.randomUUID();
         try {
             var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, event);
@@ -871,7 +889,7 @@ class TlshSimilarityGrpcIntegrationTest {
         baseline(digestAt(45));
         String sha = FingerprintImportRestIntegrationTest.randomSha();
         jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", sha);
-        bloom.rebuild();
+        rebuildBloom();
 
         var response = check(blocking, sha, FingerprintImportRestIntegrationTest.TLSH, UUID.randomUUID());
 
@@ -891,7 +909,7 @@ class TlshSimilarityGrpcIntegrationTest {
 
         var other = VerdictTestClient.withToken(rawBlocking, VerdictTestClient.seed(jdbc).token());
         assertThat(check(other, sha, null, UUID.randomUUID()).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
-        bloom.rebuild();
+        rebuildBloom();
         assertThat(check(other, sha, null, null).getDecision()).isEqualTo(Decision.DECISION_UNKNOWN);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM file_verdicts WHERE sha256=?", Integer.class, sha)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM similarity_cache WHERE sha256=?", Integer.class, sha)).isZero();
@@ -908,7 +926,7 @@ class TlshSimilarityGrpcIntegrationTest {
         assertThat(claimedRows(unknown)).isZero();
         String listed = FingerprintImportRestIntegrationTest.randomSha();
         jdbc.update("INSERT INTO hash_blacklist(hash_value, reason) VALUES (?, 'harmless baseline fixture')", listed);
-        bloom.rebuild();
+        rebuildBloom();
         assertThat(check(blocking, listed, null, null).getSource()).isEqualTo(DecisionSource.DECISION_SOURCE_BLACKLIST);
     }
 
