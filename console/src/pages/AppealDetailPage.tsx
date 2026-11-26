@@ -8,6 +8,7 @@ import {
   APPEAL_STATUS_BADGE, APPEAL_STATUS_LABEL, appealDecisionError, appealEvidence, formatAppealFullTime,
 } from '../lib/appealReview'
 import { canManage } from '../lib/auth/roles'
+import { notifyAppealsChanged } from '../lib/appealEvents'
 import { AppealDecisionPanel, type DecisionMode } from '../components/appeals/AppealDecisionPanel'
 
 type DetailError = 'not-found' | 'request' | null
@@ -148,12 +149,13 @@ function AppealDetailScreen({ appealId }: { appealId: string | undefined }) {
       setResult((current) => ({ key: current?.key ?? refreshKey, item: decided, error: null }))
       setMode('none')
       setNote('')
+      notifyAppealsChanged()
       setNotice(decided.status === 'APPROVED'
         ? '승인했습니다. 이 해시를 화이트리스트에 등록했습니다.'
         : '거절했습니다. 직원 소명 페이지에 담당자 의견이 보입니다.')
     } catch (cause) {
       if (!mounted.current) return
-      const error = appealDecisionError(cause)
+      const error = appealDecisionError(cause, mode === 'approve' ? 'approve' : 'reject')
       setActionError(error.message)
       setNeedsReload(error.needsReload)
     } finally {

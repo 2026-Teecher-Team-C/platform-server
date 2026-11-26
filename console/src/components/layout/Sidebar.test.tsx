@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Sidebar } from './Sidebar'
+import { notifyAppealsChanged } from '../../lib/appealEvents'
 import { listAppeals } from '../../lib/api/adminAppeals'
 
 const auth = vi.hoisted(() => ({ role: 'ADMIN' as 'ADMIN' | 'ANALYST' | 'VIEWER' }))
@@ -49,6 +50,17 @@ const linksIn = (title: string) => {
 }
 
 describe('Sidebar', () => {
+  it('소명 결정 알림을 받으면 대기 건수를 바로 다시 불러온다', async () => {
+    listAppealsMock.mockResolvedValue(pendingPage(3))
+    await mount()
+    expect(container.querySelector('.nav-count')?.textContent).toBe('3')
+    const calls = listAppealsMock.mock.calls.length
+    listAppealsMock.mockResolvedValue(pendingPage(2))
+    await act(async () => notifyAppealsChanged())
+    expect(listAppealsMock.mock.calls.length).toBeGreaterThan(calls)
+    expect(container.querySelector('.nav-count')?.textContent).toBe('2')
+  })
+
   it('메뉴를 탐지·대응·정책·운영·관리 그룹으로 나눠 보여준다', async () => {
     await mount()
     expect(groupTitles()).toEqual(['탐지', '대응', '정책', '운영', '관리'])

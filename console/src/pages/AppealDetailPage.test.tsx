@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AppealDetailPage } from './AppealDetailPage'
+import { APPEALS_CHANGED_EVENT } from '../lib/appealEvents'
 import { approveAppeal, getAdminAppeal, rejectAppeal, type AdminAppealDetail } from '../lib/api/adminAppeals'
 import { ApiError } from '../lib/api/client'
 
@@ -126,6 +127,37 @@ it('승인을 확인하면 승인 상태·결정자·의견을 보여 주고 버
   expect(findButton('승인')).toBeUndefined()
   expect(findButton('거절')).toBeUndefined()
   expect(container.querySelector('[role=status]')?.textContent).toContain('화이트리스트에 등록했습니다')
+})
+
+it('승인 성공 직후 사이드바 대기 건수를 다시 불러오라고 알린다', async () => {
+  const changed = vi.fn()
+  window.addEventListener(APPEALS_CHANGED_EVENT, changed)
+  try {
+    await mount()
+    await click('승인')
+    await click('승인 확인')
+    expect(changed).toHaveBeenCalledTimes(1)
+  } finally {
+    window.removeEventListener(APPEALS_CHANGED_EVENT, changed)
+  }
+})
+
+it('승인 화면은 의견이 직원에게 보이지 않는다고 안내하고, 거절 화면은 보인다고 안내한다', async () => {
+  await mount()
+  await click('승인')
+  expect(container.querySelector('form')?.textContent).toContain('승인 의견은 직원에게 보이지 않습니다. 화이트리스트 사유로 기록됩니다.')
+  await click('취소')
+  await click('거절')
+  expect(container.querySelector('form')?.textContent).toContain('거절 의견은 직원 화면에 표시됩니다.')
+})
+
+it('승인 의견이 서버 기준에 맞지 않으면(400) 승인 전용 문구를 보여 준다', async () => {
+  approve.mockRejectedValueOnce(new ApiError(400, { code: 'INVALID_INPUT' }))
+  await mount()
+  await click('승인')
+  await setNote('의견')
+  await click('승인 확인')
+  expect(container.querySelector('[role=alert]')?.textContent).toContain('의견은 1000자 이하로 입력해 주세요.')
 })
 
 it('승인 확인을 취소하면 요청을 보내지 않는다', async () => {

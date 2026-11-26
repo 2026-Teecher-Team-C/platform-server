@@ -36,8 +36,9 @@ export function AppealDecisionPanel({ item, mode, note, disabled, busy, error, n
         {approving ? <>
           <p className="appeal-decision-impact">이 해시를 화이트리스트에 등록합니다. <strong>회사 모든 PC에서 이 파일이 통과합니다.</strong></p>
           {item.blacklisted && <p className="appeal-decision-impact"><strong>블랙리스트에서 해제됩니다.</strong></p>}
+          <p>승인 의견은 직원에게 보이지 않습니다. 화이트리스트 사유로 기록됩니다.</p>
         </> : (
-          <p>거절 의견은 직원의 소명 페이지에 담당자 의견으로 그대로 보입니다.</p>
+          <p>거절 의견은 직원 화면에 표시됩니다. 담당자 의견으로 그대로 보입니다.</p>
         )}
         <label>{approving ? '승인 의견 (선택)' : '거절 의견 (필수)'}
           <textarea aria-label={approving ? '승인 의견' : '거절 의견'} value={note} rows={3} disabled={disabled}

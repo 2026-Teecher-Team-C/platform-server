@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../app/useAuth'
 import { listAppeals } from '../../lib/api/adminAppeals'
+import { APPEALS_CHANGED_EVENT } from '../../lib/appealEvents'
 import { allowedMenus, canAccess } from '../../lib/auth/roles'
 import { usePolling } from '../../lib/hooks/usePolling'
 import { NAV_GROUPS, NAV_ITEMS } from './navigation'
@@ -35,11 +36,19 @@ export function Sidebar() {
   // 소명 요청 메뉴 옆 검토 대기 건수. 목록 API의 totalElements만 쓰려고 size=1로 묻는다.
   // 메뉴를 볼 수 없는 역할은 묻지 않는다(null). 실패하면 마지막 값을 유지한다.
   const canSeeAppeals = canAccess(user?.role, 'appeals')
+  // 결정 직후 알림을 받으면 load 함수가 바뀌어 usePolling이 바로 다시 요청한다.
+  const [appealsVersion, setAppealsVersion] = useState(0)
+  useEffect(() => {
+    const refresh = () => setAppealsVersion((version) => version + 1)
+    window.addEventListener(APPEALS_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(APPEALS_CHANGED_EVENT, refresh)
+  }, [])
   const loadPendingAppeals = useCallback(async (signal: AbortSignal) => {
+    void appealsVersion
     if (!canSeeAppeals) return null
     const page = await listAppeals({ status: 'PENDING', size: 1 }, signal)
     return page.totalElements
-  }, [canSeeAppeals])
+  }, [canSeeAppeals, appealsVersion])
   const pendingAppeals = usePolling(loadPendingAppeals, APPEAL_COUNT_INTERVAL_MS, APPEAL_COUNT_TIMEOUT_MS).data
 
   // 이 사용자의 역할로 볼 수 있는 메뉴 key 목록을 구한다.

@@ -61,10 +61,14 @@ export function decisionNoteLength(value: string) {
 
 export type DecisionError = { message: string; needsReload: boolean }
 
-export function appealDecisionError(cause: unknown): DecisionError {
+export function appealDecisionError(cause: unknown, mode: 'approve' | 'reject' = 'reject'): DecisionError {
   if (cause instanceof ApiError) {
     if (cause.status === 409) return { message: '다른 담당자가 먼저 처리했습니다. 상태를 새로고침해 주세요.', needsReload: true }
-    if (cause.status === 400) return { message: '의견을 1자 이상 1000자 이하로 입력해 주세요.', needsReload: false }
+    if (cause.status === 400) {
+      // 승인 의견은 선택이라 "1자 이상" 조건이 없다.
+      const message = mode === 'approve' ? '의견은 1000자 이하로 입력해 주세요.' : '의견을 1자 이상 1000자 이하로 입력해 주세요.'
+      return { message, needsReload: false }
+    }
     if (cause.status === 404) return { message: '소명 요청을 찾을 수 없습니다. 목록을 확인해 주세요.', needsReload: true }
     if (cause.status === 401) return { message: '로그인이 만료되었습니다. 다시 로그인해 주세요.', needsReload: false }
     if (cause.status === 403) return { message: '소명을 승인·거절할 권한이 없습니다.', needsReload: false }
