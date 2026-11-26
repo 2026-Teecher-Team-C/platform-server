@@ -41,6 +41,14 @@ public class Appeal implements Persistable<UUID> {
     @Column(name = "status", nullable = false, length = 16)
     private AppealStatus status;
 
+    /** 제출 시 토큰의 판정 근거 종류(VerdictEvidence.Kind 이름). V22 이전 소명은 null. */
+    @Column(name = "evidence_kind", length = 16, updatable = false)
+    private String evidenceKind;
+
+    /** 제출 시 토큰의 위협 이름(255자까지). 없으면 null. */
+    @Column(name = "threat", length = 255, updatable = false)
+    private String threat;
+
     @Column(name = "decided_by")
     private UUID decidedBy;
 
@@ -60,8 +68,14 @@ public class Appeal implements Persistable<UUID> {
     protected Appeal() {
     }
 
-    /** 검토 대기(PENDING) 소명을 만든다. 사유 검증(공백 제거, 1~1000자)은 유스케이스가 끝낸 값을 받는다. */
-    public static Appeal submit(UUID eventId, String sha256, UUID agentId, String reason, Instant now) {
+    static final int MAX_THREAT_CODE_POINTS = 255;
+
+    /**
+     * 검토 대기(PENDING) 소명을 만든다. 사유 검증(공백 제거, 1~1000자)은 유스케이스가 끝낸 값을 받는다.
+     * evidenceKind·threat는 토큰의 근거 스냅숏이다. threat는 빈 값이면 null, 길면 컬럼 길이(255자)에 맞춰 자른다.
+     */
+    public static Appeal submit(UUID eventId, String sha256, UUID agentId, String reason, String evidenceKind,
+                                String threat, Instant now) {
         if (eventId == null || agentId == null || sha256 == null || sha256.isBlank()) {
             throw new IllegalArgumentException("소명 대상 이벤트 정보가 비었습니다.");
         }
@@ -74,10 +88,22 @@ public class Appeal implements Persistable<UUID> {
         appeal.sha256 = sha256;
         appeal.agentId = agentId;
         appeal.reason = reason;
+        appeal.evidenceKind = evidenceKind;
+        appeal.threat = threatSnapshot(threat);
         appeal.status = AppealStatus.PENDING;
         appeal.createdAt = now;
         appeal.isNew = true;
         return appeal;
+    }
+
+    private static String threatSnapshot(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        if (value.codePointCount(0, value.length()) <= MAX_THREAT_CODE_POINTS) {
+            return value;
+        }
+        return value.substring(0, value.offsetByCodePoints(0, MAX_THREAT_CODE_POINTS));
     }
 
     /**
@@ -120,6 +146,14 @@ public class Appeal implements Persistable<UUID> {
 
     public AppealStatus getStatus() {
         return status;
+    }
+
+    public String getEvidenceKind() {
+        return evidenceKind;
+    }
+
+    public String getThreat() {
+        return threat;
     }
 
     public UUID getDecidedBy() {

@@ -17,6 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 직원이 소명을 제출한다. 이벤트 1건당 1건이다. 동시에 두 번 보내도 uq_appeals_event가 하나만 남기고,
  * 진 쪽은 AppealAlreadySubmittedException이 된다.
+ *
+ * <p>검사 순서: 토큰 → 차단 기록 소유 → 기존 소명(남의 것 404 / 내 것 409) → 사유. 소유 확인이 먼저라서
+ * 다른 에이전트가 피해자 event_id로 먼저 소명을 넣어 선점하지 못한다.
  */
 @Service
 public class SubmitAppealUseCase {
@@ -43,7 +46,9 @@ public class SubmitAppealUseCase {
     @Transactional
     public AppealView submit(String token, String reason, String ipAddress) {
         AppealClaims claims = appealLinks.tokens().verify(token).orElseThrow(AppealNotFoundException::new);
-        String stripped = validReason(reason);
+        if (!findBlockedDownload.isOwnedBlock(claims.eventId(), claims.agentId(), claims.sha256())) {
+            throw new AppealNotReadyException();
+        }
         Appeal existing = appealRepository.findByEventId(claims.eventId()).orElse(null);
         if (existing != null) {
             // 다른 사람의 소명이면 409로 존재를 알리지 않고 404로 숨긴다
@@ -52,10 +57,12 @@ public class SubmitAppealUseCase {
             }
             throw new AppealAlreadySubmittedException();
         }
+        String stripped = validReason(reason);
         Appeal appeal;
         try {
             appeal = appealRepository.saveNew(
-                    Appeal.submit(claims.eventId(), claims.sha256(), claims.agentId(), stripped, clock.instant()));
+                    Appeal.submit(claims.eventId(), claims.sha256(), claims.agentId(), stripped,
+                            claims.kind().name(), claims.threat(), clock.instant()));
         } catch (DataIntegrityViolationException e) {
             // 사전 조회 뒤에 다른 요청이 먼저 넣었다. FK 위반(없는 agent) 같은 다른 위반은 409로 숨기지 않는다.
             if (!isDuplicateEvent(e)) {

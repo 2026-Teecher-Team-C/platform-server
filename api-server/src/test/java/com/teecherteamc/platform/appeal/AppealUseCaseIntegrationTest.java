@@ -7,6 +7,7 @@ import com.teecherteamc.platform.TestcontainersConfiguration;
 import com.teecherteamc.platform.appeal.application.AppealAlreadySubmittedException;
 import com.teecherteamc.platform.appeal.application.AppealLinks;
 import com.teecherteamc.platform.appeal.application.AppealNotFoundException;
+import com.teecherteamc.platform.appeal.application.AppealNotReadyException;
 import com.teecherteamc.platform.appeal.application.AppealView;
 import com.teecherteamc.platform.appeal.application.GetAppealUseCase;
 import com.teecherteamc.platform.appeal.application.InvalidAppealReasonException;
@@ -71,6 +72,27 @@ class AppealUseCaseIntegrationTest {
                      held_at, decided_at)
                 VALUES (?, ?, 'bad.example', 'https://bad.example/f.exe', ?, 'COMPLETED', 'BLOCKED', 'SIMILARITY', ?, ?)
                 """, eventId, agentId, filename, Timestamp.from(decidedAt), Timestamp.from(decidedAt));
+    }
+
+    // 제출은 차단 기록 소유를 확인한다. sha256 NULL은 file_verdicts에 없는 해시를 ReportEvent가 지운 경우다.
+    private void seedEvent(UUID eventId, UUID agentId, String sha256, String decision) {
+        Timestamp at = Timestamp.from(Instant.parse("2020-03-01T10:12:03Z"));
+        jdbcTemplate.update("""
+                INSERT INTO download_events
+                    (event_id, agent_id, sha256, request_host, url, filename, pipeline_status, decision,
+                     decision_source, held_at, decided_at)
+                VALUES (?, ?, ?, 'bad.example', 'https://bad.example/f.exe', 'f.exe', 'COMPLETED', ?, 'SIMILARITY', ?, ?)
+                """, eventId, agentId, sha256, decision, at, at);
+    }
+
+    /** 이 에이전트의 BLOCKED 이벤트를 넣고 그 이벤트의 토큰을 준다. */
+    private String blockedToken(UUID eventId, String sha256, UUID agentId) {
+        seedEvent(eventId, agentId, sha256, "BLOCKED");
+        return token(eventId, sha256, agentId);
+    }
+
+    private String blockedToken(UUID eventId, UUID agentId) {
+        return blockedToken(eventId, sha(), agentId);
     }
 
     private static String sha() {
@@ -143,7 +165,7 @@ class AppealUseCaseIntegrationTest {
     void submit_creates_pending_and_audit_log() {
         UUID agentId = seedAgent();
         UUID eventId = UUID.randomUUID();
-        String token = token(eventId, agentId);
+        String token = blockedToken(eventId, agentId);
 
         AppealView view = submitAppeal.submit(token, "  업무용 보고서입니다  ", "10.0.0.7");
 
@@ -175,7 +197,7 @@ class AppealUseCaseIntegrationTest {
 
     @Test
     void second_submit_conflicts() {
-        String token = token(UUID.randomUUID(), seedAgent());
+        String token = blockedToken(UUID.randomUUID(), seedAgent());
         submitAppeal.submit(token, "첫 번째", "10.0.0.7");
 
         assertThatThrownBy(() -> submitAppeal.submit(token, "두 번째", "10.0.0.7"))
@@ -185,7 +207,7 @@ class AppealUseCaseIntegrationTest {
     @Test
     void concurrent_submits_one_wins() throws Exception {
         UUID eventId = UUID.randomUUID();
-        String token = token(eventId, seedAgent());
+        String token = blockedToken(eventId, seedAgent());
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
@@ -220,7 +242,7 @@ class AppealUseCaseIntegrationTest {
     void appeal_of_other_agent_is_not_visible() {
         UUID eventId = UUID.randomUUID();
         String sha256 = sha();
-        submitAppeal.submit(token(eventId, sha256, seedAgent()), "피해자의 사유", "10.0.0.7");
+        submitAppeal.submit(blockedToken(eventId, sha256, seedAgent()), "피해자의 사유", "10.0.0.7");
 
         String attacker = token(eventId, sha256, seedAgent());
 
@@ -231,25 +253,130 @@ class AppealUseCaseIntegrationTest {
     void appeal_with_other_sha_is_not_visible() {
         UUID eventId = UUID.randomUUID();
         UUID agentId = seedAgent();
-        submitAppeal.submit(token(eventId, sha(), agentId), "원래 파일의 사유", "10.0.0.7");
+        submitAppeal.submit(blockedToken(eventId, agentId), "원래 파일의 사유", "10.0.0.7");
 
         String otherSha = token(eventId, sha(), agentId);
 
         assertThatThrownBy(() -> getAppeal.get(otherSha)).isInstanceOf(AppealNotFoundException.class);
     }
 
+    // 공격 에이전트는 피해자 event_id의 차단 기록을 갖지 못하므로 소유 확인에서 막힌다(소명 존재도 알리지 않는다)
     @Test
-    void submit_against_other_agents_appeal_is_not_found() {
+    void submit_against_other_agents_appeal_is_not_ready() {
         UUID eventId = UUID.randomUUID();
         String sha256 = sha();
-        submitAppeal.submit(token(eventId, sha256, seedAgent()), "피해자의 사유", "10.0.0.7");
+        submitAppeal.submit(blockedToken(eventId, sha256, seedAgent()), "피해자의 사유", "10.0.0.7");
 
         String attacker = token(eventId, sha256, seedAgent());
 
         assertThatThrownBy(() -> submitAppeal.submit(attacker, "공격자의 사유", "10.0.0.8"))
-                .isInstanceOf(AppealNotFoundException.class);
+                .isInstanceOf(AppealNotReadyException.class);
         assertThat(jdbcTemplate.queryForObject("SELECT reason FROM appeals WHERE event_id = ?", String.class, eventId))
                 .isEqualTo("피해자의 사유");
+    }
+
+    // sha256이 NULL인 이벤트는 sha를 대조할 수 없다. 이미 다른 sha로 낸 소명이 있으면 남의 것으로 보고 404로 숨긴다.
+    @Test
+    void submit_with_other_sha_on_null_sha_event_is_not_found() {
+        UUID eventId = UUID.randomUUID();
+        UUID agentId = seedAgent();
+        seedEvent(eventId, agentId, null, "BLOCKED");
+        submitAppeal.submit(token(eventId, sha(), agentId), "원래 파일의 사유", "10.0.0.7");
+
+        assertThatThrownBy(() -> submitAppeal.submit(token(eventId, sha(), agentId), "다른 사유", "10.0.0.7"))
+                .isInstanceOf(AppealNotFoundException.class);
+    }
+
+    @Test
+    void submit_without_blocked_event_is_not_ready() {
+        UUID eventId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> submitAppeal.submit(token(eventId, seedAgent()), "사유", "10.0.0.7"))
+                .isInstanceOf(AppealNotReadyException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM appeals WHERE event_id = ?", Long.class, eventId))
+                .isZero();
+    }
+
+    @Test
+    void submit_with_other_agent_event_is_not_ready() {
+        UUID eventId = UUID.randomUUID();
+        String sha256 = sha();
+        seedEvent(eventId, seedAgent(), sha256, "BLOCKED");
+
+        assertThatThrownBy(() -> submitAppeal.submit(token(eventId, sha256, seedAgent()), "사유", "10.0.0.7"))
+                .isInstanceOf(AppealNotReadyException.class);
+    }
+
+    @Test
+    void submit_with_other_sha_event_is_not_ready() {
+        UUID eventId = UUID.randomUUID();
+        UUID agentId = seedAgent();
+        seedEvent(eventId, agentId, sha(), "BLOCKED");
+
+        assertThatThrownBy(() -> submitAppeal.submit(token(eventId, sha(), agentId), "사유", "10.0.0.7"))
+                .isInstanceOf(AppealNotReadyException.class);
+    }
+
+    @Test
+    void submit_with_released_event_is_not_ready() {
+        UUID eventId = UUID.randomUUID();
+        UUID agentId = seedAgent();
+        String sha256 = sha();
+        seedEvent(eventId, agentId, sha256, "RELEASED");
+
+        assertThatThrownBy(() -> submitAppeal.submit(token(eventId, sha256, agentId), "사유", "10.0.0.7"))
+                .isInstanceOf(AppealNotReadyException.class);
+    }
+
+    // 소유 확인이 사유 검증보다 먼저다: 차단 기록이 없으면 사유가 틀려도 NOT_READY
+    @Test
+    void ownership_is_checked_before_reason() {
+        assertThatThrownBy(() -> submitAppeal.submit(token(UUID.randomUUID(), seedAgent()), "   ", "10.0.0.7"))
+                .isInstanceOf(AppealNotReadyException.class);
+    }
+
+    @Test
+    void submit_with_null_sha_blocked_event_is_accepted() {
+        UUID eventId = UUID.randomUUID();
+        UUID agentId = seedAgent();
+        seedEvent(eventId, agentId, null, "BLOCKED");
+
+        AppealView view = submitAppeal.submit(token(eventId, agentId), "사유", "10.0.0.7");
+
+        assertThat(view.appeal().status()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void submit_stores_evidence_snapshot() {
+        UUID agentId = seedAgent();
+        UUID eventId = UUID.randomUUID();
+        String sha256 = sha();
+        seedEvent(eventId, agentId, sha256, "BLOCKED");
+        String token = appealLinks.tokens().issue(eventId, sha256, agentId,
+                VerdictEvidence.similarity(12, sha(), "MalwareBazaar: AgentTesla"));
+
+        submitAppeal.submit(token, "사유", "10.0.0.7");
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT evidence_kind, threat FROM appeals WHERE event_id = ?", eventId);
+        assertThat(row.get("evidence_kind")).isEqualTo("SIMILARITY");
+        assertThat(row.get("threat")).isEqualTo("AgentTesla");
+    }
+
+    @Test
+    void submit_stores_null_threat_when_token_has_none() {
+        UUID agentId = seedAgent();
+        UUID eventId = UUID.randomUUID();
+        String sha256 = sha();
+        seedEvent(eventId, agentId, sha256, "BLOCKED");
+        String token = appealLinks.tokens().issue(eventId, sha256, agentId, VerdictEvidence.cache("MALICIOUS"));
+
+        submitAppeal.submit(token, "사유", "10.0.0.7");
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT evidence_kind, threat FROM appeals WHERE event_id = ?", eventId);
+        assertThat(row.get("evidence_kind")).isEqualTo("CACHE");
+        assertThat(row.get("threat")).isNull();
     }
 
     @Test
@@ -261,7 +388,7 @@ class AppealUseCaseIntegrationTest {
 
     @Test
     void invalid_reason_rejected() {
-        String token = token(UUID.randomUUID(), seedAgent());
+        String token = blockedToken(UUID.randomUUID(), seedAgent());
 
         assertThatThrownBy(() -> submitAppeal.submit(token, "   ", "10.0.0.7"))
                 .isInstanceOf(InvalidAppealReasonException.class);

@@ -15,6 +15,12 @@ class FindBlockedDownloadPortImpl implements FindBlockedDownloadPort {
 
     private static final String SQL =
             "SELECT decided_at, filename FROM download_events WHERE event_id = ? AND agent_id = ?";
+    private static final String OWNED_BLOCK_SQL = """
+            SELECT EXISTS (
+                SELECT 1 FROM download_events
+                WHERE event_id = ? AND agent_id = ? AND decision = 'BLOCKED' AND (sha256 = ? OR sha256 IS NULL)
+            )
+            """;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -33,5 +39,11 @@ class FindBlockedDownloadPortImpl implements FindBlockedDownloadPort {
                 },
                 eventId, agentId);
         return rows.stream().findFirst();
+    }
+
+    @Override
+    public boolean isOwnedBlock(UUID eventId, UUID agentId, String sha256) {
+        return Boolean.TRUE.equals(
+                jdbcTemplate.queryForObject(OWNED_BLOCK_SQL, Boolean.class, eventId, agentId, sha256));
     }
 }

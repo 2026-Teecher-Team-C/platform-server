@@ -2,6 +2,7 @@ package com.teecherteamc.platform.appeal.interfaces;
 
 import com.teecherteamc.platform.appeal.application.AppealAlreadySubmittedException;
 import com.teecherteamc.platform.appeal.application.AppealNotFoundException;
+import com.teecherteamc.platform.appeal.application.AppealNotReadyException;
 import com.teecherteamc.platform.appeal.application.AppealView;
 import com.teecherteamc.platform.appeal.application.GetAppealUseCase;
 import com.teecherteamc.platform.appeal.application.InvalidAppealReasonException;
@@ -52,6 +53,8 @@ public class PublicAppealController {
             throw new ApiException(ErrorCode.NOT_FOUND, e.getMessage());
         } catch (InvalidAppealReasonException e) {
             throw new ApiException(ErrorCode.INVALID_INPUT, e.getMessage());
+        } catch (AppealNotReadyException e) {
+            throw new ApiException(ErrorCode.APPEAL_NOT_READY, e.getMessage());
         } catch (AppealAlreadySubmittedException e) {
             throw new ApiException(ErrorCode.CONFLICT, e.getMessage());
         }

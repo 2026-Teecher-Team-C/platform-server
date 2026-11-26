@@ -65,8 +65,20 @@ class PublicAppealRestIntegrationTest {
         return VerdictEvidence.similarity(12, sha(), "MalwareBazaar: AgentTesla");
     }
 
+    private void seedBlockedEvent(UUID eventId, UUID agentId, String sha256) {
+        jdbcTemplate.update("INSERT INTO download_events (event_id, agent_id, sha256, request_host, url, filename, "
+                + "pipeline_status, decision, decision_source, held_at, decided_at) VALUES (?, ?, ?, 'bad.example', "
+                + "'https://bad.example/f.exe', 'f.exe', 'COMPLETED', 'BLOCKED', 'SIMILARITY', "
+                + "'2020-03-01T10:12:03Z', '2020-03-01T10:12:03Z')", eventId, agentId, sha256);
+    }
+
+    /** 차단 기록이 있는 이벤트의 토큰. 제출은 차단 기록 소유를 확인한다. */
     private String freshToken() {
-        return appealLinks.tokens().issue(UUID.randomUUID(), sha(), seedAgent(), evidence());
+        UUID eventId = UUID.randomUUID();
+        UUID agentId = seedAgent();
+        String sha256 = sha();
+        seedBlockedEvent(eventId, agentId, sha256);
+        return appealLinks.tokens().issue(eventId, sha256, agentId, evidence());
     }
 
     private static String url(String token) {
@@ -124,6 +136,27 @@ class PublicAppealRestIntegrationTest {
 
         assertThat(post(token, "첫 번째").getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(post(token, "두 번째").getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void post_before_report_event_is_409_appeal_not_ready() {
+        String token = appealLinks.tokens().issue(UUID.randomUUID(), sha(), seedAgent(), evidence());
+
+        ResponseEntity<Map> response = restTemplate.postForEntity(url(token), Map.of("reason", "사유"), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().get("code")).isEqualTo("APPEAL_NOT_READY");
+        assertThat(response.getBody().get("message")).isEqualTo("차단 기록을 아직 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    @Test
+    void second_post_conflict_code_stays_conflict() {
+        String token = freshToken();
+        post(token, "첫 번째");
+
+        ResponseEntity<Map> response = restTemplate.postForEntity(url(token), Map.of("reason", "두 번째"), Map.class);
+
+        assertThat(response.getBody().get("code")).isEqualTo("CONFLICT");
     }
 
     @Test

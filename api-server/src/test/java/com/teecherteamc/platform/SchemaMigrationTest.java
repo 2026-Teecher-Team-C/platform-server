@@ -37,6 +37,24 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void V22는_소명_근거_스냅숏과_화이트리스트_출처_소명_FK를_추가한다() {
+        List<String> appealColumns = jdbcTemplate.queryForList("""
+                SELECT column_name || ':' || data_type || ':' || character_maximum_length || ':' || is_nullable
+                FROM information_schema.columns
+                WHERE table_name = 'appeals' AND column_name IN ('evidence_kind', 'threat')
+                """, String.class);
+        Integer fk = jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM information_schema.table_constraints
+                WHERE table_name = 'hash_whitelist' AND constraint_name = 'fk_hash_whitelist_appeal'
+                  AND constraint_type = 'FOREIGN KEY'
+                """, Integer.class);
+
+        assertThat(appealColumns).containsExactlyInAnyOrder(
+                "evidence_kind:character varying:16:YES", "threat:character varying:255:YES");
+        assertThat(fk).isEqualTo(1);
+    }
+
+    @Test
     void 화이트리스트는_TLSH를_거부한다() {
         String adminId = "00000000-0000-0000-0000-000000000001";
         jdbcTemplate.update("INSERT INTO admin_users (admin_id, username, password_hash) VALUES (?::uuid, 'a', 'x')",

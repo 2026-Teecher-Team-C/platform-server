@@ -15,6 +15,8 @@ public enum ErrorCode {
     NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "허용되지 않는 요청 방식입니다."),
     CONFLICT(HttpStatus.CONFLICT, "이미 존재하거나 충돌하는 요청입니다."),
+    // 소명 제출 시 차단 기록(download_events)을 아직 받지 못했거나 토큰의 에이전트 것이 아니다. 콘솔이 CONFLICT와 구분한다.
+    APPEAL_NOT_READY(HttpStatus.CONFLICT, "차단 기록을 아직 받지 못했습니다. 잠시 후 다시 시도해 주세요."),
     UNPROCESSABLE(HttpStatus.UNPROCESSABLE_CONTENT, "처리할 수 없는 요청입니다."),
     SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "잠시 후 다시 시도해 주세요."),
     // 서버 내부 오류. 상세 원인은 응답에 싣지 않고 로그에만 남긴다.
