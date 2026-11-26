@@ -16,9 +16,7 @@ import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.connection.RedisStringCommands.SetOption;
 import org.springframework.data.redis.connection.ReturnType;
-import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.stereotype.Component;
 
 /**
@@ -32,15 +30,17 @@ import org.springframework.stereotype.Component;
  * 의존성(Guava/MurmurHash) 없이 TokenHash와 같은 MessageDigest만 쓴다. 추가와 재구축이 같은 위치 함수를 쓴다.
  *
  * <p>깨끗한 재구축 + 이중 쓰기. 재구축은 옛 live와 OR하지 않고 스냅숏만으로 새 비트맵을 만들어 교체하므로 원천에서 빠진
- * 해시의 비트가 지워진다. 순서: (1) 표시 키 {@code <live>:pending}을 {@code SET NX PX}로 세운다(이미 있으면 다른 재구축이
- * 도는 중이라 건너뛴다). (2) 그 뒤에 DB 스냅숏을 읽어 메모리 비트 배열을 만들고 임시 키에 SET한다. (3) Lua 한 번에 임시 키를
- * pending과 OR → live로 RENAME → pending 삭제. 추가(add/addAll)는 Lua 한 번에 live에 SETBIT하고, pending이 있으면
- * pending에도 SETBIT한다.
+ * 해시의 비트가 지워진다. 순서: (1) 재구축마다 토큰(UUID)을 정해 표시 키 {@code <live>:pending}에 {@code SET NX PX}로
+ * 쓰고(이미 있으면 다른 재구축이 도는 중이라 건너뛴다), 이중 쓰기 비트맵 {@code <live>:pending:<token>}을 빈 값으로
+ * 만든다(같은 TTL). (2) 그 뒤에 DB 스냅숏을 읽어 메모리 비트 배열을 만들고 임시 키에 SET한다. (3) Lua 한 번에, 표시 값이
+ * 자기 토큰일 때만 임시 키를 자기 pending 비트맵과 OR → live로 RENAME → 비트맵과 표시 삭제. 추가(add/addAll)는 Lua 한
+ * 번에 live에 SETBIT하고, 표시가 있으면 그 토큰의 비트맵에도 SETBIT한다.
  *
  * <p>왜 빠짐이 없는가: 추가는 DB 커밋 <b>뒤</b>에 일어난다. 추가가 (1) 전이면 커밋도 (1) 전이라 (2)의 스냅숏에 들어 있다.
- * (1) 뒤면 pending에 같이 쓰여 (3)에서 합쳐진다. (3)은 원자적이라 그 사이에 끼는 추가가 없다. pending이 (3) 전에
- * 사라졌으면(TTL 만료) 그동안의 추가가 보존되었는지 알 수 없으므로 교체하지 않는다. 재구축이 중간에 죽으면 pending은
- * TTL로 사라지고 live는 그대로다.
+ * (1) 뒤면 표시가 그대로인 한 자기 비트맵에 같이 쓰여 (3)에서 합쳐진다. (3)은 원자적이라 그 사이에 끼는 추가가 없다. 표시가
+ * (3) 전에 사라졌거나(TTL 만료) 다른 재구축의 토큰으로 바뀌었으면 그동안의 추가가 자기 비트맵에 있다는 보장이 없으므로
+ * 교체하지 않는다. 토큰 덕분에 늦게 끝난 재구축이 남의 표시로 교체하거나 남의 표시를 지우지 않는다. 재구축이 중간에 죽으면
+ * 표시와 비트맵은 TTL로 사라지고 live는 그대로다.
  */
 @Component
 class RedisBloomFilterPortImpl implements BloomFilterPort {
@@ -53,13 +53,17 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     /** 재구축 하나가 이보다 오래 걸리면 표시가 사라져 교체를 포기한다. 지금 재구축은 수 초다. */
     private static final long PENDING_TTL_MS = 600_000;
     /**
-     * KEYS[1]=새 비트맵 B, KEYS[2]=live, KEYS[3]=pending, KEYS[4]=합집합 임시 키. pending이 없으면 B를 지우고 교체하지
-     * 않는다. 있으면 B |= pending, 지운 비트 수 = BITCOUNT(B | live) - BITCOUNT(B), B를 live로 RENAME, pending 삭제.
+     * KEYS[1]=새 비트맵 B, KEYS[2]=live, KEYS[3]=표시, KEYS[4]=합집합 임시 키, KEYS[5]=자기 pending 비트맵,
+     * ARGV[1]=자기 토큰. 표시 값이 자기 토큰이 아니거나 비트맵이 없으면(이중 쓰기 보장이 깨짐) B를 지우고 교체하지 않는다.
+     * 있으면 B |= 비트맵, 지운 비트 수 = BITCOUNT(B | live) - BITCOUNT(B), B를 live로 RENAME, 비트맵·표시 삭제.
      * 반환: {swapped(0/1), setBits, clearedBits}.
      */
     private static final byte[] SWAP_SCRIPT = """
-            if redis.call('EXISTS', KEYS[3]) == 0 then redis.call('DEL', KEYS[1]); return {0, 0, 0} end
-            redis.call('BITOP', 'OR', KEYS[1], KEYS[1], KEYS[3])
+            if redis.call('GET', KEYS[3]) ~= ARGV[1] or redis.call('EXISTS', KEYS[5]) == 0 then
+              redis.call('DEL', KEYS[1])
+              return {0, 0, 0}
+            end
+            redis.call('BITOP', 'OR', KEYS[1], KEYS[1], KEYS[5])
             local cleared = 0
             if redis.call('EXISTS', KEYS[2]) == 1 then
               redis.call('BITOP', 'OR', KEYS[4], KEYS[1], KEYS[2])
@@ -68,18 +72,38 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
             end
             local setBits = redis.call('BITCOUNT', KEYS[1])
             redis.call('RENAME', KEYS[1], KEYS[2])
-            redis.call('DEL', KEYS[3])
+            redis.call('DEL', KEYS[5], KEYS[3])
             return {1, setBits, cleared}
+            """.getBytes(StandardCharsets.UTF_8);
+
+    /**
+     * KEYS[1]=표시, KEYS[2]=자기 pending 비트맵, ARGV[1]=토큰, ARGV[2]=TTL(ms). 표시를 NX로 세우고 성공하면 비트맵을 같은
+     * TTL로 만든다. 한 스크립트라 표시와 비트맵 사이에 추가가 끼어 비트맵을 TTL 없이 만들거나 그 비트를 덮어쓰는 일이 없다.
+     * SETBIT은 TTL을 유지하므로 재구축이 죽으면 둘 다 사라진다.
+     */
+    private static final byte[] BEGIN_SCRIPT = """
+            if not redis.call('SET', KEYS[1], ARGV[1], 'NX', 'PX', ARGV[2]) then return 0 end
+            redis.call('SET', KEYS[2], '', 'PX', ARGV[2])
+            return 1
+            """.getBytes(StandardCharsets.UTF_8);
+
+    /** KEYS[1]=표시, ARGV[1]=자기 토큰. 표시가 자기 것일 때만 지운다 — TTL 만료 뒤 다른 재구축이 세운 표시를 지우지 않는다. */
+    private static final byte[] RELEASE_SCRIPT = """
+            if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+            return 0
             """.getBytes(StandardCharsets.UTF_8);
 
     private final RedisConnectionFactory connectionFactory;
     private static final int PIPELINE_CHUNK = 5_000;
 
     private static final byte[] ADD_SCRIPT = """
-            local pending = redis.call('EXISTS', KEYS[2]) == 1
+            -- 이중 쓰기 대상은 표시 값(토큰)으로 정해지는 동적 키다. KEYS로 미리 선언하지 않으므로 Redis Cluster에서는
+            -- 안 되지만, 단일 노드 Redis만 쓴다.
+            local token = redis.call('GET', KEYS[2])
+            local pending = token and (KEYS[2] .. ':' .. token)
             for i = 1, #ARGV do
               redis.call('SETBIT', KEYS[1], ARGV[i], 1)
-              if pending then redis.call('SETBIT', KEYS[2], ARGV[i], 1) end
+              if pending then redis.call('SETBIT', pending, ARGV[i], 1) end
             end
             return 0
             """.getBytes(StandardCharsets.UTF_8);
@@ -152,7 +176,7 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         }
     }
 
-    /** live와(재구축 중이면 pending에도) 위치들을 한 번에 켠다. */
+    /** live와(재구축 중이면 그 재구축의 pending 비트맵에도) 위치들을 한 번에 켠다. */
     private void evalAdd(RedisConnection connection, long[] positions) {
         byte[][] keysAndArgs = new byte[2 + positions.length][];
         keysAndArgs[0] = key;
@@ -165,9 +189,11 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
 
     @Override
     public Optional<BloomRebuild> beginRebuild() {
-        Boolean set = execute(connection -> connection.stringCommands()
-                .set(pendingKey, new byte[0], Expiration.milliseconds(PENDING_TTL_MS), SetOption.ifAbsent()));
-        return Boolean.TRUE.equals(set) ? Optional.of(new RedisBloomRebuild()) : Optional.empty();
+        RedisBloomRebuild rebuild = new RedisBloomRebuild();
+        Long started = execute(connection -> connection.scriptingCommands().eval(
+                BEGIN_SCRIPT, ReturnType.INTEGER, 2, pendingKey, rebuild.pendingBitmapKey, rebuild.token,
+                Long.toString(PENDING_TTL_MS).getBytes(StandardCharsets.UTF_8)));
+        return Long.valueOf(1).equals(started) ? Optional.of(rebuild) : Optional.empty();
     }
 
     @Override
@@ -184,10 +210,15 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         });
     }
 
-    /** begin 이후의 재구축 한 건. complete가 끝까지 가지 못하고 닫히면 pending과 임시 키를 지운다. */
+    /**
+     * begin 이후의 재구축 한 건. complete가 끝까지 가지 못하고 닫히면 자기 pending 비트맵과 임시 키를 지우고, 표시는
+     * 자기 토큰일 때만 지운다.
+     */
     private final class RedisBloomRebuild implements BloomRebuild {
 
         private final String id = UUID.randomUUID().toString();
+        private final byte[] token = id.getBytes(StandardCharsets.UTF_8);
+        private final byte[] pendingBitmapKey = (liveKey + PENDING_SUFFIX + ":" + id).getBytes(StandardCharsets.UTF_8);
         private final byte[] rebuildingKey = (liveKey + REBUILDING_SUFFIX + id).getBytes(StandardCharsets.UTF_8);
         private final byte[] unionKey = (liveKey + UNION_SUFFIX + id).getBytes(StandardCharsets.UTF_8);
         private boolean finished;
@@ -207,7 +238,8 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
             List<Object> result = execute(connection -> {
                 connection.stringCommands().set(rebuildingKey, bits);
                 return connection.scriptingCommands().eval(
-                        SWAP_SCRIPT, ReturnType.MULTI, 4, rebuildingKey, key, pendingKey, unionKey);
+                        SWAP_SCRIPT, ReturnType.MULTI, 5,
+                        rebuildingKey, key, pendingKey, unionKey, pendingBitmapKey, token);
             });
             finished = true;
             return new BloomRebuildResult((Long) result.get(0) == 1, (Long) result.get(1), (Long) result.get(2));
@@ -219,9 +251,12 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
                 return;
             }
             try {
-                execute(connection -> connection.keyCommands().del(pendingKey, rebuildingKey));
+                execute(connection -> {
+                    connection.scriptingCommands().eval(RELEASE_SCRIPT, ReturnType.INTEGER, 1, pendingKey, token);
+                    return connection.keyCommands().del(pendingBitmapKey, rebuildingKey);
+                });
             } catch (RuntimeException e) {
-                // 지우지 못해도 pending은 TTL로 사라진다. 닫기가 원래 예외를 덮지 않게 삼킨다.
+                // 지우지 못해도 표시와 비트맵은 TTL로 사라진다. 닫기가 원래 예외를 덮지 않게 삼킨다.
                 log.warn("블룸 재구축 정리 실패(TTL로 사라짐): {}", e.toString());
             }
         }
