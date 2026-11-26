@@ -87,6 +87,11 @@ platform:
       # access는 짧게, refresh(Redis 저장, 쓸 때마다 새로 발급)는 길게 둔다.
       access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:1h}
       refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:7d}
+  appeal:
+    # 소명 링크. secret(32바이트 이상)과 base-url 중 하나라도 없으면 소명 링크만 꺼지고 서버는 정상 기동한다.
+    secret: ${APPEAL_TOKEN_SECRET:}
+    base-url: ${APPEAL_BASE_URL:}
+    ttl: 7d
   cors:
     # 쉼표로 구분. 운영은 Vercel 콘솔 도메인을 CORS_ALLOWED_ORIGINS로 넣는다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

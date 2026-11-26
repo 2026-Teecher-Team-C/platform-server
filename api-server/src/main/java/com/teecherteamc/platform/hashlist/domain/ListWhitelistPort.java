@@ -10,7 +10,7 @@ public interface ListWhitelistPort {
 
     /**
      * @param hashPrefix     소문자 해시 앞부분. null이면 거르지 않는다
-     * @param origin         RESTORED | PREREGISTERED. null이면 거르지 않는다
+     * @param origin         APPEAL | RESTORED | PREREGISTERED. null이면 거르지 않는다
      * @param includeExpired false면 now 기준 만료된 행을 뺀다(isActive 값과 무관)
      */
     record Filter(String hashPrefix, String origin, boolean active, boolean includeExpired, Instant now) {

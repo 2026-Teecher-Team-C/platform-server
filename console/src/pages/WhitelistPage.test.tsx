@@ -78,6 +78,13 @@ describe('WhitelistRow', () => {
     expect(html).toContain('/quarantine/qa-quarantine')
   })
 
+  it('소명 승인으로 들어온 항목은 소명 승인으로 표시하고 소명 상세로 연결한다', () => {
+    const html = render({ ...item, origin: 'APPEAL', originAppealId: 'qa-appeal' })
+    expect(html).toContain('소명 승인')
+    expect(html).toContain('/appeals/qa-appeal')
+    expect(html).not.toContain('/quarantine/')
+  })
+
   it('비활성 항목은 수정·해제할 수 없다', () => {
     const html = render({ ...item, isActive: false })
     expect(html).toContain('해제됨')

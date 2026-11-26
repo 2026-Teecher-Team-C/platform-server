@@ -234,6 +234,15 @@ a {
   background: var(--sidebar-accent);
 }
 
+/* 소명 요청 메뉴 옆 검토 대기 건수. 강조하지 않고 회색 숫자로만 둔다. */
+.nav-count {
+  float: right;
+  color: var(--sidebar-heading);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .nav-group-toggle:focus-visible,
 .nav-link:focus-visible {
   outline: 2px solid var(--sidebar-accent);
@@ -1817,6 +1826,33 @@ a {
 .quarantine-restore-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .quarantine-restore-success { color: #027a48; }
 
+/* 소명 요청: 목록 상태 필터와 상세의 근거·결정 영역. 격리 화면의 표·카드·버튼을 그대로 쓴다. */
+.appeal-filter { display: inline-flex; }
+.appeal-filter button {
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.appeal-filter button + button { border-left: 0; }
+.appeal-filter button:first-child { border-radius: 8px 0 0 8px; }
+.appeal-filter button:last-child { border-radius: 0 8px 8px 0; }
+.appeal-filter button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.appeal-filter-count { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.appeal-table { min-width: 760px; }
+.appeal-table tbody tr { cursor: pointer; }
+.appeal-review-evidence { margin: 0; }
+.appeal-review-evidence-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.appeal-review-muted { color: var(--muted); }
+.appeal-review-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+.appeal-decision-impact strong { color: #b42318; }
+.appeal-decision-count { margin: -8px 0 16px; color: var(--muted); font-size: 12px; text-align: right; }
+.appeal-decision-count.is-over { color: #b42318; }
+
 .events-table .blacklist-management {
   position: sticky;
   right: 0;
@@ -2413,4 +2449,392 @@ a {
 .ruleset-layout .events-table td:last-child,
 .ruleset-layout .events-table th:last-child {
   padding-right: 24px;
+}
+
+/*
+ * 소명 페이지(/appeal/:token). 상용 보안 제품의 사용자 알림처럼 회사 상단 바 + 왼쪽 정렬 본문 + 하단 연락처로 둔다.
+ * 카드·그림자·색 띠 없이 흰 바탕에 얇은 구분선만 쓴다. 새 색은 여기 모아 둔다.
+ */
+.appeal-page {
+  --appeal-frame: 720px;
+  --appeal-label: 96px;
+  --appeal-approved: #067647;
+  --appeal-rejected: #b42318;
+  --appeal-step-done: var(--sidebar);
+  --appeal-submit-hover: #1d4ed8;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.appeal-frame {
+  width: 100%;
+  max-width: calc(var(--appeal-frame) + 48px);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.appeal-topbar {
+  background: var(--sidebar);
+  color: #ffffff;
+}
+
+.appeal-topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+}
+
+/* 콘솔 사이드바 .brand-mark와 같은 모양을 상단 바 높이에 맞춰 줄였다. */
+.appeal-brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #ffffff;
+  color: var(--sidebar);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.appeal-topbar-inner strong {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.appeal-topbar-title {
+  padding-left: 12px;
+  margin-left: 2px;
+  border-left: 1px solid var(--sidebar-line);
+  color: var(--sidebar-text);
+  font-size: 14px;
+}
+
+.appeal-main {
+  flex: 1;
+  padding-top: 40px;
+  padding-bottom: 48px;
+}
+
+.appeal-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--text);
+}
+
+.appeal-heading h1,
+.appeal-message h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.appeal-event-id {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.appeal-event-id code,
+.appeal-filename {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+.appeal-event-id code {
+  margin-left: 6px;
+  color: var(--text);
+}
+
+.appeal-lead {
+  margin: 16px 0 0;
+  color: var(--muted);
+}
+
+.appeal-message p {
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
+.appeal-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.appeal-main > .appeal-section:last-child {
+  border-bottom: 0;
+}
+
+/* 라벨 열 + 값 열. 상세·진행·사유가 같은 왼쪽 선에 맞는다. */
+.appeal-rows {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.appeal-rows > div {
+  display: grid;
+  grid-template-columns: var(--appeal-label) minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 16px;
+}
+
+.appeal-rows dt,
+.appeal-row-label {
+  color: var(--muted);
+}
+
+.appeal-rows dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.appeal-threat {
+  font-weight: 700;
+}
+
+.appeal-muted {
+  color: var(--muted);
+}
+
+.appeal-reason {
+  white-space: pre-wrap;
+}
+
+.appeal-progress {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.appeal-progress li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 단계 사이 선. 그 단계에 도달했으면 진하게 칠한다. */
+.appeal-progress li + li::before {
+  content: '';
+  width: 40px;
+  height: 1px;
+  margin: 0 12px;
+  background: var(--border);
+  transition: background-color 200ms ease;
+}
+
+.appeal-progress li:not([data-state='todo']) + li:not([data-state='todo'])::before {
+  background: var(--appeal-step-done);
+}
+
+.appeal-progress-dot {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.appeal-progress li[data-state='done'] {
+  color: var(--text);
+}
+
+.appeal-progress li[data-state='done'] .appeal-progress-dot {
+  border-color: var(--appeal-step-done);
+  background: var(--appeal-step-done);
+}
+
+.appeal-progress li[aria-current='step'] {
+  font-weight: 700;
+}
+
+.appeal-progress li[data-state='approved'] {
+  color: var(--appeal-approved);
+}
+
+.appeal-progress li[data-state='approved'] .appeal-progress-dot {
+  border-color: var(--appeal-approved);
+  background: var(--appeal-approved);
+}
+
+.appeal-progress li[data-state='rejected'] {
+  color: var(--appeal-rejected);
+}
+
+.appeal-progress li[data-state='rejected'] .appeal-progress-dot {
+  border-color: var(--appeal-rejected);
+  background: var(--appeal-rejected);
+}
+
+/* 결정 문구는 진행 표시 값 열에 맞춰 한 줄로 둔다. 배경 상자 없이 굵은 상태색 글자만. */
+.appeal-status,
+.appeal-live {
+  margin-left: calc(var(--appeal-label) + 16px);
+}
+
+.appeal-status {
+  margin-top: 14px;
+}
+
+/* 소명 전에는 비어 있다. display:none이면 접근성 트리에서 빠져 제출 직후 알림이 안 읽힐 수 있으므로 높이만 없앤다. */
+.appeal-status:empty {
+  min-height: 0;
+  margin-top: 0;
+}
+
+.appeal-status p {
+  margin: 0;
+}
+
+.appeal-status-text {
+  font-weight: 700;
+}
+
+.appeal-status--approved .appeal-status-text {
+  color: var(--appeal-approved);
+}
+
+.appeal-status--rejected .appeal-status-text {
+  color: var(--appeal-rejected);
+}
+
+.appeal-decision-note {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.appeal-live {
+  margin-top: 2px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.appeal-form-body {
+  display: grid;
+  gap: 8px;
+}
+
+.appeal-form textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.appeal-form textarea:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.appeal-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.appeal-count {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.appeal-count.is-over {
+  color: var(--appeal-rejected);
+  font-weight: 700;
+}
+
+.appeal-submit {
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.appeal-submit:hover:not(:disabled) {
+  background: var(--appeal-submit-hover);
+}
+
+.appeal-submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.appeal-submit:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.appeal-error {
+  margin: 0;
+  color: var(--appeal-rejected);
+  font-size: 13px;
+}
+
+.appeal-footer {
+  border-top: 1px solid var(--border);
+}
+
+.appeal-footer p {
+  margin: 0 auto;
+  padding-top: 16px;
+  padding-bottom: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .appeal-page {
+    --appeal-label: 64px;
+  }
+
+  .appeal-frame {
+    padding: 0 16px;
+  }
+
+  .appeal-main {
+    padding-top: 28px;
+  }
+
+  .appeal-progress li + li::before {
+    width: 16px;
+    margin: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appeal-progress li + li::before,
+  .appeal-progress-dot {
+    transition: none;
+  }
 }

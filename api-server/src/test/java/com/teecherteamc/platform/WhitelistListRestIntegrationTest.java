@@ -189,6 +189,55 @@ class WhitelistListRestIntegrationTest {
         assertThat(hashes(list("?origin=PREREGISTERED"))).containsExactly(preregistered);
     }
 
+    // origin_appeal_id가 appeals FK라 장치 → 에이전트 → 소명 사슬을 만든다. appeals.event_id는 FK가 아니다.
+    private UUID seedAppealWhitelist(String sha256, Instant createdAt) {
+        UUID deviceId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO devices (device_id, hostname, os_platform) VALUES (?, 'DESKTOP-AP', 'WINDOWS')",
+                deviceId);
+        UUID agentId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO agents (agent_id, device_id, agent_version, enrollment_token_hash)
+                VALUES (?, ?, '0.0.1', ?)
+                """,
+                agentId, deviceId, "hash-" + agentId);
+        UUID appealId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO appeals (appeal_id, event_id, sha256, agent_id, reason, status, decided_at)
+                VALUES (?, ?, ?, ?, '업무용 파일', 'APPROVED', now())
+                """,
+                appealId, UUID.randomUUID(), sha256, agentId);
+        jdbcTemplate.update(
+                """
+                INSERT INTO hash_whitelist (hash_type, hash_value, reason, added_by, origin_appeal_id, created_at)
+                VALUES ('SHA256', ?, '소명 승인', ?, ?, ?)
+                """,
+                sha256, seedAdmin(), appealId, Timestamp.from(createdAt));
+        return appealId;
+    }
+
+    @Test
+    void 소명_승인으로_들어온_항목은_APPEAL이고_origin으로_거를_수_있다() {
+        String appealed = randomSha256();
+        String restored = randomSha256();
+        String preregistered = randomSha256();
+        UUID appealId = seedAppealWhitelist(appealed, T1);
+        seedRestoredWhitelist(restored, T2);
+        seedWhitelist(preregistered, true, null, T3);
+
+        ResponseEntity<Map<String, Object>> response = list("?origin=APPEAL");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(hashes(response)).containsExactly(appealed);
+        assertThat(content(response).get(0).get("origin")).isEqualTo("APPEAL");
+        assertThat(content(response).get(0).get("originAppealId")).isEqualTo(appealId.toString());
+        assertThat(content(response).get(0).get("originQuarantineId")).isNull();
+        assertThat(hashes(list("?origin=RESTORED"))).containsExactly(restored);
+        assertThat(hashes(list("?origin=PREREGISTERED"))).containsExactly(preregistered);
+    }
+
     @Test
     void hashValue는_앞부분_일치로_찾고_대소문자를_가리지_않는다() {
         String target = "abcdef" + randomSha256().substring(6);

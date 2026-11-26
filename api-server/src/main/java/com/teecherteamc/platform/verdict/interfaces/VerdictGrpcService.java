@@ -3,6 +3,7 @@ package com.teecherteamc.platform.verdict.interfaces;
 import com.teecherteamc.platform.proto.verdict.v1.EvidenceKind;
 import com.teecherteamc.platform.proto.verdict.v1.MatchedRule;
 import com.teecherteamc.platform.verdict.domain.VerdictEvidence;
+import com.teecherteamc.platform.appeal.application.AppealLinks;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import com.teecherteamc.platform.fleet.interfaces.AgentAuthContext;
@@ -66,21 +67,24 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
     private final CheckHashUseCase checkHashUseCase;
     private final SubmitFileUseCase submitFileUseCase;
     private final SpoolPort spoolPort;
+    private final AppealLinks appealLinks;
 
     public VerdictGrpcService(
             ReportEventUseCase reportEventUseCase,
             CheckHashUseCase checkHashUseCase,
             SubmitFileUseCase submitFileUseCase,
-            SpoolPort spoolPort) {
+            SpoolPort spoolPort,
+            AppealLinks appealLinks) {
         this.reportEventUseCase = reportEventUseCase;
         this.checkHashUseCase = checkHashUseCase;
         this.submitFileUseCase = submitFileUseCase;
         this.spoolPort = spoolPort;
+        this.appealLinks = appealLinks;
     }
 
     @Override
     public StreamObserver<SubmitFileRequest> submitFile(StreamObserver<SubmitFileResponse> responseObserver) {
-        return new SubmitFileRequestObserver(responseObserver, spoolPort, submitFileUseCase);
+        return new SubmitFileRequestObserver(responseObserver, spoolPort, submitFileUseCase, appealLinks);
     }
 
     @Override
@@ -114,6 +118,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             if (hasEvidence(result.decision(), result.evidence())) {
                 response.setEvidence(toProtoEvidence(result.evidence()));
             }
+            response.setAppealUrl(appealUrl(appealLinks, result.decision(), result.evidence(), eventId,
+                    hashKey.getHashValue(), AgentAuthContext.AGENT_ID.get()));
             responseObserver.onNext(response.build());
             responseObserver.onCompleted();
         } catch (SecurityException e) {
@@ -305,6 +311,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
         private final StreamObserver<SubmitFileResponse> responseObserver;
         private final SpoolPort spoolPort;
         private final SubmitFileUseCase submitFileUseCase;
+        private final AppealLinks appealLinks;
 
         private SpoolSession spoolSession;
         private String claimedSha256;
@@ -316,10 +323,11 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
 
         SubmitFileRequestObserver(
                 StreamObserver<SubmitFileResponse> responseObserver, SpoolPort spoolPort,
-                SubmitFileUseCase submitFileUseCase) {
+                SubmitFileUseCase submitFileUseCase, AppealLinks appealLinks) {
             this.responseObserver = responseObserver;
             this.spoolPort = spoolPort;
             this.submitFileUseCase = submitFileUseCase;
+            this.appealLinks = appealLinks;
             // 스트림 콜백 실행 시점과 무관하게 RPC 시작 시 인증된 소유자를 보존한다.
             this.agentId = AgentAuthContext.AGENT_ID.get();
         }
@@ -410,7 +418,8 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
                 }
                 SubmitFileResult outcome = submitFileUseCase.submitFile(
                         new SubmitFileCommand(claimedSha256, result.sha256(), result.bytesWritten(), result.path(), eventId, agentId));
-                responseObserver.onNext(toResponse(outcome));
+                responseObserver.onNext(toResponse(outcome, appealUrl(appealLinks, outcome.decision(), outcome.evidence(),
+                        eventId, result.sha256(), agentId)));
                 responseObserver.onCompleted();
             } catch (SecurityException e) {
                 responseObserver.onError(Status.PERMISSION_DENIED.withDescription("event owner or SHA conflict").asRuntimeException());
@@ -447,7 +456,7 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             }
         }
 
-        private static SubmitFileResponse toResponse(SubmitFileResult result) {
+        private static SubmitFileResponse toResponse(SubmitFileResult result, String appealUrl) {
             SubmitFileResponse.Builder response = SubmitFileResponse.newBuilder()
                     .setDecision(toProtoDecision(result.decision()))
                     .setSource(toProtoDecisionSource(result.source()))
@@ -456,7 +465,25 @@ public class VerdictGrpcService extends VerdictServiceGrpc.VerdictServiceImplBas
             if (hasEvidence(result.decision(), result.evidence())) {
                 response.setEvidence(toProtoEvidence(result.evidence()));
             }
+            response.setAppealUrl(appealUrl);
             return response.build();
+        }
+    }
+
+    /**
+     * 근거 있는 차단이고 event_id가 있을 때만 소명 링크를 만든다. 링크 발급이 실패해도 차단 응답은
+     * 그대로 나가야 하므로 예외는 삼키고 빈 문자열을 돌려준다.
+     */
+    static String appealUrl(AppealLinks links, String decision, VerdictEvidence evidence, UUID eventId,
+            String sha256, UUID agentId) {
+        if (eventId == null || !hasEvidence(decision, evidence)) {
+            return "";
+        }
+        try {
+            return links.urlFor(eventId, sha256, agentId, evidence);
+        } catch (RuntimeException e) {
+            log.warn("소명 링크 발급 실패 event_id={}", eventId, e);
+            return "";
         }
     }
 

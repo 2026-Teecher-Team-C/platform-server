@@ -10,7 +10,7 @@ import type { MenuKey } from '../../lib/auth/roles'
 
 // 사이드바 그룹. 관리자 업무 순서(탐지 → 대응 → 정책 → 운영 → 관리)로 묶는다.
 // 설계 레포 docs/research/2026-11-04-dashboard-redesign.md 3장. 아직 화면이 없는
-// 소명 요청(대응)·운영 현황(운영)은 화면이 생길 때 추가한다.
+// 운영 현황(운영)은 화면이 생길 때 추가한다.
 export const NAV_GROUPS = ['탐지', '대응', '정책', '운영', '관리'] as const
 export type NavGroup = (typeof NAV_GROUPS)[number]
 
@@ -24,6 +24,7 @@ export type NavItem = {
 export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'dashboard', to: '/dashboard', label: '위협 대시보드', group: '탐지' },
   { key: 'downloadEvents', to: '/events', label: '탐지 이벤트', group: '탐지' },
+  { key: 'appeals', to: '/appeals', label: '소명 요청', group: '대응' },
   { key: 'quarantine', to: '/quarantine', label: '격리 파일', group: '대응' },
   { key: 'policy', to: '/policies', label: '검사 정책', group: '정책' },
   { key: 'whitelist', to: '/whitelist', label: '화이트리스트', group: '정책' },

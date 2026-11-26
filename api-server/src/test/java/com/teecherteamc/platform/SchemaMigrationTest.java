@@ -18,7 +18,7 @@ class SchemaMigrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void 마이그레이션이_22개_테이블을_만든다() {
+    void 마이그레이션이_24개_테이블을_만든다() {
         List<String> tables = jdbcTemplate.queryForList("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -32,7 +32,26 @@ class SchemaMigrationTest {
                 "bypass_domains", "file_type_policies", "audit_logs",
                 "agent_enrollment_tokens", "pending_quarantine_uploads",
                 "download_event_acknowledgements", "file_fingerprints",
-                "similarity_assessments", "event_decision_evidence", "similarity_cache", "similarity_corpus_state");
+                "similarity_assessments", "event_decision_evidence", "similarity_cache", "similarity_corpus_state",
+                "appeals");
+    }
+
+    @Test
+    void V22는_소명_근거_스냅숏과_화이트리스트_출처_소명_FK를_추가한다() {
+        List<String> appealColumns = jdbcTemplate.queryForList("""
+                SELECT column_name || ':' || data_type || ':' || character_maximum_length || ':' || is_nullable
+                FROM information_schema.columns
+                WHERE table_name = 'appeals' AND column_name IN ('evidence_kind', 'threat')
+                """, String.class);
+        Integer fk = jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM information_schema.table_constraints
+                WHERE table_name = 'hash_whitelist' AND constraint_name = 'fk_hash_whitelist_appeal'
+                  AND constraint_type = 'FOREIGN KEY'
+                """, Integer.class);
+
+        assertThat(appealColumns).containsExactlyInAnyOrder(
+                "evidence_kind:character varying:16:YES", "threat:character varying:255:YES");
+        assertThat(fk).isEqualTo(1);
     }
 
     @Test

@@ -24,14 +24,21 @@ class AuditActionTest {
     }
 
     @Test
-    void 검사를_약하게_만드는_조작_4종만_위험으로_본다() {
-        // Notion 기능 API 명세 "감사 로그 조회" 조회 로직 3번의 목록
-        Set<String> dangerous = Set.of("ADD_WHITELIST", "REMOVE_BLACKLIST", "RESTORE_QUARANTINE", "ADD_BYPASS_DOMAIN");
+    void 검사를_약하게_만드는_조작만_위험으로_본다() {
+        // Notion 기능 API 명세 "감사 로그 조회" 조회 로직 3번의 4종 + 소명 승인(화이트리스트 등록과 같은 효과)
+        Set<String> dangerous = Set.of("ADD_WHITELIST", "REMOVE_BLACKLIST", "RESTORE_QUARANTINE", "ADD_BYPASS_DOMAIN",
+                "APPROVE_APPEAL");
 
         for (AuditAction action : AuditAction.values()) {
             assertThat(AuditAction.isDangerous(action.name())).as(action.name())
                     .isEqualTo(dangerous.contains(action.name()));
         }
+    }
+
+    @Test
+    void 소명_거절은_기록할_수_있지만_위험이_아니다() {
+        assertThat(AuditAction.isDangerous("REJECT_APPEAL")).isFalse();
+        assertThat(Arrays.stream(AuditAction.values()).map(Enum::name)).contains("APPROVE_APPEAL", "REJECT_APPEAL");
     }
 
     @Test

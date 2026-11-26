@@ -10,7 +10,7 @@ describe('역할별 메뉴 권한', () => {
   it('ANALYST는 등록 토큰 발급, 화이트리스트, 감사 로그만 볼 수 없다', () => {
     const menus = allowedMenus('ANALYST')
 
-    expect(menus).toHaveLength(7)
+    expect(menus).toHaveLength(8)
     expect(menus).not.toContain('enrollmentTokens')
     expect(menus).not.toContain('whitelist')
     expect(menus).not.toContain('auditLog')
@@ -18,6 +18,7 @@ describe('역할별 메뉴 권한', () => {
     expect(canAccess('ANALYST', 'dashboard')).toBe(true)
     expect(canAccess('ANALYST', 'quarantine')).toBe(true)
     expect(canAccess('ANALYST', 'blacklist')).toBe(true)
+    expect(canAccess('ANALYST', 'appeals')).toBe(true)
   })
 
   it('역할이 없거나 권한 표에 없는 역할은 어떤 메뉴도 볼 수 없다', () => {
@@ -44,6 +45,9 @@ describe('사이드바 메뉴 목록과 주소', () => {
   it('상세 화면 주소는 목록과 같은 메뉴로 본다', () => {
     expect(findNavItemByPath('/quarantine/123')?.key).toBe('quarantine')
     expect(findNavItemByPath('/events/abc')?.key).toBe('downloadEvents')
+    expect(findNavItemByPath('/appeals/abc')?.key).toBe('appeals')
+    // 직원용 공개 소명 화면(/appeal/:token)은 관리 메뉴가 아니다.
+    expect(findNavItemByPath('/appeal/token')).toBeUndefined()
   })
 
   it('등록 토큰 발급 주소는 PC 현황이 아니라 등록 토큰 발급으로 본다', () => {

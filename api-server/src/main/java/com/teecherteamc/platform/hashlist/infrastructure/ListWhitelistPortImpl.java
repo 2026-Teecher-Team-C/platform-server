@@ -17,7 +17,7 @@ class ListWhitelistPortImpl implements ListWhitelistPort {
 
     private static final String SELECT_SQL =
             """
-            SELECT w.hash_type, w.hash_value, w.reason, w.origin_quarantine_id, w.added_by, a.username,
+            SELECT w.hash_type, w.hash_value, w.reason, w.origin_quarantine_id, w.origin_appeal_id, w.added_by, a.username,
                    w.is_active, w.expires_at, w.created_at
             FROM hash_whitelist w
             LEFT JOIN admin_users a ON a.admin_id = w.added_by
@@ -66,9 +66,12 @@ class ListWhitelistPortImpl implements ListWhitelistPort {
             params.add(Timestamp.from(filter.now()));
         }
         if (filter.origin() != null) {
-            sql.append("RESTORED".equals(filter.origin())
-                    ? " AND w.origin_quarantine_id IS NOT NULL"
-                    : " AND w.origin_quarantine_id IS NULL");
+            // WhitelistItem.origin과 같은 우선순위: 소명 출처 → 격리 출처 → 사전 등록.
+            sql.append(switch (filter.origin()) {
+                case "APPEAL" -> " AND w.origin_appeal_id IS NOT NULL";
+                case "RESTORED" -> " AND w.origin_appeal_id IS NULL AND w.origin_quarantine_id IS NOT NULL";
+                default -> " AND w.origin_appeal_id IS NULL AND w.origin_quarantine_id IS NULL";
+            });
         }
         if (filter.hashPrefix() != null) {
             // 호출하는 쪽이 소문자 hex만 넘긴다. LIKE의 특수문자(%, _)가 섞이면 안 된다.
@@ -84,6 +87,7 @@ class ListWhitelistPortImpl implements ListWhitelistPort {
                 rs.getString("hash_value"),
                 rs.getString("reason"),
                 rs.getObject("origin_quarantine_id", UUID.class),
+                rs.getObject("origin_appeal_id", UUID.class),
                 rs.getObject("added_by", UUID.class),
                 rs.getString("username"),
                 rs.getBoolean("is_active"),

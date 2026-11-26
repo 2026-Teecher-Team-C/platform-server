@@ -99,6 +99,7 @@ export const hashlistHandlers = [
       reason: body.reason.trim(),
       origin: 'PREREGISTERED' as const,
       originQuarantineId: null,
+      originAppealId: null,
       addedBy: {
         adminId: account.adminId,
         username: account.username,

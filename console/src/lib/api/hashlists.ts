@@ -7,7 +7,8 @@ export type AdminSummary = {
   username: string
 }
 
-export type WhitelistOrigin = 'RESTORED' | 'PREREGISTERED'
+// 서버 WhitelistItem.origin과 같다. APPEAL은 소명 승인으로 들어온 항목이다.
+export type WhitelistOrigin = 'APPEAL' | 'RESTORED' | 'PREREGISTERED'
 
 export type WhitelistItem = {
   hashType: 'SHA256'
@@ -15,6 +16,8 @@ export type WhitelistItem = {
   reason: string
   origin: WhitelistOrigin
   originQuarantineId: string | null
+  // 소명 승인 출처. 이전 응답·목 데이터에는 없을 수 있다.
+  originAppealId?: string | null
   addedBy?: AdminSummary
   isActive: boolean
   expiresAt: string | null

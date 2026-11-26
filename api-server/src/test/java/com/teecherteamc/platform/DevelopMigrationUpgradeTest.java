@@ -42,11 +42,11 @@ class DevelopMigrationUpgradeTest {
             String viewDefinition = scalar(db, "SELECT pg_get_viewdef('download_event_threats'::regclass, true)");
 
             var full = migrations(null);
-                        assertThat(full.migrate().migrationsExecuted).isEqualTo(13);
+                        assertThat(full.migrate().migrationsExecuted).isEqualTo(15);
             // validate()가 현재 리소스의 체크섬과 배포 이력을 비교한다. repair/missing 무시 없이 검증한다.
             full.validate();
             assertThat(history(db).subList(0, 7)).isEqualTo(deployedHistory);
-            assertThat(full.info().applied()).hasSize(20);
+            assertThat(full.info().applied()).hasSize(22);
             assertThat(full.info().pending()).isEmpty();
             assertThat(java.util.Arrays.stream(full.info().all()).map(i -> i.getState().name()))
                     .containsOnly("SUCCESS");
@@ -54,9 +54,9 @@ class DevelopMigrationUpgradeTest {
             assertThat(scalar(db, "SELECT pg_get_viewdef('download_event_threats'::regclass, true)")).contains("SIMILARITY", "MEDIUM");
             assertThat(scalar(db, "SELECT role FROM admin_users WHERE username='existing-employee'")).isEqualTo("USER");
             assertThat(scalar(db, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' "
-                    + "AND table_type='BASE TABLE' AND table_name <> 'flyway_schema_history'")).isEqualTo("23");
+                    + "AND table_type='BASE TABLE' AND table_name <> 'flyway_schema_history'")).isEqualTo("24");
             for (String table : List.of("file_fingerprints", "similarity_assessments", "similarity_cache",
-                    "similarity_corpus_state", "event_decision_evidence", "download_event_acknowledgements")) {
+                    "similarity_corpus_state", "event_decision_evidence", "download_event_acknowledgements", "appeals")) {
                 assertThat(scalar(db, "SELECT to_regclass('" + table + "')")).isEqualTo(table);
             }
         }

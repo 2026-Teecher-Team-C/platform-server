@@ -10,6 +10,7 @@ const PAGE_SIZE = 20
 const HASH_PREFIX_PATTERN = /^[0-9a-fA-F]{1,64}$/
 
 const ORIGIN_LABEL: Record<WhitelistOrigin, string> = {
+  APPEAL: '소명 승인',
   RESTORED: '오탐 복원',
   PREREGISTERED: '사전 등록',
 }
@@ -70,8 +71,12 @@ export function WhitelistRow({ item, mode, draftReason, isBusy, copied, expired,
         <td className="events-truncate" title={item.reason}>{item.reason}</td>
       )}
       <td>
-        {/* 복원으로 들어온 항목은 원본 격리 파일 상세에서 근거를 확인할 수 있게 연결한다. */}
-        {item.originQuarantineId ? (
+        {/* 복원·소명 승인으로 들어온 항목은 원본 격리 파일·소명 상세에서 근거를 확인할 수 있게 연결한다. */}
+        {item.originAppealId ? (
+          <Link className="events-detail-link" to={'/appeals/' + encodeURIComponent(item.originAppealId)}>
+            {ORIGIN_LABEL[item.origin]}
+          </Link>
+        ) : item.originQuarantineId ? (
           <Link className="events-detail-link" to={'/quarantine/' + encodeURIComponent(item.originQuarantineId)}>
             {ORIGIN_LABEL[item.origin]}
           </Link>
@@ -327,6 +332,7 @@ export function WhitelistPage() {
         <label>출처
           <select value={origin} onChange={(event) => setOrigin(event.target.value as WhitelistOrigin | '')}>
             <option value="">전체</option>
+            <option value="APPEAL">{ORIGIN_LABEL.APPEAL}</option>
             <option value="RESTORED">{ORIGIN_LABEL.RESTORED}</option>
             <option value="PREREGISTERED">{ORIGIN_LABEL.PREREGISTERED}</option>
           </select>

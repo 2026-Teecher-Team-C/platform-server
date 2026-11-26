@@ -83,6 +83,8 @@ public class SecurityConfig {
         http.authorizeHttpRequests(authorize -> authorize
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/admin/auth/login", "/api/admin/auth/refresh").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/public/appeals/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/public/appeals/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/download-events").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus")
                 .permitAll()
@@ -94,6 +96,7 @@ public class SecurityConfig {
                         "/api/admin/download-events/*",
                         "/api/admin/events/stream",
                         "/api/admin/quarantine", "/api/admin/quarantine/*",
+                        "/api/admin/appeals", "/api/admin/appeals/*",
                         "/api/admin/blacklist",
                         "/api/admin/bypass-domains",
                         "/api/admin/similarity-policy",

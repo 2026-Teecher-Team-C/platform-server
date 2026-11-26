@@ -1,4 +1,5 @@
 import { agentHandlers } from './agents'
+import { appealHandlers } from './appeals'
 import { auditLogHandlers } from './auditLogs'
 import { authHandlers } from './auth'
 import { dashboardHandlers } from './dashboard'
@@ -15,6 +16,7 @@ export const handlers = [
   ...dashboardHandlers,
   ...eventHandlers,
   ...sampleHandlers,
+  ...appealHandlers,
   ...quarantineHandlers,
   ...hashlistHandlers,
   ...policyHandlers,
