@@ -96,6 +96,7 @@ public class SecurityConfig {
                         "/api/admin/download-events/*",
                         "/api/admin/events/stream",
                         "/api/admin/quarantine", "/api/admin/quarantine/*",
+                        "/api/admin/appeals", "/api/admin/appeals/*",
                         "/api/admin/blacklist",
                         "/api/admin/bypass-domains",
                         "/api/admin/similarity-policy",

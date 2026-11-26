@@ -176,6 +176,8 @@ class RolePermissionRestIntegrationTest {
             new Row("GET", "/api/admin/dashboard/summary", true, true, false),
             new Row("GET", "/api/admin/dashboard/engine-status", true, true, false),
             // 격리
+            new Row("GET", "/api/admin/appeals", true, true, false),
+            new Row("GET", "/api/admin/appeals/" + SOME_UUID, true, true, false),
             new Row("GET", "/api/admin/quarantine", true, true, false),
             new Row("GET", "/api/admin/quarantine/" + SOME_UUID, true, true, false),
             new Row("POST", "/api/admin/quarantine/" + SOME_UUID + "/restore", true, false, false),
