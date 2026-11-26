@@ -42,7 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class WhitelistController {
 
-    private static final Set<String> VALID_ORIGINS = Set.of("RESTORED", "PREREGISTERED");
+    private static final Set<String> VALID_ORIGINS = Set.of("APPEAL", "RESTORED", "PREREGISTERED");
     // 해시 앞부분. 소문자 hex만 허용해서 SQL LIKE에 넘길 때 %, _ 가 섞이지 않게 한다.
     private static final Pattern HASH_PREFIX = Pattern.compile("^[0-9a-f]{1,64}$");
     private static final int DEFAULT_SIZE = 20;

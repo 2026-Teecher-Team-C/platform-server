@@ -9,6 +9,7 @@ public record WhitelistRow(
         String hashValue,
         String reason,
         UUID originQuarantineId,
+        UUID originAppealId,
         UUID addedById,
         String addedByUsername,
         boolean active,
