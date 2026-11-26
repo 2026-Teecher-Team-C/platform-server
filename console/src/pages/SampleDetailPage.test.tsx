@@ -7,6 +7,8 @@ import { router } from '../app/router'
 
 const auth = vi.hoisted(() => ({ isAuthenticated: true }))
 vi.mock('../app/useAuth', () => ({ useAuth: () => ({ isAuthenticated: auth.isAuthenticated, isInitializing: false, user: { role: 'ADMIN', username: 'reviewer' }, signOut: vi.fn() }) }))
+// 사이드바의 소명 대기 건수 조회가 이 시험의 fetch 응답 순서를 가로채지 않게 따로 둔다.
+vi.mock('../lib/api/adminAppeals', () => ({ listAppeals: vi.fn(() => new Promise(() => {})) }))
 vi.mock(import('../lib/auth/tokenStore'), async (original) => ({ ...await original(), getAccessToken: () => null }))
 const sha = 'ab'.repeat(32)
 const fixture = { sha256: sha, blacklist: { reason: 'Synthetic review only', severity: 'HIGH', source: 'MANUAL', isActive: true, registeredAt: '2026-10-23T00:00:00Z' }, fingerprint: { tlsh: 'T1' + 'A'.repeat(70), calculationStatus: 'CALCULATED', algorithmVersion: 'review-vector', provenance: 'ADMIN_IMPORT', provenanceDetail: 'Synthetic, not MalwareBazaar', calculatedAt: '2026-10-23T00:00:00Z' } }

@@ -27,6 +27,22 @@ function isNotFound(error: unknown) {
   return error instanceof ApiError && error.status === 404
 }
 
+const APPEAL_NOT_READY_TEXT = '차단 기록을 아직 받지 못했습니다. 잠시 후 다시 시도해 주세요.'
+
+// 같은 409라도 code가 CONFLICT면 이미 제출, APPEAL_NOT_READY면 차단 기록이 아직 없는 것이다.
+function errorBody(error: unknown): { code?: unknown; message?: unknown } | null {
+  return error instanceof ApiError && typeof error.body === 'object' && error.body !== null ? error.body : null
+}
+
+function isAppealNotReady(error: unknown) {
+  return error instanceof ApiError && error.status === 409 && errorBody(error)?.code === 'APPEAL_NOT_READY'
+}
+
+function serverMessage(error: unknown) {
+  const message = errorBody(error)?.message
+  return typeof message === 'string' && message ? message : null
+}
+
 type PageState =
   | { kind: 'loading' }
   | { kind: 'notFound' }
@@ -314,7 +330,10 @@ function AppealForm({ token, onView, onNotFound }: FormProps) {
         onNotFound()
         return
       }
-      if (cause instanceof ApiError && cause.status === 409) {
+      if (isAppealNotReady(cause)) {
+        // 에이전트의 차단 기록이 서버에 아직 닿지 않았다. 입력은 그대로 두고 다시 누르게 한다.
+        setError(serverMessage(cause) ?? APPEAL_NOT_READY_TEXT)
+      } else if (cause instanceof ApiError && cause.status === 409) {
         // 이미 제출한 소명이 있다(다른 탭 등). 서버에 있는 상태를 그대로 보여 준다.
         try {
           onView(await getAppeal(token))

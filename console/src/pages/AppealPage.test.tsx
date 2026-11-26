@@ -162,6 +162,23 @@ it('이미_제출된_소명이면_최신_상태를_다시_불러온다', async (
   expect(container.textContent).toContain('보안 담당자가 검토하고 있습니다.')
 })
 
+it('차단_기록이_아직_없으면_서버_안내를_입력란_아래에_보이고_사유를_유지하며_재조회하지_않는다', async () => {
+  get.mockResolvedValue(before)
+  submit.mockRejectedValueOnce(new ApiError(409, {
+    code: 'APPEAL_NOT_READY', message: '차단 기록을 아직 받지 못했습니다. 잠시 후 다시 시도해 주세요.',
+  })).mockResolvedValue(pending)
+  await mount()
+  await setReason('업무용 설치 파일입니다.')
+  await act(async () => button('소명 제출').click())
+  expect(get).toHaveBeenCalledTimes(1)
+  expect(container.querySelector('.appeal-form [role=alert]')?.textContent)
+    .toBe('차단 기록을 아직 받지 못했습니다. 잠시 후 다시 시도해 주세요.')
+  expect(container.querySelector('textarea')?.value).toBe('업무용 설치 파일입니다.')
+  expect(button('소명 제출').disabled).toBe(false)
+  await act(async () => button('소명 제출').click())
+  expect(container.textContent).toContain('보안 담당자가 검토하고 있습니다.')
+})
+
 it('제출이_실패하면_사유를_유지하고_다시_제출할_수_있다', async () => {
   get.mockResolvedValue(before)
   submit.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(pending)

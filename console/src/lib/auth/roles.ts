@@ -10,11 +10,12 @@
 import type { AdminRole } from '../api/auth'
 
 // ── 메뉴 ─────────────────────────────────────────────
-// 사이드바 메뉴 10개의 고유한 이름표(key)다. 화면에 보이는 한글 이름이나
+// 사이드바 메뉴 11개의 고유한 이름표(key)다. 화면에 보이는 한글 이름이나
 // 주소와는 따로 둔다. 주소나 이름이 바뀌어도 권한 표는 그대로 쓰기 위해서다.
 export const MENU_KEYS = [
   'dashboard',        // 대시보드
   'downloadEvents',   // 다운로드 이벤트
+  'appeals',          // 소명 요청
   'quarantine',       // 격리 파일
   'agents',           // PC 현황
   'enrollmentTokens', // 등록 토큰 발급
@@ -35,6 +36,7 @@ export type MenuKey = (typeof MENU_KEYS)[number]
 const MENU_ACCESS: Record<MenuKey, readonly AdminRole[]> = {
   dashboard: ['ADMIN', 'ANALYST'],
   downloadEvents: ['ADMIN', 'ANALYST'],
+  appeals: ['ADMIN', 'ANALYST'],      // ANALYST는 조회만 (승인·거절은 ADMIN)
   quarantine: ['ADMIN', 'ANALYST'],   // ANALYST는 조회만 (복원은 ADMIN)
   agents: ['ADMIN', 'ANALYST'],
   enrollmentTokens: ['ADMIN'],

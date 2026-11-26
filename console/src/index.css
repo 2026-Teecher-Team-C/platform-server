@@ -234,6 +234,15 @@ a {
   background: var(--sidebar-accent);
 }
 
+/* 소명 요청 메뉴 옆 검토 대기 건수. 강조하지 않고 회색 숫자로만 둔다. */
+.nav-count {
+  float: right;
+  color: var(--sidebar-heading);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .nav-group-toggle:focus-visible,
 .nav-link:focus-visible {
   outline: 2px solid var(--sidebar-accent);
@@ -1816,6 +1825,33 @@ a {
 .quarantine-restore-panel textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
 .quarantine-restore-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .quarantine-restore-success { color: #027a48; }
+
+/* 소명 요청: 목록 상태 필터와 상세의 근거·결정 영역. 격리 화면의 표·카드·버튼을 그대로 쓴다. */
+.appeal-filter { display: inline-flex; }
+.appeal-filter button {
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.appeal-filter button + button { border-left: 0; }
+.appeal-filter button:first-child { border-radius: 8px 0 0 8px; }
+.appeal-filter button:last-child { border-radius: 0 8px 8px 0; }
+.appeal-filter button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.appeal-filter-count { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.appeal-table { min-width: 760px; }
+.appeal-table tbody tr { cursor: pointer; }
+.appeal-review-evidence { margin: 0; }
+.appeal-review-evidence-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.appeal-review-muted { color: var(--muted); }
+.appeal-review-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+.appeal-decision-impact strong { color: #b42318; }
+.appeal-decision-count { margin: -8px 0 16px; color: var(--muted); font-size: 12px; text-align: right; }
+.appeal-decision-count.is-over { color: #b42318; }
 
 .events-table .blacklist-management {
   position: sticky;

@@ -4,6 +4,8 @@ import { RoleGuard } from '../components/auth/RoleGuard'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AgentsPage } from '../pages/AgentsPage'
 import { AppealPage } from '../pages/AppealPage'
+import { AppealDetailPage } from '../pages/AppealDetailPage'
+import { AppealsPage } from '../pages/AppealsPage'
 import { AuditLogsPage } from '../pages/AuditLogsPage'
 import { BlacklistPage } from '../pages/BlacklistPage'
 import { DashboardPage } from '../pages/DashboardPage'
@@ -49,6 +51,8 @@ export const router = createBrowserRouter([
           { path: 'events', element: <EventsPage /> },
           { path: 'events/:eventId', element: <EventDetailPage /> },
           { path: 'samples/:sha256', element: <SampleDetailPage /> },
+          { path: 'appeals', element: <AppealsPage /> },
+          { path: 'appeals/:appealId', element: <AppealDetailPage /> },
           { path: 'quarantine', element: <QuarantinePage /> },
           { path: 'quarantine/:quarantineId', element: <QuarantineDetailPage /> },
           { path: 'agents', element: <AgentsPage /> },

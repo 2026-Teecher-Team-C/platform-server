@@ -4,17 +4,23 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Sidebar } from './Sidebar'
+import { listAppeals } from '../../lib/api/adminAppeals'
 
 const auth = vi.hoisted(() => ({ role: 'ADMIN' as 'ADMIN' | 'ANALYST' | 'VIEWER' }))
 vi.mock('../../app/useAuth', () => ({
   useAuth: () => ({ user: { username: 'admin', role: auth.role }, signOut: vi.fn() }),
 }))
+vi.mock('../../lib/api/adminAppeals', () => ({ listAppeals: vi.fn() }))
+const listAppealsMock = vi.mocked(listAppeals)
+const pendingPage = (totalElements: number) => ({ content: [], page: 0, size: 1, totalElements, totalPages: totalElements })
 
 let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   auth.role = 'ADMIN'
+  listAppealsMock.mockReset()
+  listAppealsMock.mockResolvedValue(pendingPage(0))
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -47,7 +53,7 @@ describe('Sidebar', () => {
     await mount()
     expect(groupTitles()).toEqual(['탐지', '대응', '정책', '운영', '관리'])
     expect(linksIn('탐지')).toEqual(['위협 대시보드', '탐지 이벤트'])
-    expect(linksIn('대응')).toEqual(['격리 파일'])
+    expect(linksIn('대응')).toEqual(['소명 요청', '격리 파일'])
     expect(linksIn('정책')).toEqual(['검사 정책', '화이트리스트', '블랙리스트', 'YARA 룰셋'])
     expect(linksIn('운영')).toEqual(['PC 현황'])
     expect(linksIn('관리')).toEqual(['등록 토큰 발급', '감사 로그'])
@@ -101,6 +107,36 @@ describe('Sidebar', () => {
     await mount()
     expect(container.querySelector('aside')!.classList.contains('collapsed')).toBe(true)
     localStorage.clear()
+  })
+
+  it('소명 요청 옆에 검토 대기 건수를 보여 주고 30초마다 다시 센다', async () => {
+    vi.useFakeTimers()
+    try {
+      listAppealsMock.mockResolvedValueOnce(pendingPage(3)).mockResolvedValue(pendingPage(4))
+      await mount()
+      expect(listAppealsMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'PENDING', size: 1 }), expect.anything())
+      const count = () => container.querySelector('a[href="/appeals"] .nav-count')
+      expect(count()?.textContent).toBe('3')
+      expect(count()?.getAttribute('aria-label')).toBe('검토 대기 3건')
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+      expect(listAppealsMock).toHaveBeenCalledTimes(2)
+      expect(count()?.textContent).toBe('4')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('검토 대기 건수가 0이면 숫자를 숨긴다', async () => {
+    await mount()
+    expect(listAppealsMock).toHaveBeenCalled()
+    expect(container.querySelector('a[href="/appeals"]')).not.toBeNull()
+    expect(container.querySelector('.nav-count')).toBeNull()
+  })
+
+  it('소명 요청을 볼 수 없는 역할은 건수를 묻지 않는다', async () => {
+    auth.role = 'VIEWER'
+    await mount()
+    expect(listAppealsMock).not.toHaveBeenCalled()
   })
 
   it('현재 경로의 메뉴만 active다 (PC 현황은 등록 토큰 경로에서 active가 아니다)', async () => {

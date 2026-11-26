@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../app/useAuth'
-import { allowedMenus } from '../../lib/auth/roles'
+import { listAppeals } from '../../lib/api/adminAppeals'
+import { allowedMenus, canAccess } from '../../lib/auth/roles'
+import { usePolling } from '../../lib/hooks/usePolling'
 import { NAV_GROUPS, NAV_ITEMS } from './navigation'
 
 const SIDEBAR_COLLAPSED_KEY = 'console.sidebar.collapsed'
+const APPEAL_COUNT_INTERVAL_MS = 30_000
+const APPEAL_COUNT_TIMEOUT_MS = 10_000
 
 // 접은 상태는 이 브라우저에서만 기억하는 편의 기능이다. 저장소를 못 쓰면 펼친 상태로 시작한다.
 function readSidebarCollapsed() {
@@ -28,6 +32,15 @@ export function Sidebar() {
   const { user, signOut } = useAuth()
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
+  // 소명 요청 메뉴 옆 검토 대기 건수. 목록 API의 totalElements만 쓰려고 size=1로 묻는다.
+  // 메뉴를 볼 수 없는 역할은 묻지 않는다(null). 실패하면 마지막 값을 유지한다.
+  const canSeeAppeals = canAccess(user?.role, 'appeals')
+  const loadPendingAppeals = useCallback(async (signal: AbortSignal) => {
+    if (!canSeeAppeals) return null
+    const page = await listAppeals({ status: 'PENDING', size: 1 }, signal)
+    return page.totalElements
+  }, [canSeeAppeals])
+  const pendingAppeals = usePolling(loadPendingAppeals, APPEAL_COUNT_INTERVAL_MS, APPEAL_COUNT_TIMEOUT_MS).data
 
   // 이 사용자의 역할로 볼 수 있는 메뉴 key 목록을 구한다.
   // 로그인 정보가 없거나 권한 표에 없는 역할이면 빈 목록이 된다(= 메뉴 없음).
@@ -114,6 +127,9 @@ export function Sidebar() {
                         className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}
                       >
                         {item.label}
+                        {item.key === 'appeals' && pendingAppeals ? (
+                          <span className="nav-count" aria-label={'검토 대기 ' + pendingAppeals + '건'}>{pendingAppeals}</span>
+                        ) : null}
                       </NavLink>
                     ))}
                   </div>
