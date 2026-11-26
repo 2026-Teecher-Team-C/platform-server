@@ -11,15 +11,22 @@ import java.util.List;
  */
 public interface BloomFilterPort {
 
+    /**
+     * 블룸 키가 없으면(Redis 초기화 등) 판단 근거가 없으므로 true("있을 수 있음")를 돌려주고 재구축을 요청한다.
+     * 거짓 음성을 내지 않는다.
+     */
     boolean mightContain(String sha256);
+
+    /** 현재 live 블룸의 Redis 키 이름(비트 수 포함). 테스트·지표 로그용. */
+    String keyName();
 
     /**
      * 해시 한 건을 즉시 추가한다. 목록 등록·file_verdicts 신규 저장 직후 호출해서 재구축을 기다리지 않게
-     * 한다. Redis 장애는 로그만 남기고 삼킨다 — 누락은 다음 재구축이 메우고, 호출한 쓰기를 실패시키지 않는다.
+     * 한다. Redis 장애는 로그만 남기고 삼키되 재구축을 요청한다 — 누락은 그 재구축이 메우고, 호출한 쓰기를 실패시키지 않는다.
      */
     void add(String sha256);
 
-    /** 여러 건을 Redis 왕복 한 번(파이프라인)으로 추가한다. 일괄 가져오기용. 실패 처리는 add와 같다. */
+    /** 여러 건을 Redis 왕복 한 번(파이프라인)으로 추가한다. 일괄 가져오기용. 실패 시 재구축을 요청하는 것은 add와 같다. */
     void addAll(Collection<String> sha256s);
 
     /** 주기적으로 전체를 다시 쓴다 — 블룸 필터는 항목을 삭제할 수 없어서 증분 삭제가 불가능하다. */

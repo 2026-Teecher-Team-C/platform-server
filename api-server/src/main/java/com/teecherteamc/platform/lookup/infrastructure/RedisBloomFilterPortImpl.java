@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.lookup.infrastructure;
 
+import com.teecherteamc.platform.lookup.application.BloomRebuildRequests;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -28,7 +29,8 @@ import org.springframework.stereotype.Component;
 class RedisBloomFilterPortImpl implements BloomFilterPort {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RedisBloomFilterPortImpl.class);
-    private static final byte[] KEY = "bloom:file_verdicts".getBytes(StandardCharsets.UTF_8);
+    private static final String KEY_PREFIX = "bloom:file_verdicts:m";
+    private static final String PENDING_SUFFIX = ":pending";
     private static final String REBUILDING_KEY_PREFIX = "bloom:file_verdicts:rebuilding:";
     /**
      * 새 비트맵(KEYS[1])을 live(KEYS[2])와 OR한 뒤 RENAME한다. Lua라 사이에 다른 명령이 끼지 않아, 스냅샷 뒤
@@ -47,17 +49,43 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     private final RedisConnectionFactory connectionFactory;
     private static final int PIPELINE_CHUNK = 5_000;
 
+    private static final byte[] ADD_SCRIPT = """
+            local pending = redis.call('EXISTS', KEYS[2]) == 1
+            for i = 1, #ARGV do
+              redis.call('SETBIT', KEYS[1], ARGV[i], 1)
+              if pending then redis.call('SETBIT', KEYS[2], ARGV[i], 1) end
+            end
+            return 0
+            """.getBytes(StandardCharsets.UTF_8);
+
     private final long bitSize;
     private final int hashCount;
+    private final BloomRebuildRequests requests;
+    private final byte[] key;
+    private final byte[] pendingKey;
 
     RedisBloomFilterPortImpl(
             RedisConnectionFactory connectionFactory,
             @Value("${lookup.bloom-filter.expected-hash-count}") long expectedHashCount,
-            @Value("${lookup.bloom-filter.false-positive-rate}") double falsePositiveRate) {
+            @Value("${lookup.bloom-filter.false-positive-rate}") double falsePositiveRate,
+            BloomRebuildRequests requests) {
         this.connectionFactory = connectionFactory;
+        this.requests = requests;
         this.bitSize = Math.max(
                 1, (long) Math.ceil(-(expectedHashCount * Math.log(falsePositiveRate)) / (Math.log(2) * Math.log(2))));
         this.hashCount = Math.max(1, (int) Math.round((double) bitSize / expectedHashCount * Math.log(2)));
+        String liveKey = KEY_PREFIX + bitSize;
+        this.key = liveKey.getBytes(StandardCharsets.UTF_8);
+        this.pendingKey = (liveKey + PENDING_SUFFIX).getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public String keyName() {
+        return liveKey();
+    }
+
+    String liveKey() {
+        return new String(key, StandardCharsets.UTF_8);
     }
 
     @Override
@@ -68,10 +96,16 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
             // 호출되는 가장 뜨거운 읽기 경로라 지연에 민감하다.
             connection.openPipeline();
             for (long position : positions) {
-                connection.getBit(KEY, position);
+                connection.getBit(key, position);
             }
+            connection.keyCommands().exists(key);
             List<Object> results = connection.closePipeline();
-            for (Object result : results) {
+            // 마지막 결과가 EXISTS다. 키가 없으면 판단 근거가 없으니 "있을 수 있음"으로 답하고 재구축을 요청한다.
+            if (!(results.getLast() instanceof Boolean exists) || !exists) {
+                requests.request(BloomRebuildRequests.MISSING);
+                return true;
+            }
+            for (Object result : results.subList(0, results.size() - 1)) {
                 if (!(result instanceof Boolean bit) || !bit) {
                     return false;
                 }
@@ -85,17 +119,25 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         try {
             long[] positions = positions(sha256);
             execute(connection -> {
-                connection.openPipeline();
-                for (long position : positions) {
-                    connection.setBit(KEY, position, true);
-                }
-                connection.closePipeline();
+                evalAdd(connection, positions);
                 return null;
             });
         } catch (RuntimeException e) {
-            // 블룸 누락은 다음 재구축이 메운다 — 호출한 쓰기(목록 등록/업로드)를 실패시키지 않는다.
-            log.warn("블룸 필터 즉시 추가 실패(다음 재구축에서 반영): {}", e.toString());
+            // 호출한 쓰기(목록 등록/업로드)를 실패시키지 않는다. 누락은 재구축이 메운다.
+            log.warn("블룸 필터 즉시 추가 실패(재구축 요청): {}", e.toString());
+            requests.request(BloomRebuildRequests.ADD_FAILED);
         }
+    }
+
+    /** live와(재구축 중이면 pending에도) 위치들을 한 번에 켠다. */
+    private void evalAdd(RedisConnection connection, long[] positions) {
+        byte[][] keysAndArgs = new byte[2 + positions.length][];
+        keysAndArgs[0] = key;
+        keysAndArgs[1] = pendingKey;
+        for (int i = 0; i < positions.length; i++) {
+            keysAndArgs[2 + i] = Long.toString(positions[i]).getBytes(StandardCharsets.UTF_8);
+        }
+        connection.scriptingCommands().eval(ADD_SCRIPT, ReturnType.INTEGER, 2, keysAndArgs);
     }
 
     @Override
@@ -115,7 +157,7 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         byte[] length = String.valueOf(bits.length).getBytes(StandardCharsets.UTF_8);
         execute(connection -> {
             connection.stringCommands().set(rebuildingKey, bits);
-            connection.scriptingCommands().eval(MERGE_AND_SWAP, ReturnType.STATUS, 2, rebuildingKey, KEY, length);
+            connection.scriptingCommands().eval(MERGE_AND_SWAP, ReturnType.STATUS, 2, rebuildingKey, key, length);
             return null;
         });
     }
@@ -135,21 +177,16 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
             // 파이프라인 하나에 너무 많이 쌓지 않도록 나눠 보낸다(재구축 뒤 목록 재반영은 수십만 건이다).
             List<String> all = List.copyOf(sha256s);
             for (int from = 0; from < all.size(); from += PIPELINE_CHUNK) {
-                List<long[]> positions = all.subList(from, Math.min(all.size(), from + PIPELINE_CHUNK)).stream()
-                        .map(this::positions).toList();
+                long[] positions = all.subList(from, Math.min(all.size(), from + PIPELINE_CHUNK)).stream()
+                        .flatMapToLong(h -> java.util.Arrays.stream(positions(h))).toArray();
                 execute(connection -> {
-                    connection.openPipeline();
-                    for (long[] each : positions) {
-                        for (long position : each) {
-                            connection.setBit(KEY, position, true);
-                        }
-                    }
-                    connection.closePipeline();
+                    evalAdd(connection, positions);
                     return null;
                 });
             }
         } catch (RuntimeException e) {
-            log.warn("블룸 필터 일괄 추가 실패 {}건(다음 재구축에서 반영): {}", sha256s.size(), e.toString());
+            log.warn("블룸 필터 일괄 추가 실패 {}건(재구축 요청): {}", sha256s.size(), e.toString());
+            requests.request(BloomRebuildRequests.ADD_FAILED);
         }
     }
 

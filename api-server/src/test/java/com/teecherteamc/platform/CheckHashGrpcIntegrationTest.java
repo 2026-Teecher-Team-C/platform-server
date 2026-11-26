@@ -184,10 +184,11 @@ class CheckHashGrpcIntegrationTest {
         seedWhitelist(white, true, null);
         // 재구축은 live와 OR하므로 비우지 않는다. Redis가 날아간 상황을 키 삭제로 재현한다.
         try (var connection = redisConnectionFactory.getConnection()) {
-            connection.keyCommands().del("bloom:file_verdicts".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            connection.keyCommands().del(bloomFilterPort.keyName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
-        assertThat(bloomFilterPort.mightContain(black)).isFalse();
-        assertThat(bloomFilterPort.mightContain(white)).isFalse();
+        // 키가 없으면 "있을 수 있음"으로 답한다(거짓 음성 방지).
+        assertThat(bloomFilterPort.mightContain(black)).isTrue();
+        assertThat(bloomFilterPort.mightContain(white)).isTrue();
 
         bloomFilterRebuildService.rebuild();
 
