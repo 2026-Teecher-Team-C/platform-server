@@ -178,6 +178,8 @@ class RolePermissionRestIntegrationTest {
             // 격리
             new Row("GET", "/api/admin/appeals", true, true, false),
             new Row("GET", "/api/admin/appeals/" + SOME_UUID, true, true, false),
+            new Row("POST", "/api/admin/appeals/" + SOME_UUID + "/approve", true, false, false),
+            new Row("POST", "/api/admin/appeals/" + SOME_UUID + "/reject", true, false, false),
             new Row("GET", "/api/admin/quarantine", true, true, false),
             new Row("GET", "/api/admin/quarantine/" + SOME_UUID, true, true, false),
             new Row("POST", "/api/admin/quarantine/" + SOME_UUID + "/restore", true, false, false),

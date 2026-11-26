@@ -26,4 +26,14 @@ class AppealRepositoryAdapter implements AppealRepository {
     public Optional<Appeal> findByEventId(UUID eventId) {
         return jpaRepository.findByEventId(eventId);
     }
+
+    @Override
+    public Optional<Appeal> findByIdForUpdate(UUID appealId) {
+        return jpaRepository.findByIdForUpdate(appealId);
+    }
+
+    @Override
+    public Appeal save(Appeal appeal) {
+        return jpaRepository.saveAndFlush(appeal);
+    }
 }

@@ -47,12 +47,16 @@ public enum AuditAction {
     INVALIDATE_CACHE,
     IMPORT_FILE_FINGERPRINT,
     // 소명 (직원이 차단에 이의를 제기. 관리자가 아니므로 actor_id는 null). 위험 조작이 아니다.
-    APPEAL_SUBMITTED;
+    APPEAL_SUBMITTED,
+    // 관리자가 소명을 승인·거절. 승인은 그 해시를 화이트리스트에 넣으므로 위험 조작이다(거절은 아니다).
+    APPROVE_APPEAL,
+    REJECT_APPEAL;
 
-    // 검사를 약하게 만드는 조작. 기능 API 명세 "감사 로그 조회" 조회 로직 3번의 4종이다.
-    // (감사 로그 규격 2장의 ⚠️ 7종 중 이번 범위에서 실제로 기록하는 것만 남겼다)
+    // 검사를 약하게 만드는 조작. 기능 API 명세 "감사 로그 조회" 조회 로직 3번의 4종에, 같은 효과(화이트리스트 등록)를
+    // 내는 소명 승인을 더했다. (감사 로그 규격 2장의 ⚠️ 7종 중 이번 범위에서 실제로 기록하는 것만 남겼다)
     private static final Set<String> DANGEROUS_NAMES = Set.of(
-            ADD_WHITELIST.name(), REMOVE_BLACKLIST.name(), RESTORE_QUARANTINE.name(), ADD_BYPASS_DOMAIN.name());
+            ADD_WHITELIST.name(), REMOVE_BLACKLIST.name(), RESTORE_QUARANTINE.name(), ADD_BYPASS_DOMAIN.name(),
+            APPROVE_APPEAL.name());
 
     /** audit_logs.action 문자열이 위험 조작인지. 이 enum에 없는 값이면 false다. */
     public static boolean isDangerous(String action) {

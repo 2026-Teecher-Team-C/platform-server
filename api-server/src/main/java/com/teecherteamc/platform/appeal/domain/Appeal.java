@@ -14,8 +14,10 @@ import org.springframework.data.domain.Persistable;
 /**
  * 소명 애그리거트 루트. 테이블: appeals. 이벤트 1건당 1건(uq_appeals_event).
  *
- * <p>event_id는 download_events를 참조하지 않는다. 이벤트 보고가 차단 응답보다 늦거나 실패할 수 있어서,
- * 토큰에 서명된 event_id·sha256·agent_id만으로 소명이 성립한다.
+ * <p>event_id에 download_events FK는 없지만(V21), 제출은 그 에이전트의 BLOCKED 차단 기록이 있어야 성립한다
+ * (SubmitAppealUseCase가 확인하고, 없으면 APPEAL_NOT_READY). 그래서 다른 에이전트가 남의 event_id로 선점하지 못한다.
+ *
+ * <p>결정(승인·거절)은 PENDING일 때 한 번만 할 수 있다. 동시 결정은 유스케이스가 행 잠금으로 직렬화한다.
  */
 @Entity
 @Table(name = "appeals")
@@ -112,6 +114,36 @@ public class Appeal implements Persistable<UUID> {
      */
     public boolean isOwnedBy(UUID agentId, String sha256) {
         return this.agentId.equals(agentId) && this.sha256.equals(sha256);
+    }
+
+    /** 승인한다. 의견은 선택이다(null 가능). PENDING이 아니면 IllegalStateException. */
+    public void approve(UUID adminId, String note, Instant now) {
+        decide(AppealStatus.APPROVED, adminId, note, now);
+    }
+
+    /** 거절한다. 의견은 필수다. PENDING이 아니면 IllegalStateException. */
+    public void reject(UUID adminId, String note, Instant now) {
+        if (note == null || note.isBlank()) {
+            throw new IllegalArgumentException("거절 의견은 필수입니다.");
+        }
+        decide(AppealStatus.REJECTED, adminId, note, now);
+    }
+
+    public boolean isPending() {
+        return status == AppealStatus.PENDING;
+    }
+
+    private void decide(AppealStatus decision, UUID adminId, String note, Instant now) {
+        if (!isPending()) {
+            throw new IllegalStateException("이미 결정된 소명입니다.");
+        }
+        if (adminId == null || now == null) {
+            throw new IllegalArgumentException("결정한 관리자와 시각은 필수입니다.");
+        }
+        this.status = decision;
+        this.decidedBy = adminId;
+        this.decisionNote = note;
+        this.decidedAt = now;
     }
 
     @Override

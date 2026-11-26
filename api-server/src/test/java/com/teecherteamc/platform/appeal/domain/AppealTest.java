@@ -1,6 +1,7 @@
 package com.teecherteamc.platform.appeal.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -37,5 +38,36 @@ class AppealTest {
     @Test
     void 근거_종류를_그대로_저장한다() {
         assertThat(submit("AgentTesla").getEvidenceKind()).isEqualTo("SIMILARITY");
+    }
+
+    @Test
+    void 승인하면_결정자와_의견과_시각이_남는다() {
+        Appeal appeal = submit(null);
+        UUID admin = UUID.randomUUID();
+        Instant now = Instant.parse("2026-11-26T00:00:00Z");
+
+        appeal.approve(admin, "확인", now);
+
+        assertThat(appeal.getStatus()).isEqualTo(AppealStatus.APPROVED);
+        assertThat(appeal.getDecidedBy()).isEqualTo(admin);
+        assertThat(appeal.getDecisionNote()).isEqualTo("확인");
+        assertThat(appeal.getDecidedAt()).isEqualTo(now);
+    }
+
+    @Test
+    void 거절에는_의견이_필수다() {
+        assertThatThrownBy(() -> submit(null).reject(UUID.randomUUID(), " ", Instant.now()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 이미_결정된_소명은_다시_결정할_수_없다() {
+        Appeal appeal = submit(null);
+        appeal.reject(UUID.randomUUID(), "악성", Instant.now());
+
+        assertThatThrownBy(() -> appeal.approve(UUID.randomUUID(), null, Instant.now()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> appeal.reject(UUID.randomUUID(), "또", Instant.now()))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

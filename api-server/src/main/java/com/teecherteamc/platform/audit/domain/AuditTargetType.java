@@ -23,6 +23,6 @@ public enum AuditTargetType {
     FILE_FINGERPRINT,
     // UPDATE_SIMILARITY_THRESHOLD의 대상. 값이 하나뿐인 설정이라 target_id는 고정 문자열 "TLSH"
     SIMILARITY_POLICY,
-    // APPEAL_SUBMITTED의 대상. target_id는 appeal_id
+    // APPEAL_SUBMITTED·APPROVE_APPEAL·REJECT_APPEAL의 대상. target_id는 appeal_id
     APPEAL
 }

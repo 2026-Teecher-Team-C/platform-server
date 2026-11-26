@@ -1,4 +1,5 @@
 -- 소명 검토(승인·거절).
+-- 참고: V21 주석의 "이벤트 행 없이도 소명은 성립한다"는 폐기됐다. 제출은 그 에이전트의 BLOCKED 차단 기록을 확인한다.
 -- 1) 승인으로 등록·재활성화된 화이트리스트가 어느 소명에서 왔는지 남긴다. 관리자가 직접 등록한 행은 NULL.
 ALTER TABLE hash_whitelist
     ADD COLUMN origin_appeal_id UUID NULL,
