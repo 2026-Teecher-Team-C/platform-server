@@ -85,6 +85,27 @@ class BloomFilterRebuildServiceTest {
     }
 
     @Test
+    void 요청으로_온_재구축이_건너뛰어지면_같은_사유로_다시_요청한다() {
+        // 다른 재구축이 표시를 쥐고 있을 때 꺼낸 요청을 버리면, 목록 해시가 daily까지 블룸에서 빠질 수 있다.
+        when(port.beginRebuild()).thenReturn(Optional.empty());
+
+        service.rebuild(BloomRebuildRequests.MISSING);
+
+        assertThat(requests.take()).contains(BloomRebuildRequests.MISSING);
+    }
+
+    @Test
+    void 예약_재구축이_건너뛰어지면_다시_요청하지_않는다() {
+        when(port.beginRebuild()).thenReturn(Optional.empty());
+
+        service.rebuild(BloomRebuildRequests.DAILY);
+        service.rebuild(BloomRebuildRequests.STARTUP);
+
+        assertThat(requests.take()).isEmpty();
+        assertThat(count(BloomRebuildRequests.DAILY, "skipped")).isEqualTo(1.0);
+    }
+
+    @Test
     void 교체를_포기하면_aborted로_세고_같은_사유로_다시_요청한다() {
         when(rebuild.complete(anyList())).thenReturn(BloomRebuildResult.notSwapped());
 

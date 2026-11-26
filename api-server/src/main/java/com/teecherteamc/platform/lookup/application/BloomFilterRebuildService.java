@@ -87,7 +87,8 @@ public class BloomFilterRebuildService {
     }
 
     /**
-     * 재구축 한 번. 다른 재구축이 이미 돌고 있으면 시작하지 않고 empty를 준다(skipped). 실패는 던지지 않고 로그와 재요청으로
+     * 재구축 한 번. 다른 재구축이 이미 돌고 있으면 시작하지 않고 empty를 준다(skipped — 예약 재구축이 아니면 같은 사유로
+     * 다시 요청한다). 실패는 던지지 않고 로그와 재요청으로
      * 처리한다(스케줄러 스레드 보호): 예외면 failed, 교체를 포기했으면(pending 사라짐) aborted — 둘 다 같은 사유로 다시 요청한다.
      */
     public Optional<BloomRebuildResult> rebuild(String reason) {
@@ -96,6 +97,11 @@ public class BloomFilterRebuildService {
             Optional<BloomRebuild> started = bloomFilterPort.beginRebuild();
             if (started.isEmpty()) {
                 metrics.rebuilt(reason, BloomFilterMetrics.SKIPPED);
+                // 요청으로 온 재구축(missing·add_failed 등)은 버리면 그 사이 빠진 해시가 daily까지 남는다 — 다시 건다.
+                // 예약 재구축(startup·daily)은 다음 주기가 있으니 세기만 한다.
+                if (!isScheduled(reason)) {
+                    requests.request(reason);
+                }
                 log.info("블룸 재구축 건너뜀 — 다른 재구축이 진행 중 (사유 {})", reason);
                 return Optional.empty();
             }
@@ -127,5 +133,9 @@ public class BloomFilterRebuildService {
             log.error("블룸 재구축 실패 — 사유 {}, 다시 요청", reason, e);
             return Optional.empty();
         }
+    }
+
+    private static boolean isScheduled(String reason) {
+        return BloomRebuildRequests.STARTUP.equals(reason) || BloomRebuildRequests.DAILY.equals(reason);
     }
 }
