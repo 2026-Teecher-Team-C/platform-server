@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,7 +35,8 @@ import org.springframework.stereotype.Component;
  * 쓰고(이미 있으면 다른 재구축이 도는 중이라 건너뛴다), 이중 쓰기 비트맵 {@code <live>:pending:<token>}을 빈 값으로
  * 만든다(같은 TTL). (2) 그 뒤에 DB 스냅숏을 읽어 메모리 비트 배열을 만들고 임시 키에 SET한다. (3) Lua 한 번에, 표시 값이
  * 자기 토큰일 때만 임시 키를 자기 pending 비트맵과 OR → live로 RENAME → 비트맵과 표시 삭제. 추가(add/addAll)는 Lua 한
- * 번에 live에 SETBIT하고, 표시가 있으면 그 토큰의 비트맵에도 SETBIT한다.
+ * 번에 live에 SETBIT하고(live가 없으면 만들지 않고 missing 재구축을 요청한다), 표시가 있으면 그 토큰의 비트맵에도
+ * SETBIT한다.
  *
  * <p>왜 빠짐이 없는가: 추가는 DB 커밋 <b>뒤</b>에 일어난다. 추가가 (1) 전이면 커밋도 (1) 전이라 (2)의 스냅숏에 들어 있다.
  * (1) 뒤면 표시가 그대로인 한 자기 비트맵에 같이 쓰여 (3)에서 합쳐진다. (3)은 원자적이라 그 사이에 끼는 추가가 없다. 표시가
@@ -99,13 +101,18 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     private static final byte[] ADD_SCRIPT = """
             -- 이중 쓰기 대상은 표시 값(토큰)으로 정해지는 동적 키다. KEYS로 미리 선언하지 않으므로 Redis Cluster에서는
             -- 안 되지만, 단일 노드 Redis만 쓴다.
+            -- live가 없으면 live에는 쓰지 않는다: 새로 만들면 이 해시만 든 부분 키가 생겨 다른 목록 해시가 재구축 전까지
+            -- "없음"으로 나온다(거짓 음성). pending 비트맵에는 그대로 써서 진행 중인 재구축이 교체 때 합친다.
+            -- 반환: live가 없었으면 1(호출 쪽이 재구축을 요청), 있었으면 0.
             local token = redis.call('GET', KEYS[2])
             local pending = token and (KEYS[2] .. ':' .. token)
+            local live = redis.call('EXISTS', KEYS[1]) == 1
             for i = 1, #ARGV do
-              redis.call('SETBIT', KEYS[1], ARGV[i], 1)
+              if live then redis.call('SETBIT', KEYS[1], ARGV[i], 1) end
               if pending then redis.call('SETBIT', pending, ARGV[i], 1) end
             end
-            return 0
+            if live then return 0 end
+            return 1
             """.getBytes(StandardCharsets.UTF_8);
 
     private final long bitSize;
@@ -165,10 +172,9 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
     public void add(String sha256) {
         try {
             long[] positions = positions(sha256);
-            execute(connection -> {
-                evalAdd(connection, positions);
-                return null;
-            });
+            if (execute(connection -> evalAdd(connection, positions))) {
+                requests.request(BloomRebuildRequests.MISSING);
+            }
         } catch (RuntimeException e) {
             // 호출한 쓰기(목록 등록/업로드)를 실패시키지 않는다. 누락은 재구축이 메운다.
             log.warn("블룸 필터 즉시 추가 실패(재구축 요청): {}", e.toString());
@@ -176,15 +182,19 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         }
     }
 
-    /** live와(재구축 중이면 그 재구축의 pending 비트맵에도) 위치들을 한 번에 켠다. */
-    private void evalAdd(RedisConnection connection, long[] positions) {
+    /**
+     * live와(재구축 중이면 그 재구축의 pending 비트맵에도) 위치들을 한 번에 켠다. live가 없으면 live는 만들지 않고 true를
+     * 준다 — 호출 쪽이 missing 재구축을 요청한다.
+     */
+    private boolean evalAdd(RedisConnection connection, long[] positions) {
         byte[][] keysAndArgs = new byte[2 + positions.length][];
         keysAndArgs[0] = key;
         keysAndArgs[1] = pendingKey;
         for (int i = 0; i < positions.length; i++) {
             keysAndArgs[2 + i] = Long.toString(positions[i]).getBytes(StandardCharsets.UTF_8);
         }
-        connection.scriptingCommands().eval(ADD_SCRIPT, ReturnType.INTEGER, 2, keysAndArgs);
+        Long liveMissing = connection.scriptingCommands().eval(ADD_SCRIPT, ReturnType.INTEGER, 2, keysAndArgs);
+        return Long.valueOf(1).equals(liveMissing);
     }
 
     @Override
@@ -194,6 +204,17 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
                 BEGIN_SCRIPT, ReturnType.INTEGER, 2, pendingKey, rebuild.pendingBitmapKey, rebuild.token,
                 Long.toString(PENDING_TTL_MS).getBytes(StandardCharsets.UTF_8)));
         return Long.valueOf(1).equals(started) ? Optional.of(rebuild) : Optional.empty();
+    }
+
+    @Override
+    public String serverRunId() {
+        try {
+            Properties info = execute(connection -> connection.serverCommands().info("server"));
+            return info == null ? null : info.getProperty("run_id");
+        } catch (RuntimeException e) {
+            log.debug("Redis run_id 조회 실패: {}", e.toString());
+            return null;
+        }
     }
 
     @Override
@@ -276,13 +297,14 @@ class RedisBloomFilterPortImpl implements BloomFilterPort {
         try {
             // 파이프라인 하나에 너무 많이 쌓지 않도록 나눠 보낸다(재구축 뒤 목록 재반영은 수십만 건이다).
             List<String> all = List.copyOf(sha256s);
+            boolean liveMissing = false;
             for (int from = 0; from < all.size(); from += PIPELINE_CHUNK) {
                 long[] positions = all.subList(from, Math.min(all.size(), from + PIPELINE_CHUNK)).stream()
                         .flatMapToLong(h -> Arrays.stream(positions(h))).toArray();
-                execute(connection -> {
-                    evalAdd(connection, positions);
-                    return null;
-                });
+                liveMissing |= execute(connection -> evalAdd(connection, positions));
+            }
+            if (liveMissing) {
+                requests.request(BloomRebuildRequests.MISSING);
             }
         } catch (RuntimeException e) {
             log.warn("블룸 필터 일괄 추가 실패 {}건(재구축 요청): {}", sha256s.size(), e.toString());

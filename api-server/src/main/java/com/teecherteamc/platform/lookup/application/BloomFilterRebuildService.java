@@ -35,6 +35,8 @@ public class BloomFilterRebuildService {
     private final BloomFilterMetrics metrics;
     private final double targetFpp;
     private final AtomicBoolean startupDone = new AtomicBoolean();
+    /** 마지막으로 본 Redis run_id. runRequested(스케줄러 한 스레드, fixedDelay)에서만 읽고 쓴다. */
+    private volatile String lastRedisRunId;
 
     public BloomFilterRebuildService(
             CachedHashSourcePort cachedHashSourcePort,
@@ -63,7 +65,31 @@ public class BloomFilterRebuildService {
             fixedDelayString = "${lookup.bloom-filter.request-poll-ms}",
             initialDelayString = "${lookup.bloom-filter.request-poll-ms}")
     public void runRequested() {
+        detectRedisRestart();
         requests.take().ifPresent(this::rebuild);
+    }
+
+    /**
+     * Redis만 재시작되면 RDB 스냅숏에서 옛 live가 되살아난다 — 마지막 저장 뒤의 추가가 빠진 채 키는 있으므로 mightContain의
+     * 키 없음 감지로는 못 잡는다(운영 Redis는 AOF가 없다). run_id가 바뀌면 재시작으로 보고 missing 재구축을 요청한다.
+     * 처음 본 값은 기준으로만 삼는다(기동 재구축이 따로 돈다).
+     */
+    private void detectRedisRestart() {
+        String runId;
+        try {
+            runId = bloomFilterPort.serverRunId();
+        } catch (RuntimeException e) {
+            return;
+        }
+        if (runId == null) {
+            return;
+        }
+        String previous = lastRedisRunId;
+        lastRedisRunId = runId;
+        if (previous != null && !previous.equals(runId)) {
+            log.warn("Redis 재시작 감지(run_id {} → {}) — 블룸 재구축 요청", previous, runId);
+            requests.request(BloomRebuildRequests.MISSING);
+        }
     }
 
     /** 채움 게이지를 갱신하고, 추정 오탐률이 목표를 넘으면 WARN을 남긴다. */
@@ -88,7 +114,7 @@ public class BloomFilterRebuildService {
 
     /**
      * 재구축 한 번. 다른 재구축이 이미 돌고 있으면 시작하지 않고 empty를 준다(skipped — 예약 재구축이 아니면 같은 사유로
-     * 다시 요청한다). 실패는 던지지 않고 로그와 재요청으로
+     * 다시 요청한다 — daily만 예외). 실패는 던지지 않고 로그와 재요청으로
      * 처리한다(스케줄러 스레드 보호): 예외면 failed, 교체를 포기했으면(pending 사라짐) aborted — 둘 다 같은 사유로 다시 요청한다.
      */
     public Optional<BloomRebuildResult> rebuild(String reason) {
@@ -98,8 +124,9 @@ public class BloomFilterRebuildService {
             if (started.isEmpty()) {
                 metrics.rebuilt(reason, BloomFilterMetrics.SKIPPED);
                 // 요청으로 온 재구축(missing·add_failed 등)은 버리면 그 사이 빠진 해시가 daily까지 남는다 — 다시 건다.
-                // 예약 재구축(startup·daily)은 다음 주기가 있으니 세기만 한다.
-                if (!isScheduled(reason)) {
+                // startup도 다시 건다: 표시를 쥔 것이 죽은 이전 프로세스의 남은 표시일 수 있고, 기동 재구축은 그 프로세스가
+                // 메모리에만 들고 있다 잃은 add_failed 요청을 메우는 역할이다. daily만 다음 주기가 있으니 세기만 한다.
+                if (!BloomRebuildRequests.DAILY.equals(reason)) {
                     requests.request(reason);
                 }
                 log.info("블룸 재구축 건너뜀 — 다른 재구축이 진행 중 (사유 {})", reason);
@@ -133,9 +160,5 @@ public class BloomFilterRebuildService {
             log.error("블룸 재구축 실패 — 사유 {}, 다시 요청", reason, e);
             return Optional.empty();
         }
-    }
-
-    private static boolean isScheduled(String reason) {
-        return BloomRebuildRequests.STARTUP.equals(reason) || BloomRebuildRequests.DAILY.equals(reason);
     }
 }

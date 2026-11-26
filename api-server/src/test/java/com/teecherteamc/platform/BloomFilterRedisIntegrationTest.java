@@ -7,10 +7,8 @@ import com.teecherteamc.platform.lookup.domain.BloomFillStats;
 import com.teecherteamc.platform.lookup.domain.BloomFilterPort;
 import com.teecherteamc.platform.lookup.domain.BloomRebuildResult;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,7 +59,7 @@ class BloomFilterRedisIntegrationTest {
 
     @BeforeEach
     void clearPending() throws InterruptedException {
-        awaitStartupRebuild();
+        BloomTestSupport.awaitStartupRebuild(meterRegistry);
         liveKey = bloomFilterPort.keyName();
         del(liveKey + ":pending");
     }
@@ -83,6 +81,11 @@ class BloomFilterRedisIntegrationTest {
     }
 
     @Test
+    void Redis_run_id를_읽는다() {
+        assertThat(bloomFilterPort.serverRunId()).isNotBlank();
+    }
+
+    @Test
     void 키_이름에_비트_수가_들어간다() {
         assertThat(bloomFilterPort.keyName()).isEqualTo("bloom:file_verdicts:m" + bitSize());
     }
@@ -100,9 +103,46 @@ class BloomFilterRedisIntegrationTest {
 
     @Test
     void 키가_있으면_없는_해시는_없음이다() {
-        bloomFilterPort.add("6f".repeat(32));
+        rebuildWith(List.of("6f".repeat(32)));
 
         assertThat(bloomFilterPort.mightContain("70".repeat(32))).isFalse();
+    }
+
+    @Test
+    void live가_없을_때_추가해도_live를_만들지_않고_재구축을_요청한다() {
+        // 추가가 live를 새로 만들면 그 해시만 든 부분 키가 생겨, 다른 목록 해시가 재구축 전까지 "없음"으로 나온다(거짓 음성).
+        del(liveKey);
+        requests.take();
+
+        bloomFilterPort.add("a7".repeat(32));
+
+        assertThat(exists(liveKey)).isFalse();
+        assertThat(requests.take()).contains("missing");
+        assertThat(bloomFilterPort.mightContain("b8".repeat(32))).isTrue();
+    }
+
+    @Test
+    void live가_없을_때_일괄_추가해도_live를_만들지_않고_재구축을_요청한다() {
+        del(liveKey);
+        requests.take();
+
+        bloomFilterPort.addAll(List.of("a8".repeat(32), "a9".repeat(32)));
+
+        assertThat(exists(liveKey)).isFalse();
+        assertThat(requests.take()).contains("missing");
+    }
+
+    @Test
+    void live가_없을_때_재구축_중에_추가한_해시도_교체_뒤에_남는다() {
+        del(liveKey);
+        String during = "c9".repeat(32);
+        try (var b = bloomFilterPort.beginRebuild().orElseThrow()) {
+            bloomFilterPort.add(during);
+            assertThat(b.complete(List.of("d9".repeat(32))).swapped()).isTrue();
+        }
+
+        assertThat(bloomFilterPort.mightContain(during)).isTrue();
+        assertThat(bloomFilterPort.mightContain("d9".repeat(32))).isTrue();
     }
 
     @Test
@@ -135,7 +175,7 @@ class BloomFilterRedisIntegrationTest {
     @Test
     void 원천에서_빠진_해시는_재구축_뒤_사라지고_지운_비트를_센다() {
         String old = "a1".repeat(32);
-        bloomFilterPort.add(old);
+        rebuildWith(List.of(old));
 
         BloomRebuildResult r = rebuildWith(List.of("b2".repeat(32)));
 
@@ -164,7 +204,7 @@ class BloomFilterRedisIntegrationTest {
 
     @Test
     void pending이_사라지면_교체하지_않고_live를_그대로_둔다() {
-        bloomFilterPort.add("e5".repeat(32));
+        rebuildWith(List.of("e5".repeat(32)));
         try (var b = bloomFilterPort.beginRebuild().orElseThrow()) {
             del(liveKey + ":pending"); // TTL 만료 흉내
             assertThat(b.complete(List.of()).swapped()).isFalse();
@@ -187,7 +227,7 @@ class BloomFilterRedisIntegrationTest {
 
     @Test
     void 표시가_다른_재구축의_것으로_바뀌었으면_교체하지_않고_그_재구축을_건드리지_않는다() {
-        bloomFilterPort.add("e6".repeat(32));
+        rebuildWith(List.of("e6".repeat(32)));
         try (var a = bloomFilterPort.beginRebuild().orElseThrow()) {
             del(liveKey + ":pending"); // A의 표시가 TTL로 만료된 것을 흉내
             try (var b = bloomFilterPort.beginRebuild().orElseThrow()) {
@@ -248,24 +288,6 @@ class BloomFilterRedisIntegrationTest {
         try (var b = bloomFilterPort.beginRebuild().orElseThrow()) {
             return b.complete(hashes);
         }
-    }
-
-    /**
-     * 기동 시 1차 재구축(scheduledRebuild, @Scheduled initialDelay=0)은 스케줄러 스레드에서 돈다. 테스트가 키를 지운 직후 그것이 끝나 live를
-     * 다시 만들면 결과가 흔들리므로, 그 실행이 끝났다는 스케줄 관측 지표를 기다린다.
-     */
-    private void awaitStartupRebuild() throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-        while (System.nanoTime() < deadline) {
-            Timer timer = meterRegistry.find("tasks.scheduled.execution")
-                    .tag("code.function", "scheduledRebuild")
-                    .timer();
-            if (timer != null && timer.count() > 0) {
-                return;
-            }
-            Thread.sleep(50);
-        }
-        throw new AssertionError("기동 시 블룸 재구축이 30초 안에 끝나지 않았다");
     }
 
     private static byte[] bytes(String s) {

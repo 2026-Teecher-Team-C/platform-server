@@ -95,14 +95,48 @@ class BloomFilterRebuildServiceTest {
     }
 
     @Test
-    void 예약_재구축이_건너뛰어지면_다시_요청하지_않는다() {
+    void daily_재구축이_건너뛰어지면_다시_요청하지_않는다() {
         when(port.beginRebuild()).thenReturn(Optional.empty());
 
         service.rebuild(BloomRebuildRequests.DAILY);
-        service.rebuild(BloomRebuildRequests.STARTUP);
 
         assertThat(requests.take()).isEmpty();
         assertThat(count(BloomRebuildRequests.DAILY, "skipped")).isEqualTo(1.0);
+    }
+
+    @Test
+    void startup_재구축이_건너뛰어지면_다시_요청한다() {
+        // 표시를 쥔 것이 죽은 이전 프로세스의 남은 표시일 수 있다. 버리면 잃은 add_failed 요청을 메울 기회가 daily까지 없다.
+        when(port.beginRebuild()).thenReturn(Optional.empty());
+
+        service.rebuild(BloomRebuildRequests.STARTUP);
+
+        assertThat(requests.take()).contains(BloomRebuildRequests.STARTUP);
+    }
+
+    @Test
+    void Redis_run_id가_바뀌면_missing으로_재구축한다() {
+        when(port.serverRunId()).thenReturn("a", "a", "b");
+
+        service.runRequested();
+        service.runRequested();
+        verify(port, never()).beginRebuild();
+
+        service.runRequested();
+
+        verify(port, times(1)).beginRebuild();
+        assertThat(count(BloomRebuildRequests.MISSING, "swapped")).isEqualTo(1.0);
+    }
+
+    @Test
+    void Redis_run_id를_못_읽으면_기준을_바꾸지_않는다() {
+        when(port.serverRunId()).thenReturn("a", null, "a");
+
+        service.runRequested();
+        service.runRequested();
+        service.runRequested();
+
+        verify(port, never()).beginRebuild();
     }
 
     @Test

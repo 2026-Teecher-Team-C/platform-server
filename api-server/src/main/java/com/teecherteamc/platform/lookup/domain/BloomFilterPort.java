@@ -37,6 +37,11 @@ public interface BloomFilterPort {
      */
     Optional<BloomRebuild> beginRebuild();
 
+    /**
+     * Redis 서버 프로세스 식별자({@code INFO server}의 run_id). 바뀌었으면 Redis가 재시작된 것이다. 조회에 실패하면 null.
+     */
+    String serverRunId();
+
     /** live 블룸의 켜진 비트 수와 추정 오탐률. live 키가 없으면 empty. */
     Optional<BloomFillStats> fillStats();
 
