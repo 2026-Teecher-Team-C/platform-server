@@ -77,7 +77,7 @@ class CheckHashGrpcIntegrationTest {
     // 직후의 블룸 add가 없으면 FAIL한다(Task 4에서 add를 끄고 FAIL→PASS를 다시 확인했다).
     @Test
     void addAll_puts_every_hash_in_one_call() {
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
         java.util.List<String> hashes = java.util.List.of("a1".repeat(32), "a2".repeat(32), "a3".repeat(32));
 
         bloomFilterPort.addAll(hashes);
@@ -93,7 +93,7 @@ class CheckHashGrpcIntegrationTest {
                 .mapToObj(i -> String.format("%064x", i)).toList();
 
         long started = System.nanoTime();
-        bloomFilterPort.rebuild(hashes);
+        rebuildBloom(hashes);
         long elapsedMs = (System.nanoTime() - started) / 1_000_000;
 
         assertThat(elapsedMs).isLessThan(10_000);
@@ -104,7 +104,7 @@ class CheckHashGrpcIntegrationTest {
     @Test
     void rebuild_does_not_reapply_list_hashes_bit_by_bit() {
         // 목록 117만 건을 SETBIT으로 다시 넣던 단계가 재구축 1회 344초로 CPU를 포화시켰다(2026-11-17).
-        // 스냅샷 뒤 들어온 비트는 rebuild가 live 블룸과 원자적으로 OR해 지킨다.
+        // 스냅샷 뒤 들어온 비트는 재구축 중 이중 쓰기(pending)가 지킨다.
         org.mockito.Mockito.clearInvocations(bloomFilterPort);
 
         bloomFilterRebuildService.rebuild();
@@ -117,7 +117,7 @@ class CheckHashGrpcIntegrationTest {
 
     @Test
     void addAll_with_no_hashes_does_nothing() {
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
 
         bloomFilterPort.addAll(java.util.List.of());
 
@@ -127,7 +127,7 @@ class CheckHashGrpcIntegrationTest {
     @Test
     void added_blacklist_hash_is_blocked_before_rebuild() {
         String sha256 = "b1".repeat(32);
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
         UUID adminId = seedAdmin();
 
         addBlacklistEntryUseCase.add(new AddBlacklistEntryUseCase.Command(sha256, "known bad", adminId, null));
@@ -142,7 +142,7 @@ class CheckHashGrpcIntegrationTest {
     @Test
     void added_whitelist_hash_is_allowed_before_rebuild() {
         String sha256 = "c2".repeat(32);
-        bloomFilterPort.rebuild(java.util.List.of());
+        rebuildBloom(java.util.List.of());
         UUID adminId = seedAdmin();
 
         addWhitelistEntryUseCase.add(
@@ -182,7 +182,7 @@ class CheckHashGrpcIntegrationTest {
         String white = "e4".repeat(32);
         seedBlacklist(black);
         seedWhitelist(white, true, null);
-        // 재구축은 live와 OR하므로 비우지 않는다. Redis가 날아간 상황을 키 삭제로 재현한다.
+        // Redis가 날아간 상황을 키 삭제로 재현한다 — 목록 해시는 재구축 스냅숏으로만 다시 들어온다.
         try (var connection = redisConnectionFactory.getConnection()) {
             connection.keyCommands().del(bloomFilterPort.keyName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
@@ -197,7 +197,7 @@ class CheckHashGrpcIntegrationTest {
     }
 
     // 재구축 스냅샷 읽기 직후, RENAME 전에 목록 쓰기가 커밋·add되는 레이스를 결정적으로 재현한다.
-    // 교체가 live 블룸과 OR하지 않으면 이 해시가 블룸에서 사라진다.
+    // add가 pending에도 쓰여 교체 때 합쳐지지 않으면 이 해시가 블룸에서 사라진다.
     @Test
     void list_entry_committed_between_snapshot_and_rename_survives_rebuild() {
         String sha256 = "f5".repeat(32);
@@ -217,6 +217,12 @@ class CheckHashGrpcIntegrationTest {
         new BloomFilterRebuildService(racing, bloomFilterPort).rebuild();
 
         assertThat(bloomFilterPort.mightContain(sha256)).isTrue();
+    }
+
+    private void rebuildBloom(java.util.List<String> hashes) {
+        try (var rebuild = bloomFilterPort.beginRebuild().orElseThrow()) {
+            rebuild.complete(hashes);
+        }
     }
 
     private UUID seedAdmin() {
