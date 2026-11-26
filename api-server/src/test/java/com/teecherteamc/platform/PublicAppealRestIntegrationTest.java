@@ -89,6 +89,30 @@ class PublicAppealRestIntegrationTest {
         return restTemplate.postForEntity(url(token), Map.of("reason", reason), String.class);
     }
 
+    private Map<String, Object> decidedAppeal(String status, String note) {
+        String token = freshToken();
+        assertThat(post(token, "업무용 파일입니다").getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        jdbcTemplate.update("UPDATE appeals SET status = ?, decision_note = ?, decided_at = now() "
+                + "WHERE event_id = (SELECT event_id FROM appeals ORDER BY created_at DESC LIMIT 1)", status, note);
+        return (Map<String, Object>) restTemplate.getForEntity(url(token), Map.class).getBody().get("appeal");
+    }
+
+    @Test
+    void approved_note_is_not_public() {
+        Map<String, Object> appeal = decidedAppeal("APPROVED", "내부 화이트리스트 사유");
+
+        assertThat(appeal.get("status")).isEqualTo("APPROVED");
+        assertThat(appeal.get("decisionNote")).isNull();
+    }
+
+    @Test
+    void rejected_note_is_public() {
+        Map<String, Object> appeal = decidedAppeal("REJECTED", "업무용으로 확인되지 않았습니다");
+
+        assertThat(appeal.get("status")).isEqualTo("REJECTED");
+        assertThat(appeal.get("decisionNote")).isEqualTo("업무용으로 확인되지 않았습니다");
+    }
+
     @Test
     void get_with_bad_token_is_404() {
         ResponseEntity<Map> response = restTemplate.getForEntity(url("not-a-token"), Map.class);

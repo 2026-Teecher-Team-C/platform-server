@@ -2,13 +2,14 @@ package com.teecherteamc.platform.appeal.application;
 
 import com.teecherteamc.platform.appeal.domain.Appeal;
 import com.teecherteamc.platform.appeal.domain.AppealClaims;
+import com.teecherteamc.platform.appeal.domain.AppealStatus;
 import com.teecherteamc.platform.appeal.domain.BlockedDownload;
 import com.teecherteamc.platform.verdict.domain.VerdictEvidence;
 import java.time.Instant;
 
 /**
  * 소명 화면 한 장에 필요한 값. 공개 응답이므로 URL·호스트·장비 이름·에이전트 ID·샘플 SHA-256은 넣지 않는다.
- * 값이 없으면 null이다. eventId는 직원이 차단 페이지에서 이미 본 값이며, 문의할 때 보안 담당자에게 알려 주는 용도다.
+ * 값이 없으면 null이다. 승인된 소명의 decisionNote는 항상 null이다. eventId는 직원이 차단 페이지에서 이미 본 값이며, 문의할 때 보안 담당자에게 알려 주는 용도다.
  */
 public record AppealView(String eventId, Instant blockedAt, String filename, Verdict verdict, Submitted appeal) {
 
@@ -26,7 +27,12 @@ public record AppealView(String eventId, Instant blockedAt, String filename, Ver
                 blocked == null ? null : blocked.filename(),
                 verdictOf(claims.kind(), claims.threat()),
                 appeal == null ? null : new Submitted(appeal.getStatus().name(), appeal.getReason(),
-                        appeal.getCreatedAt(), appeal.getDecidedAt(), appeal.getDecisionNote()));
+                        appeal.getCreatedAt(), appeal.getDecidedAt(), publicNote(appeal)));
+    }
+
+    /** 승인 의견은 화이트리스트 사유로도 쓰는 내부 메모라 직원에게 보내지 않는다. 거절 의견만 공개한다. */
+    private static String publicNote(Appeal appeal) {
+        return appeal.getStatus() == AppealStatus.REJECTED ? appeal.getDecisionNote() : null;
     }
 
     private static Verdict verdictOf(VerdictEvidence.Kind kind, String threat) {
