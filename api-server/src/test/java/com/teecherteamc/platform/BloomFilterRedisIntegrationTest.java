@@ -32,7 +32,11 @@ import org.springframework.test.context.TestPropertySource;
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
 @Import(TestcontainersConfiguration.class)
-@TestPropertySource(properties = "lookup.bloom-filter.rebuild-interval-ms=86400000")
+// 요청 폴링·채움 확인을 사실상 끈다 — 키를 지운 테스트가 남긴 재구축 요청을 백그라운드가 가져가 live를 되살리면 결과가 흔들린다.
+@TestPropertySource(properties = {
+        "lookup.bloom-filter.rebuild-interval-ms=86400000",
+        "lookup.bloom-filter.request-poll-ms=86400000",
+        "lookup.bloom-filter.fill-check-ms=86400000"})
 class BloomFilterRedisIntegrationTest {
 
     @Autowired
@@ -247,14 +251,14 @@ class BloomFilterRedisIntegrationTest {
     }
 
     /**
-     * 기동 시 1차 재구축(@Scheduled initialDelay=0)은 스케줄러 스레드에서 돈다. 테스트가 키를 지운 직후 그것이 끝나 live를
+     * 기동 시 1차 재구축(scheduledRebuild, @Scheduled initialDelay=0)은 스케줄러 스레드에서 돈다. 테스트가 키를 지운 직후 그것이 끝나 live를
      * 다시 만들면 결과가 흔들리므로, 그 실행이 끝났다는 스케줄 관측 지표를 기다린다.
      */
     private void awaitStartupRebuild() throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
             Timer timer = meterRegistry.find("tasks.scheduled.execution")
-                    .tag("code.function", "rebuild")
+                    .tag("code.function", "scheduledRebuild")
                     .timer();
             if (timer != null && timer.count() > 0) {
                 return;

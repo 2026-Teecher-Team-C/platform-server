@@ -29,7 +29,10 @@ import org.springframework.test.context.TestPropertySource;
 @AutoConfigureTestGrpcTransport
 @ImportGrpcClients(types = VerdictServiceGrpc.VerdictServiceBlockingStub.class)
 @Import(TestcontainersConfiguration.class)
-@TestPropertySource(properties = "lookup.bloom-filter.rebuild-interval-ms=86400000")
+@TestPropertySource(properties = {
+        "lookup.bloom-filter.rebuild-interval-ms=86400000",
+        "lookup.bloom-filter.request-poll-ms=86400000",
+        "lookup.bloom-filter.fill-check-ms=86400000"})
 class CheckHashMetricsIntegrationTest {
 
     @Autowired
