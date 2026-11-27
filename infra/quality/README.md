@@ -91,7 +91,80 @@ for p in p1 p2 v1; do bash infra/quality/prod_sql.sh infra/quality/sql/revoke_ag
 
 측정 데이터를 지워야 할 때만 `cleanup_preview.sql` → `cleanup.sql`을 같은 방식으로 쓴다(같은 가드가 있다).
 
-## 7. 결과 문서
+## 7. YARA 보완 측정
+
+TLSH가 놓친 신종 악성을 운영 YARA 룰셋(활성 v3)이 얼마나 잡는지, 정상 파일을 얼마나 막는지 잰다. 악성 샘플은
+Azure VM에서만 받고(zip째 메모리로 읽어 디스크에 풀지 않는다) 결과 CSV만 맥북으로 가져온다.
+
+```bash
+# 함수로 정의한다(bash·zsh 모두 동작, ~/.ssh/config는 건드리지 않는다)
+vm()   { ssh -i ~/.ssh/yara-test2_key.pem azureuser@4.252.1.151 "$@"; }
+vmcp() { scp -i ~/.ssh/yara-test2_key.pem "$@"; }
+
+# (맥북) 룰셋 내보내기. 운영 EC2는 매일 01:00 KST에 꺼진다. 룰 수 5,091개와 sha256을 기록한다
+bash infra/quality/prod_sql.sh infra/quality/sql/active_ruleset_source.sql > infra/quality/out/ruleset-v3.yar
+bash infra/quality/prod_sql.sh infra/quality/sql/active_disabled_rules.sql > infra/quality/out/disabled.txt
+grep -cE '^(private |global )*rule ' infra/quality/out/ruleset-v3.yar; shasum -a 256 infra/quality/out/ruleset-v3.yar
+
+# VM에서 docker가 sudo 없이 되는지 확인한다. 안 되면 azureuser를 docker 그룹에 방금 넣은 것이므로
+# `exit`로 나갔다가 다시 접속한 뒤 다시 확인한다
+vm 'docker ps'
+
+# 하네스 이미지를 VM에서 빌드
+# 커밋 전 변경도 들어가도록 작업 트리를 보낸다(out/·samples/ 제외). macOS tar의 ._ 파일은 COPYFILE_DISABLE로 막는다
+COPYFILE_DISABLE=1 tar -c --exclude='infra/quality/out' --exclude='infra/quality/samples' infra/quality proto | vm 'mkdir -p ~/h && tar -x -C ~/h'
+vm 'docker build -f ~/h/infra/quality/Dockerfile -t platform-quality ~/h'
+# tar가 out/을 뺐으므로 맥북에서 만든 입력 세 개를 따로 보낸다
+vm 'mkdir -p ~/h/infra/quality/out'
+vmcp infra/quality/out/items-M.csv infra/quality/out/ruleset-v3.yar infra/quality/out/disabled.txt \
+  azureuser@4.252.1.151:h/infra/quality/out/
+
+# 스모크(VM): 3건만 받아 스캔해 본 뒤 전체로 간다. fetch가 ok=3이고 yara 행이 모두 status ok여야 한다
+head -4 infra/quality/out/items-M.csv > infra/quality/out/items-smoke.csv
+vmcp infra/quality/out/items-smoke.csv azureuser@4.252.1.151:h/infra/quality/out/
+tr -d '[:space:]' < ~/.config/abusech/auth-key | vm 'read -r ABUSECH_AUTH_KEY; export ABUSECH_AUTH_KEY; cd ~/h/infra/quality && \
+  docker run --rm -e ABUSECH_AUTH_KEY -v $PWD:/app platform-quality fetch-samples --items out/items-smoke.csv --dest samples-smoke'
+vm 'cd ~/h/infra/quality && docker run --rm --cpus=1 --memory=1g -v $PWD:/app platform-quality yara-scan \
+  --rules out/ruleset-v3.yar --disabled out/disabled.txt --items out/items-smoke.csv --zips samples-smoke --out out/yara-smoke.csv \
+  && cat out/yara-smoke.csv'
+# 위가 통과한 뒤에만 아래 전체 받기를 한다(smoke 샘플은 `sudo rm -rf samples-smoke out/yara-smoke.csv`로 지운다(docker가 root로 만든 파일))
+
+# 샘플 받기(VM). 키는 표준 입력으로만 넘기고 출력·파일에 남기지 않는다. 다시 돌리면 받은 것은 건너뛴다
+tr -d '[:space:]' < ~/.config/abusech/auth-key | vm 'read -r ABUSECH_AUTH_KEY; export ABUSECH_AUTH_KEY; cd ~/h/infra/quality && \
+  docker run --rm -e ABUSECH_AUTH_KEY -v $PWD:/app platform-quality fetch-samples --items out/items-M.csv --dest samples'
+
+# 악성 스캔(VM): shard 3개 동시, 컨테이너당 1 CPU·1GB
+vm 'docker rm -f yara-M-0 yara-M-1 yara-M-2 2>/dev/null; cd ~/h/infra/quality && for i in 0 1 2; do docker run -d --name yara-M-$i --cpus=1 --memory=1g -v $PWD:/app platform-quality \
+  yara-scan --rules out/ruleset-v3.yar --disabled out/disabled.txt --items out/items-M.csv --zips samples \
+  --out out/yara-M-$i.csv --shard $i/3; done'
+# 끝나기를 기다린 뒤 종료 코드 0과 OOMKilled false를 확인한다(하나라도 아니면 가져가지 말고 로그를 본다)
+vm 'docker wait yara-M-0 yara-M-1 yara-M-2; for i in 0 1 2; do
+  docker inspect -f "yara-M-$i exit={{.State.ExitCode}} oom={{.State.OOMKilled}}" yara-M-$i; done'
+
+# 결과만 맥북으로(악성 zip은 가져오지 않는다)
+vmcp 'azureuser@4.252.1.151:h/infra/quality/out/yara-M-*.csv' infra/quality/out/
+
+# 정상 B 스캔(맥북): 이미지를 맥북에서도 빌드한다(make quality와 같은 빌드)
+docker build -q -f infra/quality/Dockerfile -t platform-quality . >/dev/null
+docker run --rm --cpus=1 --memory=1g -v "$PWD/infra/quality":/app --entrypoint bash platform-quality \
+  scan_benign_yara.sh out/benign out/ruleset-v3.yar out/disabled.txt
+
+# 보고서
+make quality ARGS="yara-report --items out/items-M.csv out/items-B.csv --responses out/responses-p1.csv \
+  --evidence out/evidence-p1.csv --yara out/yara-M-0.csv out/yara-M-1.csv out/yara-M-2.csv out/benign/yara-B.csv --out out/report-yara.md"
+```
+
+- `fetch-samples`는 `ok/missing/error/skipped` 개수를 출력하고 `samples/fetch-status.csv`를 남긴다. `error`가 1%를 넘으면 다시 돌린다
+- `yara-scan --zips`는 이어 하기를 지원한다: `--out`에 있는 item_id는 건너뛰고 100건마다 `--out`을 원자적으로 갱신한다. 읽는 중인 item_id를
+  `<out>.inflight`에 적어 두므로, 컨테이너가 OOM으로 죽었다면 같은 명령을 다시 돌리면 그 항목은 `error`로 기록되고 넘어간다
+- `yara-scan --shard I/N`은 item_id순 `index % N == I`만 처리한다. 세 shard 줄 수 합이 items 수와 같아야 하고 `docker ps -a`에 OOMKilled가 없어야 한다
+- `--files`는 이번 DIR에서 찾은 item만 쓰고(`--out`이 있으면 덧붙이되 같은 item_id는 다시 쓰지 않는다) 256MiB 초과 파일은 읽지 않고 `oversize`로 둔다
+- 정상 B 스캔은 다시 돌리면 `yara-B.csv`를 처음부터 다시 만든다
+- 결과는 `scp`로 `yara-M-*.csv`만 가져와 그대로 `yara-report --yara`에 넘긴다(병합 단계 없음)
+- 악성 zip은 맥북·운영·레포로 옮기지 않는다. `scp`는 `yara-M-*.csv`만, `find infra/quality/out -name '*.zip'`가 비어 있어야 한다
+- 측정이 끝나면 VM의 `samples/`를 지우고 포털에서 VM과 디스크를 삭제한다(사용자 확인 후)
+
+## 8. 결과 문서
 
 `analyze`의 보고서에 측정 일시, 운영 버전(`git log -1`), corpus 크기, 데이터 출처와 한계
 ("합성 변종, 메타데이터 기반, 실사용 트래픽 아님")를 붙여 설계 레포 `docs/advancement/`에 둔다.

@@ -3,7 +3,7 @@
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends p7zip-full curl ca-certificates openssh-client g++ postgresql-client \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir grpcio==1.84.0 grpcio-tools==1.84.0 protobuf==7.36.2 py-tlsh==5.0.0 pytest==8.4.2 testcontainers==4.13.2
+RUN pip install --no-cache-dir grpcio==1.84.0 grpcio-tools==1.84.0 protobuf==7.36.2 py-tlsh==5.0.0 yara-python==4.5.4 pyzipper==0.3.6 pytest==8.4.2 testcontainers==4.13.2
 WORKDIR /gen
 COPY proto /proto
 RUN python -m grpc_tools.protoc -I /proto --python_out=/gen --grpc_python_out=/gen \
