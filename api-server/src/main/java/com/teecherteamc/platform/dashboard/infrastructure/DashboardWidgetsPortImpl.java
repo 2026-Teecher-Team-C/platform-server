@@ -7,6 +7,7 @@ import com.teecherteamc.platform.dashboard.domain.ThreatRow;
 import com.teecherteamc.platform.dashboard.domain.TopSourceRow;
 import java.sql.Timestamp;
 import java.util.List;
+import com.teecherteamc.platform.common.DashboardReadJdbc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -41,43 +42,87 @@ class DashboardWidgetsPortImpl implements DashboardWidgetsPort {
                 WHERE e.decision = 'BLOCKED'
                   AND e.created_at >= ? AND e.created_at < ?
             ),
+            sha_summary AS (
+                SELECT sha256, decision_source,
+                       COUNT(*) AS block_count,
+                       MIN(created_at) AS first_seen_at,
+                       MAX(created_at) AS last_seen_at
+                FROM blocked
+                GROUP BY sha256, decision_source
+            ),
+            sha_agents AS (
+                SELECT DISTINCT sha256, decision_source, agent_id
+                FROM blocked
+            ),
             latest_success_analysis AS (
                 SELECT DISTINCT ON (an.sha256) an.analysis_id, an.sha256
                 FROM analyses an
                 WHERE an.status = 'SUCCESS'
-                  AND an.sha256 IN (SELECT sha256 FROM blocked WHERE decision_source IN ('ENGINE', 'CACHE'))
+                  AND an.sha256 IN (SELECT sha256 FROM sha_summary WHERE decision_source IN ('ENGINE', 'CACHE'))
                 ORDER BY an.sha256, an.analyzed_at DESC
             ),
-            hits AS (
-                SELECT 'RULE' AS kind, am.rule_name, am.severity, b.agent_id, b.created_at
-                FROM blocked b
-                JOIN latest_success_analysis l ON l.sha256 = b.sha256
+            rule_counts AS (
+                SELECT am.rule_name,
+                       (ARRAY['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])[MAX(
+                           CASE am.severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END)]
+                           AS severity,
+                       SUM(s.block_count) AS block_count,
+                       MIN(s.first_seen_at) AS first_seen_at,
+                       MAX(s.last_seen_at) AS last_seen_at
+                FROM sha_summary s
+                JOIN latest_success_analysis l ON l.sha256 = s.sha256
                 JOIN analysis_matches am ON am.analysis_id = l.analysis_id
-                WHERE b.decision_source IN ('ENGINE', 'CACHE')
+                WHERE s.decision_source IN ('ENGINE', 'CACHE')
+                GROUP BY am.rule_name
+            ),
+            rule_agents AS (
+                SELECT am.rule_name, COUNT(DISTINCT sa.agent_id) AS affected_agents
+                FROM sha_agents sa
+                JOIN latest_success_analysis l ON l.sha256 = sa.sha256
+                JOIN analysis_matches am ON am.analysis_id = l.analysis_id
+                WHERE sa.decision_source IN ('ENGINE', 'CACHE')
+                GROUP BY am.rule_name
+            ),
+            bl_counts AS (
+                SELECT (ARRAY['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])[MAX(
+                           CASE bl.severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END)]
+                           AS severity,
+                       SUM(s.block_count) AS block_count,
+                       MIN(s.first_seen_at) AS first_seen_at,
+                       MAX(s.last_seen_at) AS last_seen_at
+                FROM sha_summary s
+                JOIN hash_blacklist bl ON bl.hash_type = 'SHA256' AND bl.hash_value = s.sha256
+                WHERE s.decision_source = 'BLACKLIST'
+            ),
+            bl_agents AS (
+                SELECT COUNT(DISTINCT sa.agent_id) AS affected_agents
+                FROM sha_agents sa
+                JOIN hash_blacklist bl ON bl.hash_type = 'SHA256' AND bl.hash_value = sa.sha256
+                WHERE sa.decision_source = 'BLACKLIST'
+            ),
+            combined AS (
+                SELECT 'RULE' AS kind, rc.rule_name, rc.severity, ra.affected_agents,
+                       rc.block_count, rc.first_seen_at, rc.last_seen_at
+                FROM rule_counts rc
+                JOIN rule_agents ra ON ra.rule_name = rc.rule_name
                 UNION ALL
-                SELECT 'BLACKLIST', NULL, bl.severity, b.agent_id, b.created_at
-                FROM blocked b
-                JOIN hash_blacklist bl ON bl.hash_type = 'SHA256' AND bl.hash_value = b.sha256::text
-                WHERE b.decision_source = 'BLACKLIST'
+                SELECT 'BLACKLIST', NULL, bc.severity, ba.affected_agents,
+                       bc.block_count, bc.first_seen_at, bc.last_seen_at
+                FROM bl_counts bc
+                CROSS JOIN bl_agents ba
+                WHERE bc.block_count IS NOT NULL
             )
-            SELECT kind, rule_name,
-                   (ARRAY['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])[MAX(
-                       CASE severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END)]
-                       AS severity,
-                   COUNT(DISTINCT agent_id) AS affected_agents,
-                   COUNT(*) AS block_count,
-                   MIN(created_at) AS first_seen_at,
-                   MAX(created_at) AS last_seen_at
-            FROM hits
-            GROUP BY kind, rule_name
+            SELECT kind, rule_name, severity, affected_agents, block_count, first_seen_at, last_seen_at
+            FROM combined
             ORDER BY last_seen_at DESC, rule_name NULLS FIRST
             LIMIT ?
             """;
 
     private final JdbcTemplate jdbcTemplate;
 
-    DashboardWidgetsPortImpl(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    // 문장 타임아웃(10초)이 걸린 대시보드 읽기 전용 템플릿(DashboardReadJdbc).
+    DashboardWidgetsPortImpl(DashboardReadJdbc readJdbc) {
+        this.jdbcTemplate = readJdbc.jdbc();
     }
 
     @Override
