@@ -1,5 +1,6 @@
 package com.teecherteamc.platform.dashboard.infrastructure;
 
+import com.teecherteamc.platform.common.DashboardReadJdbc;
 import com.teecherteamc.platform.dashboard.domain.EngineStatusPort;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -16,8 +17,9 @@ class EngineStatusPortImpl implements EngineStatusPort {
 
     private final JdbcTemplate jdbcTemplate;
 
-    EngineStatusPortImpl(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    // 문장 타임아웃(10초)이 걸린 대시보드 읽기 전용 템플릿(DashboardReadJdbc).
+    EngineStatusPortImpl(DashboardReadJdbc readJdbc) {
+        this.jdbcTemplate = readJdbc.jdbc();
     }
 
     @Override

@@ -3,6 +3,7 @@ package com.teecherteamc.platform.dashboard.infrastructure;
 import com.teecherteamc.platform.dashboard.domain.DashboardPeriod;
 import com.teecherteamc.platform.dashboard.domain.DashboardSummaryPort;
 import com.teecherteamc.platform.dashboard.domain.SummaryCounts;
+import com.teecherteamc.platform.common.DashboardReadJdbc;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -37,7 +38,14 @@ class DashboardSummaryPortImpl implements DashboardSummaryPort {
                 COUNT(*) FILTER (WHERE in_period AND decision = 'BLOCKED' AND decision_source = 'BLACKLIST')
                     AS blacklist,
                 COUNT(*) FILTER (WHERE in_period AND decision = 'FAIL_CLOSE') AS fail_close,
-                COUNT(DISTINCT agent_id) FILTER (WHERE in_period AND is_block) AS affected_agents,
+                -- 차단 PC 수는 차단 행(약 1%)에서만 따로 센다. 전체 행에 COUNT(DISTINCT)를 걸면 직전 기간까지
+                -- 수백만 행을 정렬한다(V23, 2026-11-27 측정). 조건은 위 is_block·in_period와 같다.
+                (SELECT COUNT(DISTINCT b.agent_id)
+                 FROM download_events b
+                 JOIN agents ba ON ba.agent_id = b.agent_id
+                 JOIN devices bd ON bd.device_id = ba.device_id
+                 WHERE b.decision IN ('BLOCKED', 'FAIL_CLOSE')
+                   AND b.created_at >= :from AND b.created_at < :to) AS affected_agents,
                 COUNT(*) FILTER (WHERE in_period AND decision IS NOT NULL AND decision <> 'BYPASSED') AS inspected
             FROM scoped
             """;
@@ -53,9 +61,10 @@ class DashboardSummaryPortImpl implements DashboardSummaryPort {
     private final NamedParameterJdbcTemplate namedJdbc;
     private final JdbcTemplate jdbcTemplate;
 
-    DashboardSummaryPortImpl(NamedParameterJdbcTemplate namedJdbc, JdbcTemplate jdbcTemplate) {
-        this.namedJdbc = namedJdbc;
-        this.jdbcTemplate = jdbcTemplate;
+    // 문장 타임아웃(10초)이 걸린 대시보드 읽기 전용 템플릿(DashboardReadJdbc).
+    DashboardSummaryPortImpl(DashboardReadJdbc readJdbc) {
+        this.namedJdbc = readJdbc.named();
+        this.jdbcTemplate = readJdbc.jdbc();
     }
 
     @Override
