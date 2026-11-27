@@ -42,11 +42,11 @@ class DevelopMigrationUpgradeTest {
             String viewDefinition = scalar(db, "SELECT pg_get_viewdef('download_event_threats'::regclass, true)");
 
             var full = migrations(null);
-            assertThat(full.migrate().migrationsExecuted).isEqualTo(17);
+            assertThat(full.migrate().migrationsExecuted).isEqualTo(18);
             // validate()가 현재 리소스의 체크섬과 배포 이력을 비교한다. repair/missing 무시 없이 검증한다.
             full.validate();
             assertThat(history(db).subList(0, 7)).isEqualTo(deployedHistory);
-            assertThat(full.info().applied()).hasSize(24);
+            assertThat(full.info().applied()).hasSize(25);
             assertThat(full.info().pending()).isEmpty();
             assertThat(java.util.Arrays.stream(full.info().all()).map(i -> i.getState().name()))
                     .containsOnly("SUCCESS");

@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 class UnacknowledgedBlocksPortImpl implements UnacknowledgedBlocksPort {
 
-    // severity_rank >= 3만 필요하므로 FAIL_CLOSE(NULL)·SIMILARITY(2)는 처음부터 제외한다(V24 부분 인덱스 사용).
+    // severity_rank >= 3만 필요하므로 FAIL_CLOSE(NULL)·SIMILARITY(2)는 처음부터 제외한다. 후보는 V25 커버링 인덱스(idx_events_blocked_covering)에서 힙 없이 읽는다.
     private static final String CANDIDATE_FROM =
             """
             FROM download_events e
@@ -89,8 +89,6 @@ class UnacknowledgedBlocksPortImpl implements UnacknowledgedBlocksPort {
             )
             SELECT COALESCE(SUM(g.cnt), 0)
             FROM grouped g
-            LEFT JOIN hash_blacklist bl
-              ON g.decision_source = 'BLACKLIST' AND bl.hash_type = 'SHA256' AND bl.hash_value = g.sha256
             LEFT JOIN LATERAL (
                 SELECT am.severity
                 FROM (
@@ -106,7 +104,12 @@ class UnacknowledgedBlocksPortImpl implements UnacknowledgedBlocksPort {
                          am.rule_name ASC
                 LIMIT 1
             ) tm ON true
-            WHERE (g.decision_source = 'BLACKLIST' AND bl.severity IN ('HIGH', 'CRITICAL'))
+            -- 블랙리스트 심각도는 고유 해시마다 PK로 한 건씩 찾는다(스칼라 서브쿼리). 조인으로 쓰면 플래너가
+            -- 117만 행 해시를 만들다 디스크로 넘쳤다(PC 3천 대, temp 100MB, 2026-11-28). LATERAL로 써도 조인으로
+            -- 풀려서 같았다. PK (hash_type, hash_value)라 결과는 같다.
+            WHERE (g.decision_source = 'BLACKLIST'
+                   AND (SELECT bl.severity FROM hash_blacklist bl
+                        WHERE bl.hash_type = 'SHA256' AND bl.hash_value = g.sha256) IN ('HIGH', 'CRITICAL'))
                OR (g.decision_source IN ('ENGINE', 'CACHE') AND tm.severity IN ('HIGH', 'CRITICAL'))
             """;
 
