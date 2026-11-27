@@ -1,0 +1,5 @@
+# 이 이미지는 proto/와 infra/quality만 쓴다. 측정 데이터(out/, 수 GB)와 나머지는 빌드 컨텍스트에서 뺀다.
+*
+!proto
+!infra/quality
+infra/quality/out

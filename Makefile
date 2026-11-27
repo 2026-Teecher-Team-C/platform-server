@@ -7,7 +7,7 @@ ENGINE_TEST = docker run --rm -v "$(CURDIR)":/workspace -w /workspace/detection-
 	-e UV_PROJECT_ENVIRONMENT=/tmp/venv ghcr.io/astral-sh/uv:0.9-python3.12-bookworm-slim sh -c
 NODE = docker run --rm -v "$(CURDIR)/console":/app -v platform-console-node-modules:/app/node_modules -w /app node:22-alpine sh -c
 
-.PHONY: dev down logs test test-api test-engine test-console proto bench-tlsh loadtest loadtest-burst loadtest-seed loadtest-down loadtest-logs
+.PHONY: dev down logs test test-api test-engine test-console proto bench-tlsh loadtest loadtest-burst loadtest-seed loadtest-down loadtest-logs test-quality quality
 
 dev:            ## 전체 스택 기동 (api 8080/9090, console 5173, postgres 5432, redis 6379, prometheus 9091)
 	$(COMPOSE_DEV) up --build
@@ -75,3 +75,17 @@ loadtest-down:  ## 부하 시험 컨테이너 정리(시드한 DB 볼륨은 남�
 
 loadtest-logs:
 	$(LOADTEST_COMPOSE) logs -f api-server detection-engine
+
+QUALITY_IMAGE = platform-quality
+QUALITY_BUILD = docker build -q -f infra/quality/Dockerfile -t $(QUALITY_IMAGE) . >/dev/null
+
+test-quality:   ## 탐지 품질 측정 하네스 테스트
+	$(QUALITY_BUILD)
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
+		-v "$(CURDIR)/infra/quality":/app -v "$(CURDIR)/api-server/src/main/resources/db/migration":/migrations:ro \
+		--entrypoint pytest $(QUALITY_IMAGE) -q tests
+
+quality:        ## 탐지 품질 측정 (예: make quality ARGS="build-malicious --csv out/full.csv.zip ..."), 런북은 infra/quality/README.md
+	$(QUALITY_BUILD)
+	docker run --rm -it -v "$(CURDIR)/infra/quality":/app -v "$$HOME/.config/abusech":/root/.config/abusech:ro \
+		-e QUALITY_ADMIN_USER -e QUALITY_ADMIN_PASSWORD $(QUALITY_IMAGE) $(ARGS)
