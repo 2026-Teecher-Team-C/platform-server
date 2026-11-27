@@ -7,6 +7,10 @@ services:
     # 쿼리별 실행 통계(pg_stat_statements). 고도화 측정용, 2026-11-17.
     # 확장 객체는 최초 1회 수동 생성: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
     command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    # 병렬 쿼리 작업자는 /dev/shm에 동적 공유 메모리를 잡는다. Docker 기본값(64MB)에서는 대시보드를 관리자 5명이
+    # 동시에 보자 "could not resize shared memory segment ... No space left on device"로 쿼리가 실패했다
+    # (PC 3천 대 측정, 120번 중 15번, 2026-11-28). 상한일 뿐 미리 잡아 두는 메모리는 아니다.
+    shm_size: 256m
     environment:
       POSTGRES_DB: platform
       POSTGRES_USER: platform
