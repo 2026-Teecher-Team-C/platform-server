@@ -76,3 +76,22 @@ def write_evidence(path: Path, evidence) -> None:
 
 def read_evidence(path: Path) -> list[Evidence]:
     return _read(path, Evidence, lambda r: {**r, "distance": int(r["distance"]) if r["distance"] else None})
+
+
+@dataclass(frozen=True)
+class YaraResult:
+    item_id: str
+    sha256: str
+    status: str  # ok | missing | oversize | timeout | error
+    rule_count: int
+    rules: str  # 매칭된 룰 이름을 정렬해 ";"로 이은 값
+    max_severity: str  # 매칭이 없으면 ""
+    scan_ms: int
+
+
+def write_yara(path: Path, rows) -> None:
+    _write(path, YaraResult, rows)
+
+
+def read_yara(path: Path) -> list[YaraResult]:
+    return _read(path, YaraResult, lambda r: {**r, "rule_count": int(r["rule_count"]), "scan_ms": int(r["scan_ms"])})
