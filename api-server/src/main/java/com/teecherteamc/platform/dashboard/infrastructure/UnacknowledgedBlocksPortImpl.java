@@ -4,6 +4,7 @@ import com.teecherteamc.platform.dashboard.domain.UnacknowledgedBlockRow;
 import com.teecherteamc.platform.dashboard.domain.UnacknowledgedBlocksPort;
 import java.util.List;
 import java.util.UUID;
+import com.teecherteamc.platform.common.DashboardReadJdbc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -17,30 +18,109 @@ import org.springframework.stereotype.Component;
 @Component
 class UnacknowledgedBlocksPortImpl implements UnacknowledgedBlocksPort {
 
-    private static final String FROM_WHERE =
+    // severity_rank >= 3만 필요하므로 FAIL_CLOSE(NULL)·SIMILARITY(2)는 처음부터 제외한다(V24 부분 인덱스 사용).
+    private static final String CANDIDATE_FROM =
             """
             FROM download_events e
-            JOIN download_event_threats t ON t.event_id = e.event_id
             JOIN agents a ON a.agent_id = e.agent_id
             JOIN devices d ON d.device_id = a.device_id
-            WHERE e.decision IN ('BLOCKED', 'FAIL_CLOSE')
-              AND t.severity_rank >= 3
-              AND NOT t.acknowledged
+            """;
+
+    private static final String CANDIDATE_FILTER =
+            """
+            WHERE e.decision = 'BLOCKED'
+              AND e.decision_source IN ('ENGINE', 'CACHE', 'BLACKLIST')
+              AND NOT EXISTS (
+                  SELECT 1 FROM download_event_acknowledgements ack WHERE ack.event_id = e.event_id
+              )
+            """;
+
+    private static final String LIST_SQL =
+            """
+            SELECT e.event_id, e.created_at, e.agent_id, d.hostname, e.filename,
+                   e.decision_source AS reason_type,
+                   CASE WHEN e.decision_source IN ('ENGINE', 'CACHE') THEN tm.top_rule_name ELSE NULL END AS top_rule_name,
+                   CASE WHEN e.decision_source IN ('ENGINE', 'CACHE') AND tm.match_count IS NOT NULL
+                        THEN tm.match_count - 1 ELSE NULL END AS extra_rule_count,
+                   CASE WHEN e.decision_source = 'BLACKLIST' THEN bl.severity
+                        WHEN e.decision_source IN ('ENGINE', 'CACHE') THEN tm.top_severity ELSE NULL END AS severity
+            """
+            + CANDIDATE_FROM
+            + """
+            LEFT JOIN LATERAL (
+                SELECT am.rule_name AS top_rule_name,
+                       am.severity AS top_severity,
+                       CASE am.severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END AS top_severity_rank,
+                       COUNT(*) OVER () AS match_count
+                FROM (
+                    SELECT an.analysis_id
+                    FROM analyses an
+                    WHERE an.sha256 = e.sha256 AND an.status = 'SUCCESS'
+                    ORDER BY an.analyzed_at DESC
+                    LIMIT 1
+                ) lsa
+                JOIN analysis_matches am ON am.analysis_id = lsa.analysis_id
+                WHERE e.decision_source IN ('ENGINE', 'CACHE')
+                ORDER BY 3 DESC, am.rule_name ASC
+                LIMIT 1
+            ) tm ON true
+            LEFT JOIN hash_blacklist bl
+              ON e.decision_source = 'BLACKLIST' AND bl.hash_type = 'SHA256' AND bl.hash_value = e.sha256
+            """
+            + CANDIDATE_FILTER
+            + """
+              AND (
+                  (e.decision_source = 'BLACKLIST' AND bl.severity IN ('HIGH', 'CRITICAL'))
+                  OR (e.decision_source IN ('ENGINE', 'CACHE') AND tm.top_severity_rank >= 3)
+              )
+            ORDER BY e.created_at DESC, e.event_id DESC
+            LIMIT ? OFFSET ?
+            """;
+
+    private static final String COUNT_SQL =
+            """
+            WITH grouped AS (
+                SELECT e.sha256, e.decision_source, COUNT(*) AS cnt
+            """
+            + CANDIDATE_FROM
+            + CANDIDATE_FILTER
+            + """
+                GROUP BY e.sha256, e.decision_source
+            )
+            SELECT COALESCE(SUM(g.cnt), 0)
+            FROM grouped g
+            LEFT JOIN hash_blacklist bl
+              ON g.decision_source = 'BLACKLIST' AND bl.hash_type = 'SHA256' AND bl.hash_value = g.sha256
+            LEFT JOIN LATERAL (
+                SELECT am.severity
+                FROM (
+                    SELECT an.analysis_id
+                    FROM analyses an
+                    WHERE an.sha256 = g.sha256 AND an.status = 'SUCCESS'
+                    ORDER BY an.analyzed_at DESC
+                    LIMIT 1
+                ) lsa
+                JOIN analysis_matches am ON am.analysis_id = lsa.analysis_id
+                WHERE g.decision_source IN ('ENGINE', 'CACHE')
+                ORDER BY (CASE am.severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END) DESC,
+                         am.rule_name ASC
+                LIMIT 1
+            ) tm ON true
+            WHERE (g.decision_source = 'BLACKLIST' AND bl.severity IN ('HIGH', 'CRITICAL'))
+               OR (g.decision_source IN ('ENGINE', 'CACHE') AND tm.severity IN ('HIGH', 'CRITICAL'))
             """;
 
     private final JdbcTemplate jdbcTemplate;
 
-    UnacknowledgedBlocksPortImpl(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    // 문장 타임아웃(10초)이 걸린 대시보드 읽기 전용 템플릿(DashboardReadJdbc).
+    UnacknowledgedBlocksPortImpl(DashboardReadJdbc readJdbc) {
+        this.jdbcTemplate = readJdbc.jdbc();
     }
 
     @Override
     public List<UnacknowledgedBlockRow> list(long offset, int limit) {
         return jdbcTemplate.query(
-                "SELECT e.event_id, e.created_at, e.agent_id, d.hostname, e.filename, t.reason_type, "
-                        + "t.top_rule_name, t.extra_rule_count, t.severity "
-                        + FROM_WHERE
-                        + " ORDER BY e.created_at DESC, e.event_id DESC LIMIT ? OFFSET ?",
+                LIST_SQL,
                 (rs, rowNum) -> new UnacknowledgedBlockRow(
                         UUID.fromString(rs.getString("event_id")),
                         rs.getTimestamp("created_at").toInstant(),
@@ -58,7 +138,7 @@ class UnacknowledgedBlocksPortImpl implements UnacknowledgedBlocksPort {
 
     @Override
     public long count() {
-        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) " + FROM_WHERE, Long.class);
+        Long total = jdbcTemplate.queryForObject(COUNT_SQL, Long.class);
         return total == null ? 0 : total;
     }
 }

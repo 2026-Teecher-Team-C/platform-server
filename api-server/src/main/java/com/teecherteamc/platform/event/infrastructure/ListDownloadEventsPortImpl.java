@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import com.teecherteamc.platform.common.DashboardReadJdbc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -28,13 +29,15 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
     private static final String ACKNOWLEDGED =
             "(COALESCE(e.decision IN ('BLOCKED', 'FAIL_CLOSE'), false) AND t.acknowledged)";
 
-    private static final String FROM =
+    private static final String FROM_FOR_COUNT =
             """
             FROM download_events e
             JOIN agents a ON a.agent_id = e.agent_id
             JOIN devices d ON d.device_id = a.device_id
-            JOIN download_event_threats t ON t.event_id = e.event_id
             """;
+
+    private static final String FROM =
+            FROM_FOR_COUNT + "JOIN download_event_threats t ON t.event_id = e.event_id\n";
 
     private static final String SELECT =
             """
@@ -52,8 +55,9 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
 
     private final JdbcTemplate jdbcTemplate;
 
-    ListDownloadEventsPortImpl(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    // 문장 타임아웃(10초)이 걸린 대시보드 읽기 전용 템플릿(DashboardReadJdbc).
+    ListDownloadEventsPortImpl(DashboardReadJdbc readJdbc) {
+        this.jdbcTemplate = readJdbc.jdbc();
     }
 
     @Override
@@ -93,8 +97,10 @@ class ListDownloadEventsPortImpl implements ListDownloadEventsPort {
 
     @Override
     public long count(DownloadEventListFilter filter) {
-        // list()와 같은 조인을 거쳐야 목록에 안 나오는 행(에이전트·장비가 없는 이벤트)이 개수에 섞이지 않는다.
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) " + FROM + " WHERE 1 = 1");
+        // list()와 같은 agents/devices 조인을 거친다. minSeverityRank·acknowledged 필터가 없으면
+        // download_event_threats(1:1 LEFT JOIN)를 생략해도 건수가 같고 LATERAL 비용을 아낀다.
+        boolean needsThreats = filter.minSeverityRank() != null || filter.acknowledged() != null;
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) " + (needsThreats ? FROM : FROM_FOR_COUNT) + " WHERE 1 = 1");
         List<Object> params = new ArrayList<>();
         appendFilters(sql, params, filter);
         Long total = jdbcTemplate.queryForObject(sql.toString(), Long.class, params.toArray());
