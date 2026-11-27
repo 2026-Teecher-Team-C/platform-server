@@ -10,8 +10,12 @@ say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\n[중단] %s\n' "$*" >&2; exit 1; }
 
 compose_files() {
-    COMPOSE=(docker compose -p platform-loadtest --env-file infra/dev.env
+    # 다른 측정(예: dashboard-scale)이 프로젝트 이름·DB 이름·덮어쓰기 파일만 바꿔 재사용한다. 기본값은 loadtest 그대로.
+    COMPOSE=(docker compose -p "${LOADTEST_PROJECT:-platform-loadtest}" --env-file infra/dev.env
              -f infra/compose.yml -f infra/compose.temp-db.yml -f infra/compose.loadtest.yml)
+    if [ -n "${LOADTEST_EXTRA_COMPOSE:-}" ]; then
+        COMPOSE+=(-f "$LOADTEST_EXTRA_COMPOSE")
+    fi
     if [ -n "${CPU_SPLIT:-}" ]; then
         COMPOSE+=(-f infra/compose.loadtest-split.yml)
     fi
@@ -55,7 +59,7 @@ precheck() {
 
 # 서버를 빌드·기동하고 응답할 때까지 기다린다. 결과: CLIENT(가상 에이전트 실행 명령)
 start_stack() {
-    say "서버 빌드·기동 (운영 사양 제한, 프로젝트 platform-loadtest)"
+    say "서버 빌드·기동 (운영 사양 제한, 프로젝트 ${LOADTEST_PROJECT:-platform-loadtest})"
     mkdir -p loadtest-results
     "${COMPOSE[@]}" up -d --build "${SERVER_SERVICES[@]}"
     "${COMPOSE[@]}" --profile loadtest-client build loadtest-client
@@ -65,7 +69,7 @@ start_stack() {
 }
 
 psql_q() {
-    "${COMPOSE[@]}" exec -T postgres psql -U platform -d platform -v ON_ERROR_STOP=1 -tA "$@"
+    "${COMPOSE[@]}" exec -T postgres psql -U platform -d "${LOADTEST_DB:-platform}" -v ON_ERROR_STOP=1 -tA "$@"
 }
 
 active_fingerprints() {

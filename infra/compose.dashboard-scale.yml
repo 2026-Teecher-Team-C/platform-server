@@ -1,0 +1,54 @@
+# 대시보드 규모 측정(위협 대시보드 API 지연) 덮어쓰기. compose.yml + compose.temp-db.yml + compose.loadtest.yml 위에 얹는다.
+# 프로젝트 이름은 platform-dashscale(Makefile·run.sh) — make dev, make loadtest의 컨테이너·볼륨과 섞이지 않는다.
+# 서버 자원(운영 사양: cpuset 2개, postgres 768m, api-server 1536m 등)은 compose.loadtest.yml 그대로다.
+#
+# DB 이름은 platform_dashscale다. dev·loadtest DB는 모두 platform이라, 시드 SQL의 expect_db 안전장치로
+# "측정 전용 DB"를 구별하려고 이름을 따로 쓴다(seed.sql은 TRUNCATE ... CASCADE를 한다).
+services:
+  postgres:
+    # auto_explain: 1초 넘는 쿼리의 실행 계획을 로그에 남긴다(run.sh가 단계마다 로그를 저장한다).
+    # log_timing=off: 노드마다 시간을 재지 않아(측정 오버헤드 제거) 계획의 시간은 노드별이 아니다. 행 수(analyze)·버퍼는 남는다.
+    # shared_preload_libraries는 compose.temp-db.yml의 pg_stat_statements도 함께 올린다.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements,auto_explain
+      - -c
+      - auto_explain.log_min_duration=1000
+      - -c
+      - auto_explain.log_analyze=on
+      - -c
+      - auto_explain.log_timing=off
+      - -c
+      - auto_explain.log_buffers=on
+      - -c
+      - auto_explain.log_format=text
+    environment:
+      POSTGRES_DB: platform_dashscale
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform_dashscale"]
+
+  api-server:
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/platform_dashscale
+
+  # 측정 클라이언트: 시드 SQL(psql)과 bench.py를 돌린다. 클라이언트 CPU에 두고 nginx로 접속한다(운영 경로와 같다).
+  # make dashboard-scale-bench가 `run --rm`으로만 띄운다(up 대상 아님).
+  dashscale-client:
+    build:
+      context: dashboard-scale
+      dockerfile: Dockerfile
+    cpuset: "${LOADTEST_CLIENT_CPUSET:-0,1}"
+    profiles: ["dashscale-client"]
+    working_dir: /app
+    volumes:
+      - ./dashboard-scale:/app
+    environment:
+      PGHOST: postgres
+      PGUSER: platform
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: platform_dashscale
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD}
+    depends_on:
+      - nginx

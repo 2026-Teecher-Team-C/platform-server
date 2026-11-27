@@ -7,7 +7,7 @@ ENGINE_TEST = docker run --rm -v "$(CURDIR)":/workspace -w /workspace/detection-
 	-e UV_PROJECT_ENVIRONMENT=/tmp/venv ghcr.io/astral-sh/uv:0.9-python3.12-bookworm-slim sh -c
 NODE = docker run --rm -v "$(CURDIR)/console":/app -v platform-console-node-modules:/app/node_modules -w /app node:22-alpine sh -c
 
-.PHONY: dev down logs test test-api test-engine test-console proto bench-tlsh loadtest loadtest-burst loadtest-seed loadtest-down loadtest-logs
+.PHONY: dev down logs test test-api test-engine test-console proto bench-tlsh loadtest loadtest-burst loadtest-seed loadtest-down loadtest-logs dashboard-scale-up dashboard-scale-seed dashboard-scale-bench dashboard-scale-down
 
 dev:            ## 전체 스택 기동 (api 8080/9090, console 5173, postgres 5432, redis 6379, prometheus 9091)
 	$(COMPOSE_DEV) up --build
@@ -75,3 +75,21 @@ loadtest-down:  ## 부하 시험 컨테이너 정리(시드한 DB 볼륨은 남�
 
 loadtest-logs:
 	$(LOADTEST_COMPOSE) logs -f api-server detection-engine
+
+# ---- 대시보드 규모 측정(위협 대시보드 API 지연, 운영 사양 로컬). 사용법: infra/dashboard-scale/README.md ----
+# 프로젝트 platform-dashscale, DB platform_dashscale. make dev·make loadtest와 섞이지 않는다.
+PCS ?=
+FIXTURE_BLACKLIST ?=
+DAYS ?= 180
+PER_DAY ?= 20
+dashboard-scale-up:    ## 운영 사양으로 묶은 스택 기동(프로젝트 platform-dashscale)
+	bash infra/dashboard-scale/run.sh up
+
+dashboard-scale-seed:  ## 117만 건 악성 지문(블랙리스트) 시드. 단계 측정 전에 한 번 (FILE=<경로> 선택)
+	FILE="$(FILE)" SEED_SHA256="$(SEED_SHA256)" bash infra/dashboard-scale/run.sh blacklist
+
+dashboard-scale-bench: ## 한 단계 측정 (예: make dashboard-scale-bench PCS=1000 / 확인용 PCS=50 QUICK=1 FIXTURE_BLACKLIST=1)
+	PCS="$(PCS)" QUICK="$(QUICK)" FIXTURE_BLACKLIST="$(FIXTURE_BLACKLIST)" DAYS="$(DAYS)" PER_DAY="$(PER_DAY)" 		bash infra/dashboard-scale/run.sh bench
+
+dashboard-scale-down:  ## 컨테이너 정리(볼륨은 남긴다)
+	bash infra/dashboard-scale/run.sh down
