@@ -9,17 +9,23 @@ import asyncio
 import csv
 import io
 import os
+import hashlib
 import sys
+import time
 import zipfile
 from dataclasses import fields
 from datetime import datetime, timezone
 from pathlib import Path
 
+from quality import bazaar
 from quality.analyze import join, missing_evidence, predict_mismatches, propose, report
 from quality.client import Admin, check_target, register_agent, run_checks
 from quality.mutate import build_variants
-from quality.records import Response, read_evidence, read_items, read_responses, write_items, write_responses
+from quality.records import (Response, read_evidence, read_items, read_responses, read_yara, write_items, write_responses,
+                             write_yara)
+from quality.yara_report import combine, render
 from quality.sets import pick_variant_origins, scan_benign, select_malicious
+from quality.yarascan import MAX_FILE_BYTES, compile_rules, scan_bytes, to_result
 
 
 def _lines(path: Path):
@@ -173,6 +179,174 @@ def cmd_predict(args) -> None:
         raise SystemExit(1)
 
 
+def cmd_fetch_samples(args) -> None:
+    key = os.environ.get("ABUSECH_AUTH_KEY", "").strip()
+    if not key:
+        print("ABUSECH_AUTH_KEY 환경 변수가 없습니다.", file=sys.stderr)
+        raise SystemExit(2)
+    dest = Path(args.dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    status_file = dest / "fetch-status.csv"
+    status: dict[str, str] = {}
+    if status_file.exists():
+        with open(status_file, newline="") as src:
+            status = {r["sha256"]: r["status"] for r in csv.DictReader(src)}
+    counts = {"ok": 0, "missing": 0, "error": 0, "skipped": 0}
+    requested = False
+    for sha in sorted({i.sha256 for i in _read_all_items([args.items])}):
+        if (dest / f"{sha}.zip").exists():
+            counts["skipped"] += 1
+            status[sha] = "ok"
+            continue
+        if requested:
+            time.sleep(args.sleep)
+        requested = True
+        result = bazaar.fetch_sample(sha, key, dest)
+        counts[result] += 1
+        status[sha] = result
+    with open(status_file, "w", newline="") as out:
+        writer = csv.writer(out)
+        writer.writerow(["sha256", "status"])
+        writer.writerows(sorted(status.items()))
+    print(" ".join(f"{k}={v}" for k, v in counts.items()))
+
+
+def _parse_shard(text: str) -> tuple[int, int]:
+    try:
+        index, total = (int(x) for x in text.split("/"))
+        if total < 1 or not 0 <= index < total:
+            raise ValueError
+    except ValueError:
+        print(f"--shard는 I/N 형식(0 <= I < N)이어야 합니다: {text}", file=sys.stderr)
+        raise SystemExit(2)
+    return index, total
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _scan_result(item, rules, disabled, data):
+    if data is None:
+        return to_result(item.item_id, item.sha256, "oversize", [], 0)
+    status, hits, ms = scan_bytes(rules, data, disabled)
+    return to_result(item.item_id, item.sha256, status, hits, ms)
+
+
+CHECKPOINT_EVERY = 100
+
+
+def _write_atomic(out: Path, results: list) -> None:
+    tmp = out.with_name(out.name + ".tmp")
+    write_yara(tmp, results)
+    os.replace(tmp, out)
+
+
+def _scan_one_zip(item, rules, disabled, zips: Path):
+    path = zips / f"{item.sha256}.zip"
+    if not path.exists():
+        return to_result(item.item_id, item.sha256, "missing", [], 0)
+    try:
+        data = bazaar.read_zip_sample(path, max_bytes=MAX_FILE_BYTES)
+    except (bazaar.ZipUnreadable, ValueError):
+        return to_result(item.item_id, item.sha256, "error", [], 0)
+    return _scan_result(item, rules, disabled, data)
+
+
+def _scan_zips(items, rules, disabled, zips: Path, out: Path, existing: list) -> list:
+    """이어 하기: out에 이미 있는 item_id는 건너뛰고, CHECKPOINT_EVERY건마다 out을 원자적으로 갱신한다.
+    `<out>.inflight`에는 지금 읽는 item_id를 적는다. 이전 실행이 죽어 남아 있으면 그 항목은 error로 기록하고
+    건너뛴다(메모리 부족으로 컨테이너를 죽이는 샘플이 재실행마다 같은 자리에서 죽지 않게)."""
+    results = list(existing)
+    done = {r.item_id for r in results}
+    by_id = {i.item_id: i for i in items}
+    inflight = out.with_name(out.name + ".inflight")
+    if inflight.exists():
+        crashed = inflight.read_text().strip()
+        if crashed in by_id and crashed not in done:
+            item = by_id[crashed]
+            results.append(to_result(item.item_id, item.sha256, "error", [], 0))
+            done.add(crashed)
+            _write_atomic(out, results)  # 다음 체크포인트 전에 또 죽어도 이 error가 남게 즉시 저장
+        inflight.unlink()
+    since_checkpoint = 0
+    for item in items:
+        if item.item_id in done:
+            continue
+        inflight.write_text(item.item_id)
+        try:
+            results.append(_scan_one_zip(item, rules, disabled, zips))
+        except Exception:
+            results.append(to_result(item.item_id, item.sha256, "error", [], 0))
+        inflight.unlink()
+        since_checkpoint += 1
+        if since_checkpoint >= CHECKPOINT_EVERY:
+            _write_atomic(out, results)
+            since_checkpoint = 0
+    return results
+
+
+def _scan_files(items, rules, disabled, root: Path, done: set) -> list:
+    by_sha: dict[str, list] = {}
+    for item in items:
+        if item.item_id not in done:
+            by_sha.setdefault(item.sha256, []).append(item)
+    scanned: dict[str, tuple] = {}
+    for base, _, names in os.walk(root):
+        for name in sorted(names):
+            path = Path(base) / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            sha = _file_sha256(path)
+            if sha not in by_sha or sha in scanned:
+                continue
+            if path.stat().st_size > MAX_FILE_BYTES:
+                scanned[sha] = ("oversize", [], 0)
+            else:
+                scanned[sha] = scan_bytes(rules, path.read_bytes(), disabled)
+    return [to_result(i.item_id, sha, *scanned[sha]) for sha, group in by_sha.items() if sha in scanned for i in group]
+
+
+def cmd_yara_scan(args) -> None:
+    index, total = _parse_shard(args.shard)
+    rules = compile_rules(Path(args.rules).read_text())
+    disabled = frozenset(line.strip() for line in Path(args.disabled).read_text().splitlines() if line.strip())
+    items = sorted(_read_all_items([args.items]), key=lambda i: i.item_id)
+    items = [i for n, i in enumerate(items) if n % total == index]
+    out = Path(args.out)
+    existing = read_yara(out) if out.exists() else []
+    if args.zips:
+        results = _scan_zips(items, rules, disabled, Path(args.zips), out, existing)
+    else:
+        results = existing + _scan_files(items, rules, disabled, Path(args.files), {r.item_id for r in existing})
+    _write_atomic(out, results)
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r.status] = counts.get(r.status, 0) + 1
+    print(f"YARA 스캔: 항목 {len(results)}개 {counts} → {out}")
+
+
+def cmd_yara_report(args) -> None:
+    rows = _rows(args)
+    _require_evidence(rows)
+    yara, seen = [], set()
+    for path in args.yara:
+        for r in read_yara(Path(path)):
+            if r.item_id in seen:
+                print(f"YARA 결과에 item_id가 두 번 있습니다: {r.item_id} ({path}). 실행이 잘못됐는지 확인하세요.",
+                      file=sys.stderr)
+                raise SystemExit(2)
+            seen.add(r.item_id)
+            yara.append(r)
+    meta = dict(kv.split("=", 1) for kv in args.meta)
+    Path(args.out).write_text(render(combine(rows, yara), meta))
+    print(f"YARA 보고서 → {args.out}")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="quality")
     sub = p.add_subparsers(dest="command", required=True)
@@ -240,6 +414,32 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--block", type=int, required=True)
     s.add_argument("--warn", type=int, required=True)
     s.set_defaults(func=cmd_predict)
+
+    s = sub.add_parser("fetch-samples", help="MalwareBazaar 샘플 zip 받기(키는 ABUSECH_AUTH_KEY)")
+    s.add_argument("--items", required=True)
+    s.add_argument("--dest", required=True)
+    s.add_argument("--sleep", type=float, default=0.5)
+    s.set_defaults(func=cmd_fetch_samples)
+
+    s = sub.add_parser("yara-scan", help="운영 룰셋으로 YARA 스캔")
+    s.add_argument("--rules", required=True)
+    s.add_argument("--disabled", required=True)
+    s.add_argument("--items", required=True)
+    src = s.add_mutually_exclusive_group(required=True)
+    src.add_argument("--zips")
+    src.add_argument("--files")
+    s.add_argument("--out", required=True)
+    s.add_argument("--shard", default="0/1")
+    s.set_defaults(func=cmd_yara_scan)
+
+    s = sub.add_parser("yara-report", help="TLSH(지난 회차)와 YARA 결과를 합친 보고서")
+    s.add_argument("--items", nargs="+", required=True)
+    s.add_argument("--responses", required=True)
+    s.add_argument("--evidence", required=True)
+    s.add_argument("--yara", nargs="+", required=True)
+    s.add_argument("--out", default="out/report-yara.md")
+    s.add_argument("--meta", nargs="*", default=[])
+    s.set_defaults(func=cmd_yara_report)
     return p
 
 

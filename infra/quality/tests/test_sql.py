@@ -109,3 +109,17 @@ def test_정리는_대상_에이전트만_지운다(psql):
     assert psql("SELECT count(*) FROM similarity_assessments").strip() == "1"
     assert psql(f"SELECT status FROM agents WHERE agent_id = '{TARGET}'").strip() == "REVOKED"
     assert psql(f"SELECT status FROM agents WHERE agent_id = '{OTHER}'").strip() == "ACTIVE"
+
+
+def test_활성_룰셋_원문과_꺼진_룰_이름_내보내기(psql):
+    source = 'rule on_a { condition: true }\nrule off_b { condition: false }\n'
+    psql("INSERT INTO yara_rulesets(rulesets_version, rule_count, is_active, source) "
+         "VALUES (90, 2, false, $q$other$q$)")
+    psql("UPDATE yara_rulesets SET is_active = false")
+    psql(f"INSERT INTO yara_rulesets(rulesets_version, rule_count, is_active, source) VALUES (91, 2, true, $q${source}$q$)")
+    psql("INSERT INTO yara_rules(rule_id, rulesets_version, rule_name, severity, enabled) VALUES "
+         "(gen_random_uuid(), 91, 'on_a', 'HIGH', true), (gen_random_uuid(), 91, 'off_b', 'HIGH', false), "
+         "(gen_random_uuid(), 90, 'off_old', 'HIGH', false)")
+
+    assert psql(file=SQL_DIR / "active_ruleset_source.sql") == source + "\n"  # psql이 줄바꿈을 하나 붙인다
+    assert psql(file=SQL_DIR / "active_disabled_rules.sql") == "off_b\n"
